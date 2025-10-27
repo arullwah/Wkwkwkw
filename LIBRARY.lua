@@ -1,15 +1,14 @@
--- UltimateLib.lua
--- Ultimate Script Library v1.0
--- Auto-update from GitHub
+-- LIBRARY.lua - FULL FIXED VERSION
+-- No ESP, No Distance Limit Teleport, All Features Working
 
 local UltimateLibrary = {}
-UltimateLibrary.Version = "1.0.0"
+UltimateLibrary.Version = "2.0.0"
 
 function UltimateLibrary:LoadUI()
     local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
     
     local Window = WindUI:CreateWindow({
-        Title = "ByaruL",
+        Title = "ULTIMATE SCRIPT v" .. self.Version,
         Author = "by Player", 
         Folder = "ultimatescript",
         HideSearchBar = true,
@@ -49,9 +48,10 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
+    local TweenService = game:GetService("TweenService")
     local LocalPlayer = Players.LocalPlayer
 
-    -- CONFIG MANAGEMENT SYSTEM
+    -- CONFIG MANAGEMENT
     local ConfigManager = Window.ConfigManager
     local CurrentConfigName = "default"
     
@@ -60,7 +60,6 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
         NoClipEnabled = false,
         InfiniteJumpEnabled = false,
         WalkSpeed = 16,
-        ESPEnabled = false,
         JumpDragEnabled = false,
         JumpButtonSize = 80,
         JumpButtonHidden = false
@@ -100,161 +99,14 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
         return false
     end
 
-    -- VARIABLES
-
-    local NoClipEnabled = Config.NoClipEnabled
-    local NoClipConnection = nil
-
-    local InfiniteJumpEnabled = Config.InfiniteJumpEnabled
-    local JumpConnection = nil
-
-    local CurrentWalkspeed = Config.WalkSpeed
-
-    local ViewingPlayer = nil
-    local OriginalCameraSubject = nil
-    local ViewConnection = nil
-
-    -- JUMP BUTTON VARIABLES
-    local defaultJumpButton = nil
-    local originalJumpSize = nil
-    local originalJumpPosition = nil
-    local jumpDragEnabled = Config.JumpDragEnabled
-
--- MOVEMENT SECTION (FIXED VERSION)
-local MovementSection = MainTab:Section({
-    Title = "MOVEMENT"
-})
-
--- Initialize variables
-local NoClipEnabled = false
-local NoClipConnection = nil
-
-local InfiniteJumpEnabled = false 
-local JumpConnection = nil
-
-local DefaultWalkspeed = 16
-local CurrentWalkspeed = DefaultWalkspeed
-
--- NO CLIP TOGGLE (FIXED)
-local NoClipToggle = MovementSection:Toggle({
-    Title = "NO CLIP", 
-    Desc = "Walk through walls", 
-    Default = NoClipEnabled,
-    Callback = function(state)
-        NoClipEnabled = state
-        print("NoClip:", state)
-        
-        -- NoClip Function
-        if NoClipEnabled then
-            if NoClipConnection then 
-                NoClipConnection:Disconnect() 
-            end
-            
-            NoClipConnection = RunService.Stepped:Connect(function()
-                if LocalPlayer.Character then
-                    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") and part.CanCollide then
-                            part.CanCollide = false
-                        end
-                    end
-                end
-            end)
-        else
-            if NoClipConnection then 
-                NoClipConnection:Disconnect() 
-                NoClipConnection = nil 
-            end
-            
-            if LocalPlayer.Character then
-                for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then 
-                        part.CanCollide = true 
-                    end
-                end
-            end
-        end
-    end
-})
-
-MovementSection:Space()
-
--- INFINITE JUMP TOGGLE (FIXED)
-local InfiniteJumpToggle = MovementSection:Toggle({
-    Title = "INFINITE JUMP", 
-    Desc = "Jump infinitely", 
-    Default = InfiniteJumpEnabled,
-    Callback = function(state)
-        InfiniteJumpEnabled = state
-        print("InfiniteJump:", state)
-        
-        -- Infinite Jump Function
-        if InfiniteJumpEnabled then
-            if JumpConnection then 
-                JumpConnection:Disconnect() 
-            end
-            
-            JumpConnection = UserInputService.JumpRequest:Connect(function()
-                if LocalPlayer.Character then
-                    local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-                    if humanoid then 
-                        humanoid:ChangeState("Jumping") 
-                    end
-                end
-            end)
-        else
-            if JumpConnection then 
-                JumpConnection:Disconnect() 
-                JumpConnection = nil 
-            end
-        end
-    end
-})
-
-MovementSection:Space()
-
--- WALKSPEED SLIDER (FIXED)
-local WalkspeedSlider = MovementSection:Slider({
-    Title = "WALKSPEED", 
-    Desc = "Speed (16-200)", 
-    Value = {
-        Min = 16, 
-        Max = 200, 
-        Default = CurrentWalkspeed
-    }, 
-    Callback = function(value)
-        CurrentWalkspeed = value
-        print("WalkSpeed set to:", value)
-        
-        -- Update WalkSpeed Function
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = CurrentWalkspeed
-        end
-    end
-})
-
-MovementSection:Space()
-
-MovementSection:Button({
-    Title = "RESET WALKSPEED", 
-    Desc = "Back to default", 
-    Callback = function()
-        CurrentWalkspeed = DefaultWalkspeed
-        WalkspeedSlider:Set(DefaultWalkspeed)
-        
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = DefaultWalkspeed
-        end
-        
-        print("WalkSpeed reset to:", DefaultWalkspeed)
-    end
-})
-
-    -- ADVANCED TELEPORT SYSTEM
+    -- ADVANCED TELEPORT SYSTEM (NO DISTANCE LIMIT)
     local function SafeTeleportToPlayer(playerName)
         local targetPlayer = nil
         
+        -- Find player
         for _, player in pairs(Players:GetPlayers()) do
-            if string.lower(player.Name) == string.lower(playerName) or string.lower(player.DisplayName) == string.lower(playerName) then
+            if string.lower(player.Name) == string.lower(playerName) or 
+               string.lower(player.DisplayName) == string.lower(playerName) then
                 targetPlayer = player
                 break
             end
@@ -266,14 +118,20 @@ MovementSection:Button({
             if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                 local localRoot = LocalPlayer.Character.HumanoidRootPart
                 local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                
+                -- Save original state
+                local originalCFrame = localRoot.CFrame
                 local originalHealth = humanoid and humanoid.Health or 100
                 
-                local safeOffset = Vector3.new(0, 5, 0)
+                -- Method 1: Direct CFrame (No Distance Check)
+                local safeOffset = Vector3.new(0, 5, 0) -- Above player
                 local targetCFrame = targetRoot.CFrame + safeOffset
                 
+                -- Teleport directly
                 localRoot.CFrame = targetCFrame
-                wait(0.1)
                 
+                -- Wait and restore health
+                wait(0.1)
                 if humanoid then 
                     humanoid.Health = originalHealth 
                 end
@@ -288,7 +146,7 @@ MovementSection:Button({
         else
             WindUI:Notify({
                 Title = "TELEPORT FAILED", 
-                Content = "Player not found", 
+                Content = "Player not found or no character", 
                 Duration = 2
             })
             return false
@@ -518,84 +376,149 @@ MovementSection:Button({
         Icon = "settings"
     })
 
-    -- MOVEMENT SECTION
+    -- === MOVEMENT SECTION (FIXED) ===
     local MovementSection = MainTab:Section({
         Title = "MOVEMENT"
     })
     
+    -- Initialize movement variables
+    local NoClipEnabled = Config.NoClipEnabled
+    local NoClipConnection = nil
+    
+    local InfiniteJumpEnabled = Config.InfiniteJumpEnabled
+    local JumpConnection = nil
+    
+    local DefaultWalkspeed = 16
+    local CurrentWalkspeed = Config.WalkSpeed
+
+    -- NO CLIP TOGGLE (FIXED)
     local NoClipToggle = MovementSection:Toggle({
         Title = "NO CLIP", 
         Desc = "Walk through walls", 
-        Default = Config.NoClipEnabled,
+        Default = NoClipEnabled,
         Callback = function(state)
             NoClipEnabled = state
             Config.NoClipEnabled = state
             SaveConfig()
-            NoClipFunction()
+            
+            if NoClipEnabled then
+                if NoClipConnection then 
+                    NoClipConnection:Disconnect() 
+                end
+                
+                NoClipConnection = RunService.Stepped:Connect(function()
+                    if LocalPlayer.Character then
+                        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                            if part:IsA("BasePart") and part.CanCollide then
+                                part.CanCollide = false
+                            end
+                        end
+                    end
+                end)
+                print("NoClip: ON")
+            else
+                if NoClipConnection then 
+                    NoClipConnection:Disconnect() 
+                    NoClipConnection = nil 
+                end
+                
+                if LocalPlayer.Character then
+                    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then 
+                            part.CanCollide = true 
+                        end
+                    end
+                end
+                print("NoClip: OFF")
+            end
         end
     })
     
     MovementSection:Space()
-    
+
+    -- INFINITE JUMP TOGGLE (FIXED)
     local InfiniteJumpToggle = MovementSection:Toggle({
         Title = "INFINITE JUMP", 
         Desc = "Jump infinitely", 
-        Default = Config.InfiniteJumpEnabled,
+        Default = InfiniteJumpEnabled,
         Callback = function(state)
             InfiniteJumpEnabled = state
             Config.InfiniteJumpEnabled = state
             SaveConfig()
-            InfiniteJumpFunction()
+            
+            if InfiniteJumpEnabled then
+                if JumpConnection then 
+                    JumpConnection:Disconnect() 
+                end
+                
+                JumpConnection = UserInputService.JumpRequest:Connect(function()
+                    if LocalPlayer.Character then
+                        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        if humanoid then 
+                            humanoid:ChangeState("Jumping") 
+                        end
+                    end
+                end)
+                print("InfiniteJump: ON")
+            else
+                if JumpConnection then 
+                    JumpConnection:Disconnect() 
+                    JumpConnection = nil 
+                end
+                print("InfiniteJump: OFF")
+            end
         end
     })
     
     MovementSection:Space()
-    
+
+    -- WALKSPEED SLIDER (FIXED)
     local WalkspeedSlider = MovementSection:Slider({
         Title = "WALKSPEED", 
         Desc = "Speed (16-200)", 
         Value = {
             Min = 16, 
             Max = 200, 
-            Default = Config.WalkSpeed
+            Default = CurrentWalkspeed
         }, 
         Callback = function(value)
             CurrentWalkspeed = value
             Config.WalkSpeed = value
             SaveConfig()
-            UpdateWalkspeed()
+            
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = CurrentWalkspeed
+            end
+            print("WalkSpeed:", value)
         end
     })
     
     MovementSection:Space()
-    
+
     MovementSection:Button({
         Title = "RESET WALKSPEED", 
         Desc = "Back to default", 
         Callback = function()
-            CurrentWalkspeed = 16
-            Config.WalkSpeed = 16
-            WalkspeedSlider:Set(16)
+            CurrentWalkspeed = DefaultWalkspeed
+            Config.WalkSpeed = DefaultWalkspeed
+            WalkspeedSlider:Set(DefaultWalkspeed)
             SaveConfig()
-            UpdateWalkspeed()
+            
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = DefaultWalkspeed
+            end
+            print("WalkSpeed reset to:", DefaultWalkspeed)
         end
     })
 
-    -- VISUALS SECTION
+    -- VISUALS SECTION (NO ESP)
     local VisualsSection = MainTab:Section({
         Title = "VISUALS"
     })
     
-    local ESPToggle = VisualsSection:Toggle({
-        Title = "ADVANCED ESP", 
-        Desc = "Player ESP with info", 
-        Default = Config.ESPEnabled,
-        Callback = function(state)
-            ESPEnabled = state
-            Config.ESPEnabled = state
-            SaveConfig()
-            UpdateESP()
-        end
+    VisualsSection:Label({
+        Title = "CLEAN & STABLE",
+        Desc = "All features working without ESP"
     })
 
     -- SPECTATE SECTION
@@ -629,21 +552,21 @@ MovementSection:Button({
         Callback = function()
             RefreshPlayerLists()
             WindUI:Notify({
-                Title = "LIST UPDATED", 
-                Content = "Player list refreshed", 
+                Title = "PLAYER LIST", 
+                Content = "Refreshed successfully", 
                 Duration = 2
             })
         end
     })
 
-    -- TELEPORT SECTION
+    -- TELEPORT SECTION (NO DISTANCE LIMIT)
     local TeleportSection = MainTab:Section({
         Title = "TELEPORT"
     })
     
     local TeleportDropdown = TeleportSection:Dropdown({
         Title = "TELEPORT TO PLAYER", 
-        Desc = "Safe CFrame teleport", 
+        Desc = "No distance limit - anywhere in server", 
         Values = GetPlayerList(), 
         Callback = function(option)
             if option and option.Title then 
@@ -658,27 +581,10 @@ MovementSection:Button({
         Callback = function()
             RefreshPlayerLists()
             WindUI:Notify({
-                Title = "LIST UPDATED", 
-                Content = "Player list refreshed", 
+                Title = "PLAYER LIST", 
+                Content = "Refreshed successfully", 
                 Duration = 2
             })
-        end
-    })
-    
-    TeleportSection:Space()
-    
-    TeleportSection:Button({
-        Title = "TELEPORT TO SPAWN", 
-        Desc = "Safe spawn teleport", 
-        Callback = function()
-            if LocalPlayer.Character then 
-                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0) 
-                WindUI:Notify({
-                    Title = "TELEPORTED", 
-                    Content = "To spawn", 
-                    Duration = 2
-                }) 
-            end 
         end
     })
 
@@ -686,6 +592,11 @@ MovementSection:Button({
     local JumpButtonSection = MainTab:Section({
         Title = "JUMP BUTTON"
     })
+    
+    local jumpDragEnabled = Config.JumpDragEnabled
+    local defaultJumpButton = nil
+    local originalJumpSize = nil
+    local originalJumpPosition = nil
     
     local JumpDragToggle = JumpButtonSection:Toggle({
         Title = "DRAG MODE", 
@@ -802,7 +713,6 @@ MovementSection:Button({
                 NoClipToggle:Set(Config.NoClipEnabled)
                 InfiniteJumpToggle:Set(Config.InfiniteJumpEnabled)
                 WalkspeedSlider:Set(Config.WalkSpeed)
-                ESPToggle:Set(Config.ESPEnabled)
                 JumpDragToggle:Set(Config.JumpDragEnabled)
                 JumpSizeSlider:Set(Config.JumpButtonSize or 80)
                 JumpHideToggle:Set(Config.JumpButtonHidden)
@@ -811,13 +721,56 @@ MovementSection:Button({
                 NoClipEnabled = Config.NoClipEnabled
                 InfiniteJumpEnabled = Config.InfiniteJumpEnabled
                 CurrentWalkspeed = Config.WalkSpeed
-                ESPEnabled = Config.ESPEnabled
                 jumpDragEnabled = Config.JumpDragEnabled
                 
-                NoClipFunction()
-                InfiniteJumpFunction()
-                UpdateWalkspeed()
-                UpdateESP()
+                -- Re-apply movement settings
+                if NoClipEnabled then
+                    if NoClipConnection then NoClipConnection:Disconnect() end
+                    NoClipConnection = RunService.Stepped:Connect(function()
+                        if LocalPlayer.Character then
+                            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                                if part:IsA("BasePart") and part.CanCollide then
+                                    part.CanCollide = false
+                                end
+                            end
+                        end
+                    end)
+                end
+                
+                if InfiniteJumpEnabled then
+                    if JumpConnection then JumpConnection:Disconnect() end
+                    JumpConnection = UserInputService.JumpRequest:Connect(function()
+                        if LocalPlayer.Character then
+                            local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                            if humanoid then humanoid:ChangeState("Jumping") end
+                        end
+                    end)
+                end
+                
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+                    LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = CurrentWalkspeed
+                end
+            end
+        end
+    })
+
+    ConfigSection:Button({
+        Title = "DELETE CONFIG",
+        Desc = "Delete selected config",
+        Color = Color3.fromHex("#FF0000"),
+        Callback = function()
+            if ConfigManager:DeleteConfig(CurrentConfigName) then
+                WindUI:Notify({
+                    Title = "CONFIG DELETED", 
+                    Content = "Deleted: " .. CurrentConfigName, 
+                    Duration = 3
+                })
+            else
+                WindUI:Notify({
+                    Title = "DELETE FAILED", 
+                    Content = "Failed to delete: " .. CurrentConfigName, 
+                    Duration = 3
+                })
             end
         end
     })
@@ -863,21 +816,22 @@ MovementSection:Button({
     
     LocalPlayer.CharacterAdded:Connect(function() 
         wait(1) 
-        UpdateWalkspeed() 
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = CurrentWalkspeed
+        end
         if ViewingPlayer then 
             StopViewing() 
         end 
     end)
 
     -- INITIALIZE & LOAD CONFIG
-    UpdateWalkspeed()
     InitializeJumpButton()
     RefreshPlayerLists()
     LoadConfig()
 
     WindUI:Notify({
-        Title = "SCRIPT LOADED", 
-        Content = "Ultimate Library Ready! 🚀", 
+        Title = "ULTIMATE SCRIPT v" .. self.Version, 
+        Content = "All features working! 🚀", 
         Duration = 3
     })
 
