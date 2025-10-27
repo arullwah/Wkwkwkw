@@ -159,14 +159,44 @@ local function RestoreFullUserControl()
     print("🎮 Full user control restored")
 end
 
--- ========= IMPROVED MOVESTATE DETECTION =========
+-- ========= ENHANCED JUMP DETECTION SYSTEM =========
+local lastGroundState = true
+local jumpBuffer = 0
+
 local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
+    
+    local hrp = hum.Parent and hum.Parent:FindFirstChild("HumanoidRootPart")
+    if not hrp then return "Grounded" end
+    
     local state = hum:GetState()
+    local velY = hrp.AssemblyLinearVelocity.Y
+    
+    -- Deteksi transisi dari grounded ke air (loncatan)
+    local isGrounded = state == Enum.HumanoidStateType.Running 
+                    or state == Enum.HumanoidStateType.RunningNoPhysics
+                    or state == Enum.HumanoidStateType.Climbing
+    
+    if not lastGroundState and isGrounded then
+        -- Baru mendarat
+        jumpBuffer = 0
+    elseif lastGroundState and not isGrounded and velY > 10 then
+        -- Baru mulai lompat
+        jumpBuffer = 3  -- Tandai sebagai jumping untuk 3 frame
+    end
+    
+    lastGroundState = isGrounded
+    
+    -- Prioritaskan jump state jika dalam buffer
+    if jumpBuffer > 0 then
+        jumpBuffer = jumpBuffer - 1
+        return "Jumping"
+    end
+    
+    -- State normal
     if state == Enum.HumanoidStateType.Climbing then return "Climbing"
     elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
     elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
     elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
     else return "Grounded" end
 end
@@ -181,13 +211,13 @@ local function ClearPathVisualization()
     PathVisualization = {}
 end
 
-local function CreatePathSegment(startPos, endPos)
+local function CreatePathSegment(startPos, endPos, color)
     local part = Instance.new("Part")
     part.Name = "PathSegment"
     part.Anchored = true
     part.CanCollide = false
     part.Material = Enum.Material.Neon
-    part.BrickColor = BrickColor.new("Really black")
+    part.BrickColor = color or BrickColor.new("Really black")
     part.Transparency = 0.2
     
     local distance = (startPos - endPos).Magnitude
@@ -198,6 +228,40 @@ local function CreatePathSegment(startPos, endPos)
     table.insert(PathVisualization, part)
     
     return part
+end
+
+-- ========= PAUSE TEXT VISUALIZATION =========
+local function CreatePauseText(position)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "PauseText"
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Adornee = Instance.new("Part")
+    billboard.Adornee.Position = position
+    billboard.Adornee.Parent = workspace
+    billboard.Parent = billboard.Adornee
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Text = "⏸️ PAUSED"
+    textLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextSize = 18
+    textLabel.TextStrokeTransparency = 0
+    textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    textLabel.Parent = billboard
+    
+    table.insert(PathVisualization, billboard.Adornee)
+    table.insert(PathVisualization, billboard)
+    
+    return billboard
+end
+
+local function ShowPauseIndicator(position)
+    ClearPathVisualization()
+    CreatePauseText(position)
 end
 
 local function VisualizeRecordingPath(recording, name)
@@ -521,24 +585,6 @@ local LoopBtn, AnimateLoop = CreateToggle("🔁 Auto Loop", 0, 75, 117, 22, fals
 local RespawnBtn, AnimateRespawn = CreateToggle("🔄 Auto Respawn", 123, 75, 117, 22, false)
 
 -- Textboxes in two rows (with bigger text)
-local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(117, 26)
-FilenameBox.Position = UDim2.fromOffset(0, 102)
-FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-FilenameBox.BorderSizePixel = 0
-FilenameBox.Text = ""
-FilenameBox.PlaceholderText = "Nama File..."
-FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-FilenameBox.Font = Enum.Font.GothamBold
-FilenameBox.TextSize = 11
-FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
-FilenameBox.ClearTextOnFocus = false
-FilenameBox.Parent = Content
-
-local FilenameCorner = Instance.new("UICorner")
-FilenameCorner.CornerRadius = UDim.new(0, 6)
-FilenameCorner.Parent = FilenameBox
-
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(117, 26)
 SpeedBox.Position = UDim2.fromOffset(123, 102)
@@ -557,7 +603,6 @@ local SpeedCorner = Instance.new("UICorner")
 SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
-local SaveFileBtn = CreateButton("💾 SAVE FILE", 0, 133, 117, 26, Color3.fromRGB(50, 140, 220))
 local LoadFileBtn = CreateButton("📂 LOAD FILE", 123, 133, 117, 26, Color3.fromRGB(50, 200, 90))
 
 local PathToggleBtn = CreateButton("〽️ RUTE", 0, 164, 117, 26, Color3.fromRGB(180, 80, 220))
@@ -656,11 +701,9 @@ UserInputService.InputChanged:Connect(function(input)
             RespawnBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
             RespawnBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 75)
             
-            FilenameBox.Size = UDim2.fromOffset(117 * widthScale, 26)
             SpeedBox.Size = UDim2.fromOffset(117 * widthScale, 26)
             SpeedBox.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 102)
             
-            SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             LoadFileBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 133)
             
@@ -888,6 +931,24 @@ local function ShouldRecordFrame()
     return (currentTime - lastFrameTime) >= frameInterval
 end
 
+-- ========= AUTOMATIC SAVE SYSTEM =========
+local function AutoSaveRecording()
+    if #CurrentRecording.Frames == 0 then
+        print("❌ No recording to save!")
+        return
+    end
+    
+    local name = CurrentRecording.Name
+    RecordedMovements[name] = CurrentRecording.Frames
+    table.insert(RecordingOrder, name)
+    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
+    
+    UpdateRecordList()
+    
+    print("✅ Auto-saved recording: " .. name)
+    print("📊 Frames: " .. #CurrentRecording.Frames)
+end
+
 function StartRecording()
     if IsRecording then return end
     local char = player.Character
@@ -956,23 +1017,14 @@ function StopRecording()
         recordConnection = nil
     end
     
+    -- AUTO SAVE ketika stop recording
+    if #CurrentRecording.Frames > 0 then
+        AutoSaveRecording()
+    end
+    
     RecordBtnBig.Text = "REC"
     RecordBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-end
-
-function SaveRecording()
-    if #CurrentRecording.Frames == 0 then
-        print("❌ No recording to save!")
-        return
-    end
-    local name = CurrentRecording.Name
-    RecordedMovements[name] = CurrentRecording.Frames
-    table.insert(RecordingOrder, name)
-    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
-    UpdateRecordList()
-    CurrentRecording = {Frames = {}, StartTime = 0, Name = "Roel_" .. os.date("%H%M%S")}
     FrameLabel.Text = "Frames: 0"
-    print("✅ Saved recording: " .. name)
 end
 
 -- ========= OPTIMIZED PLAYBACK SYSTEM =========
@@ -1012,6 +1064,12 @@ function PlayRecording(name)
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
                 RestoreFullUserControl()
+                
+                -- Show pause indicator
+                local char = player.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    ShowPauseIndicator(char.HumanoidRootPart.Position)
+                end
             end
             return
         else
@@ -1019,6 +1077,12 @@ function PlayRecording(name)
                 totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
                 pauseStartTime = 0
                 DisableJump()
+                
+                -- Clear pause indicator when resuming
+                ClearPathVisualization()
+                if ShowPaths then
+                    VisualizeAllPaths()
+                end
             end
         end
 
@@ -1071,6 +1135,13 @@ function PlayRecording(name)
                     hum:ChangeState(Enum.HumanoidStateType.Climbing)
                 elseif moveState == "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    -- Force jump execution
+                    task.spawn(function()
+                        wait(0.02)
+                        if hum and hum.Parent then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end)
                 elseif moveState == "Falling" then
                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                 elseif moveState == "Swimming" then
@@ -1101,7 +1172,6 @@ function StartAutoLoopAll()
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
     
-    -- Gunakan task.spawn untuk loop yang tidak blocking
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
             local recordingName = RecordingOrder[CurrentLoopIndex]
@@ -1117,7 +1187,6 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Logic reset/respawn
             local shouldReset = false
             if AutoRespawn and CurrentLoopIndex == 1 then
                 shouldReset = true
@@ -1135,12 +1204,10 @@ function StartAutoLoopAll()
                     break
                 end
                 
-                -- Delay tambahan setelah respawn untuk memastikan karakter benar-benar siap
                 print("⏳ Waiting for character to fully load...")
                 task.wait(1.5)
             end
             
-            -- Tunggu karakter ready (untuk kasus mati tanpa auto respawn)
             if not IsCharacterReady() then
                 print("💀 Character died, waiting for respawn...")
                 local maxWaitTime = 15
@@ -1159,7 +1226,6 @@ function StartAutoLoopAll()
                 
                 if not AutoLoop or not IsAutoLoopPlaying then break end
                 
-                -- Delay setelah respawn natural
                 print("⏳ Character respawned, waiting to stabilize...")
                 task.wait(1.0)
             end
@@ -1168,7 +1234,6 @@ function StartAutoLoopAll()
             
             print("▶️ Playing recording " .. CurrentLoopIndex .. "/" .. #RecordingOrder .. ": " .. recordingName)
             
-            -- Play recording menggunakan sistem playback yang sudah ada
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
@@ -1179,7 +1244,6 @@ function StartAutoLoopAll()
             DisableJump()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
-                -- Check jika karakter mati selama playback
                 if not IsCharacterReady() then
                     print("💀 Character died during playback, stopping current recording")
                     break
@@ -1189,6 +1253,12 @@ function StartAutoLoopAll()
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
                         RestoreFullUserControl()
+                        
+                        -- Show pause indicator in loop mode
+                        local char = player.Character
+                        if char and char:FindFirstChild("HumanoidRootPart") then
+                            ShowPauseIndicator(char.HumanoidRootPart.Position)
+                        end
                     end
                     task.wait(0.1)
                 else
@@ -1196,6 +1266,12 @@ function StartAutoLoopAll()
                         playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
                         playbackPauseStart = 0
                         DisableJump()
+                        
+                        -- Clear pause indicator when resuming
+                        ClearPathVisualization()
+                        if ShowPaths then
+                            VisualizeAllPaths()
+                        end
                     end
                     
                     local char = player.Character
@@ -1212,7 +1288,6 @@ function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
                     
-                    -- Cari frame yang sesuai berdasarkan timestamp
                     while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
                         currentFrame = currentFrame + 1
                     end
@@ -1237,6 +1312,12 @@ function StartAutoLoopAll()
                                     hum:ChangeState(Enum.HumanoidStateType.Climbing)
                                 elseif moveState == "Jumping" then
                                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    task.spawn(function()
+                                        wait(0.02)
+                                        if hum and hum.Parent then
+                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                        end
+                                    end)
                                 elseif moveState == "Falling" then
                                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                                 elseif moveState == "Swimming" then
@@ -1252,26 +1333,21 @@ function StartAutoLoopAll()
                 end
             end
             
-            -- Selesai memutar recording ini
             RestoreFullUserControl()
             
             if playbackCompleted then
                 print("✅ Finished recording: " .. recordingName)
                 
-                -- Pindah ke recording berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
                     print("🔄 Loop completed, restarting from beginning")
                 end
                 
-                -- Delay antar recordings
                 task.wait(0.5)
             else
-                -- Playback interrupted (pause, stop, atau karakter mati)
                 if not IsCharacterReady() then
                     print("💀 Playback interrupted - character died")
-                    -- Tidak increment index, akan mencoba recording yang sama setelah respawn
                 else
                     print("⏸️ Playback interrupted")
                     break
@@ -1279,7 +1355,6 @@ function StartAutoLoopAll()
             end
         end
         
-        -- Cleanup saat loop berhenti
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
@@ -1299,6 +1374,7 @@ function StopAutoLoopAll()
     end
     
     RestoreFullUserControl()
+    ClearPathVisualization()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -1316,6 +1392,7 @@ function StopPlayback()
     IsPlaying = false
     IsPaused = false
     RestoreFullUserControl()
+    ClearPathVisualization()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -1325,35 +1402,61 @@ end
 
 function PausePlayback()
     if AutoLoop and IsAutoLoopPlaying then
-        -- Pause/Resume untuk auto loop
         IsPaused = not IsPaused
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             RestoreFullUserControl()
+            
+            -- Show pause indicator
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                ShowPauseIndicator(char.HumanoidRootPart.Position)
+            end
+            
             print("⏸️ Auto Loop paused - Full control restored")
         else
             PauseBtnBig.Text = "PAUSE"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
             SaveHumanoidState()
             DisableJump()
+            
+            -- Clear pause indicator
+            ClearPathVisualization()
+            if ShowPaths then
+                VisualizeAllPaths()
+            end
+            
             print("▶️ Auto Loop resumed")
         end
     elseif IsPlaying then
-        -- Pause/Resume untuk playback normal
         IsPaused = not IsPaused
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             RestoreFullUserControl()
+            
+            -- Show pause indicator
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                ShowPauseIndicator(char.HumanoidRootPart.Position)
+            end
+            
             print("⏸️ Playback paused - Full control restored")
         else
             PauseBtnBig.Text = "PAUSE"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
             SaveHumanoidState()
             DisableJump()
+            
+            -- Clear pause indicator
+            ClearPathVisualization()
+            if ShowPaths then
+                VisualizeAllPaths()
+            end
+            
             print("▶️ Playback resumed")
         end
     end
@@ -1361,9 +1464,7 @@ end
 
 -- ========= SIMPLE JSON SAVE/LOAD FUNCTIONS =========
 local function SaveToFile()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
+    local filename = "MyReplays.json"
     
     if not next(RecordedMovements) then
         print("❌ No recordings to save!")
@@ -1415,9 +1516,7 @@ local function SaveToFile()
 end
 
 local function LoadFromFile()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
+    local filename = "MyReplays.json"
     
     local success, err = pcall(function()
         if not isfile(filename) then
@@ -1502,7 +1601,14 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     if IsRecording then StopRecording() else StartRecording() end
 end)
 
-SaveBtnBig.MouseButton1Click:Connect(SaveRecording)
+SaveBtnBig.MouseButton1Click:Connect(function()
+    -- Manual save option (backup)
+    if #CurrentRecording.Frames > 0 then
+        AutoSaveRecording()
+    else
+        print("❌ No current recording to save!")
+    end
+end)
 
 PlayBtnBig.MouseButton1Click:Connect(function()
     if AutoLoop then return end
@@ -1544,7 +1650,6 @@ RespawnBtn.MouseButton1Click:Connect(function()
     print("🔄 Auto Respawn: " .. (AutoRespawn and "ON" or "OFF"))
 end)
 
-SaveFileBtn.MouseButton1Click:Connect(SaveToFile)
 LoadFileBtn.MouseButton1Click:Connect(LoadFromFile)
 
 PathToggleBtn.MouseButton1Click:Connect(function()
