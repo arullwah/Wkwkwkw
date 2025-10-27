@@ -1,22 +1,47 @@
--- loader.lua
-local function LoadUltimateLib()
+-- loader.lua - FIXED VERSION
+print("🔧 Ultimate Script Loader Starting...")
+
+local function LoadLibrary()
     local GitHubURL = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/main/LIBRARY.lua"
     
-    print("🚀 Loading Ultimate Script Library...")
+    print("📥 Downloading from GitHub...")
     
-    local success, result = pcall(function()
-        local lib = loadstring(game:HttpGet(GitHubURL, true))()
-        if lib and lib.Version then
-            print("✅ Loaded successfully - Version: " .. lib.Version)
-            return lib
-        end
+    -- Download library
+    local libraryCode = game:HttpGet(GitHubURL)
+    
+    if not libraryCode or libraryCode == "" then
+        error("❌ Failed to download library from GitHub")
+    end
+    
+    print("✅ Library downloaded successfully")
+    
+    -- Load library
+    local success, library = pcall(function()
+        return loadstring(libraryCode)()
     end)
     
-    if success and result then
-        return result
-    else
-        error("❌ Failed to load library")
+    if not success then
+        error("❌ Failed to load library: " .. tostring(library))
     end
+    
+    if not library then
+        error("❌ Library returned nil")
+    end
+    
+    if not library.LoadUI then
+        error("❌ Library doesn't have LoadUI function")
+    end
+    
+    print("🎯 Library loaded successfully!")
+    return library
 end
 
-return LoadUltimateLib()
+-- Main execution
+local success, lib = pcall(LoadLibrary)
+
+if success and lib then
+    print("🚀 Launching Ultimate Script UI...")
+    return lib:LoadUI()
+else
+    error("💥 Loader failed: " .. tostring(lib))
+end
