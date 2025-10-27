@@ -193,11 +193,12 @@ local function GetCurrentMoveState(hum)
         return "Jumping"
     end
     
-    -- State normal
+    -- State normal (SAMA PERSIS seperti script pertama)
     if state == Enum.HumanoidStateType.Climbing then return "Climbing"
     elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
     elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
     elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
+    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
     else return "Grounded" end
 end
 
@@ -918,27 +919,6 @@ local function ShouldRecordFrame()
     return (currentTime - lastFrameTime) >= frameInterval
 end
 
--- ========= AUTOMATIC SAVE SYSTEM =========
-local function AutoSaveRecording()
-    if #CurrentRecording.Frames == 0 then
-        print("❌ No recording to save!")
-        return
-    end
-    
-    local name = CurrentRecording.Name
-    RecordedMovements[name] = CurrentRecording.Frames
-    table.insert(RecordingOrder, name)
-    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
-    
-    UpdateRecordList()
-    
-    print("✅ Auto-saved recording: " .. name)
-    print("📊 Frames: " .. #CurrentRecording.Frames)
-    
-    -- Reset current recording
-    CurrentRecording = {Frames = {}, StartTime = 0, Name = "Roel_" .. os.date("%H%M%S")}
-end
-
 function StartRecording()
     if IsRecording then return end
     local char = player.Character
@@ -1007,36 +987,26 @@ function StopRecording()
         recordConnection = nil
     end
     
-    -- AUTO SAVE ketika stop recording
-    if #CurrentRecording.Frames > 0 then
-        AutoSaveRecording()
-    end
-    
     RecordBtnBig.Text = "REC"
     RecordBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-    FrameLabel.Text = "Frames: 0"
 end
 
 function SaveRecording()
-    -- Manual save function (backup)
     if #CurrentRecording.Frames == 0 then
         print("❌ No recording to save!")
         return
     end
-    
     local name = CurrentRecording.Name
     RecordedMovements[name] = CurrentRecording.Frames
     table.insert(RecordingOrder, name)
     checkpointNames[name] = "checkpoint_" .. #RecordingOrder
-    
     UpdateRecordList()
     CurrentRecording = {Frames = {}, StartTime = 0, Name = "Roel_" .. os.date("%H%M%S")}
     FrameLabel.Text = "Frames: 0"
-    
-    print("✅ Manual saved recording: " .. name)
+    print("✅ Saved recording: " .. name)
 end
 
--- ========= OPTIMIZED PLAYBACK SYSTEM (SMOOTH LIKE ORIGINAL) =========
+-- ========= OPTIMIZED PLAYBACK SYSTEM (ORIGINAL DARI SCRIPT PERTAMA) =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -1120,7 +1090,6 @@ function PlayRecording(name)
         end
 
         pcall(function()
-            -- SMOOTH MOVEMENT SYSTEM (seperti script pertama)
             hrp.CFrame = GetFrameCFrame(frame)
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
@@ -1128,22 +1097,17 @@ function PlayRecording(name)
                 hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                 hum.AutoRotate = false
                 
-                -- HANYA gunakan ChangeState untuk JUMPING saja
-                -- Biarkan movement lainnya natural dengan CFrame & Velocity
                 local moveState = frame.MoveState
-                if moveState == "Jumping" then
+                if moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                elseif moveState == "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    -- Force jump execution
-                    task.spawn(function()
-                        wait(0.02)
-                        if hum and hum.Parent then
-                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        end
-                    end)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                elseif moveState == "Swimming" then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
                 else
-                    -- Untuk movement biasa, biarkan natural dengan CFrame & Velocity
-                    -- Ini yang bikin smooth dan sync dengan orang lain
-                    hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
                 end
             end
         end)
@@ -1284,7 +1248,6 @@ function StartAutoLoopAll()
                     local frame = recording[currentFrame]
                     if frame then
                         pcall(function()
-                            -- SMOOTH MOVEMENT SYSTEM untuk loop juga
                             hrp.CFrame = GetFrameCFrame(frame)
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
@@ -1293,17 +1256,16 @@ function StartAutoLoopAll()
                                 hum.AutoRotate = false
                                 
                                 local moveState = frame.MoveState
-                                if moveState == "Jumping" then
+                                if moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                elseif moveState == "Jumping" then
                                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    task.spawn(function()
-                                        wait(0.02)
-                                        if hum and hum.Parent then
-                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                        end
-                                    end)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                elseif moveState == "Swimming" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
                                 else
-                                    -- Natural movement untuk yang lain
-                                    hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
                                 end
                             end
                         end)
