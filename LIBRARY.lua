@@ -120,8 +120,31 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
     local originalJumpPosition = nil
     local jumpDragEnabled = Config.JumpDragEnabled
 
-    -- MOVEMENT FUNCTIONS
-    local function NoClipFunction()
+-- MOVEMENT SECTION (FIXED VERSION)
+local MovementSection = MainTab:Section({
+    Title = "MOVEMENT"
+})
+
+-- Initialize variables
+local NoClipEnabled = false
+local NoClipConnection = nil
+
+local InfiniteJumpEnabled = false 
+local JumpConnection = nil
+
+local DefaultWalkspeed = 16
+local CurrentWalkspeed = DefaultWalkspeed
+
+-- NO CLIP TOGGLE (FIXED)
+local NoClipToggle = MovementSection:Toggle({
+    Title = "NO CLIP", 
+    Desc = "Walk through walls", 
+    Default = NoClipEnabled,
+    Callback = function(state)
+        NoClipEnabled = state
+        print("NoClip:", state)
+        
+        -- NoClip Function
         if NoClipEnabled then
             if NoClipConnection then 
                 NoClipConnection:Disconnect() 
@@ -151,8 +174,20 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
             end
         end
     end
+})
 
-    local function InfiniteJumpFunction()
+MovementSection:Space()
+
+-- INFINITE JUMP TOGGLE (FIXED)
+local InfiniteJumpToggle = MovementSection:Toggle({
+    Title = "INFINITE JUMP", 
+    Desc = "Jump infinitely", 
+    Default = InfiniteJumpEnabled,
+    Callback = function(state)
+        InfiniteJumpEnabled = state
+        print("InfiniteJump:", state)
+        
+        -- Infinite Jump Function
         if InfiniteJumpEnabled then
             if JumpConnection then 
                 JumpConnection:Disconnect() 
@@ -173,12 +208,46 @@ function UltimateLibrary:SetupFeatures(Window, WindUI)
             end
         end
     end
+})
 
-    local function UpdateWalkspeed()
+MovementSection:Space()
+
+-- WALKSPEED SLIDER (FIXED)
+local WalkspeedSlider = MovementSection:Slider({
+    Title = "WALKSPEED", 
+    Desc = "Speed (16-200)", 
+    Value = {
+        Min = 16, 
+        Max = 200, 
+        Default = CurrentWalkspeed
+    }, 
+    Callback = function(value)
+        CurrentWalkspeed = value
+        print("WalkSpeed set to:", value)
+        
+        -- Update WalkSpeed Function
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
             LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = CurrentWalkspeed
         end
     end
+})
+
+MovementSection:Space()
+
+MovementSection:Button({
+    Title = "RESET WALKSPEED", 
+    Desc = "Back to default", 
+    Callback = function()
+        CurrentWalkspeed = DefaultWalkspeed
+        WalkspeedSlider:Set(DefaultWalkspeed)
+        
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            LocalPlayer.Character:FindFirstChildOfClass("Humanoid").WalkSpeed = DefaultWalkspeed
+        end
+        
+        print("WalkSpeed reset to:", DefaultWalkspeed)
+    end
+})
 
     -- ADVANCED TELEPORT SYSTEM
     local function SafeTeleportToPlayer(playerName)
