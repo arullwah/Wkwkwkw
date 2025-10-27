@@ -2,7 +2,7 @@
 print("🔧 Ultimate Script Loader Starting...")
 
 local function LoadLibrary()
-    local GitHubURL = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/main/LIBRARY.lua"
+    local GitHubURL = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua"
     
     print("📥 Downloading from GitHub...")
     
