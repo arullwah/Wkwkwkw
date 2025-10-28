@@ -871,7 +871,7 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22-5, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22-5, 0, 0)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
@@ -2198,4 +2198,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
         ToggleInfiniteJump()
         AnimateJump(InfiniteJump)
     end
-end)
+end)r
