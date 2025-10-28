@@ -84,8 +84,8 @@ local isShiftLockActive = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://2865227271",      -- Soft click
-    Toggle = "rbxassetid://18900008907",     -- Toggle sound  
+    Click = "rbxassetid://4499400560",      -- Soft click
+    Toggle = "rbxassetid://7468131335",     -- Toggle sound  
     RecordStart = "rbxassetid://9119720940", -- Record start
     RecordStop = "rbxassetid://1289263994",  -- Record stop
     Play = "rbxassetid://9119720940",       -- Play sound
