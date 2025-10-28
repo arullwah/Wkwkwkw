@@ -45,7 +45,6 @@ local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoLoop = false
 local AutoRespawn = false
-local ShiftLockMode = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -74,6 +73,11 @@ local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
 
+-- ========= SHIFTLOCK SYSTEM =========
+local shiftLockConnection = nil
+local originalMouseBehavior = nil
+local ShiftLockEnabled = false
+
 -- ========= MEMORY MANAGEMENT =========
 local activeConnections = {}
 
@@ -100,6 +104,10 @@ local function CleanupConnections()
     if loopConnection then
         loopConnection:Disconnect()
         loopConnection = nil
+    end
+    if shiftLockConnection then
+        shiftLockConnection:Disconnect()
+        shiftLockConnection = nil
     end
 end
 
@@ -158,37 +166,49 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= SHIFT LOCK SYSTEM =========
+-- ========= SHIFTLOCK SYSTEM FUNCTIONS =========
 local function EnableShiftLock()
-    if not player.Character then return end
+    if shiftLockConnection then return end
     
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.AutoRotate = false
-    end
+    local camera = workspace.CurrentCamera
+    originalMouseBehavior = UserInputService.MouseBehavior
+    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
     
-    -- Enable shift lock via StarterGui
-    pcall(function()
-        StarterGui:SetCore("ShiftLockEnabled", true)
+    shiftLockConnection = RunService.RenderStepped:Connect(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        if not char:FindFirstChildOfClass("Humanoid") then return end
+        
+        local humanoid = char.Humanoid
+        local hrp = char.HumanoidRootPart
+        
+        -- Only apply shiftlock if not playing/recording
+        if not IsPlaying and not IsRecording then
+            humanoid.AutoRotate = false
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z))
+        end
     end)
     
-    print("ShiftLock Mode: ON")
+    AddConnection(shiftLockConnection)
+    print("ShiftLock: ENABLED")
 end
 
 local function DisableShiftLock()
-    if not player.Character then return end
-    
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.AutoRotate = true
+    if shiftLockConnection then
+        shiftLockConnection:Disconnect()
+        shiftLockConnection = nil
     end
     
-    -- Disable shift lock via StarterGui
-    pcall(function()
-        StarterGui:SetCore("ShiftLockEnabled", false)
-    end)
+    if originalMouseBehavior then
+        UserInputService.MouseBehavior = originalMouseBehavior
+    end
     
-    print("ShiftLock Mode: OFF")
+    local char = player.Character
+    if char and char:FindFirstChildOfClass("Humanoid") then
+        char.Humanoid.AutoRotate = true
+    end
+    
+    print("ShiftLock: DISABLED")
 end
 
 -- ========= JUMP BUTTON CONTROL SYSTEM =========
@@ -314,7 +334,9 @@ local function RestoreFullUserControl()
     
     -- Restore jump button and shift lock
     ShowJumpButton()
-    if not ShiftLockMode then
+    if ShiftLockEnabled then
+        EnableShiftLock()
+    else
         DisableShiftLock()
     end
     
@@ -519,8 +541,8 @@ else
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 350) -- Increased height for new toggle
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -175)
+MainFrame.Size = UDim2.fromOffset(250, 320) -- Kembali ke ukuran normal
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -610,7 +632,7 @@ Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
 Content.ScrollBarThickness = 3
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-Content.CanvasSize = UDim2.new(0, 0, 0, 800) -- Increased for new elements
+Content.CanvasSize = UDim2.new(0, 0, 0, 750)
 Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
@@ -731,11 +753,10 @@ local PlayBtnBig = CreateButton("▶️ PLAY", 5, 40, 75, 30, Color3.fromRGB(50,
 local StopBtnBig = CreateButton("⏹️ STOP", 85, 40, 75, 30, Color3.fromRGB(220, 60, 70))
 local PauseBtnBig = CreateButton("⏸️ PAUSE", 165, 40, 75, 30, Color3.fromRGB(200, 160, 50))
 
--- NEW: Shift Lock Toggle
+-- Toggle buttons
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 117, 22, false)
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 123, 75, 117, 22, false)
-local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock Mode", 0, 102, 117, 22, false)
-local HideJumpBtn, AnimateHideJump = CreateToggle("Hide Jump Button", 123, 102, 117, 22, true)
+local ShiftLockBtn, AnimateShiftLock = CreateToggle("🔒 ShiftLock", 0, 102, 240, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(117, 26)
@@ -780,7 +801,7 @@ local PathToggleBtn = CreateButton("〽️ RUTE", 0, 191, 117, 26, Color3.fromRG
 local MergeBtn = CreateButton("🔄 MERGE", 123, 191, 117, 26, Color3.fromRGB(180, 80, 220))
 
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 1, -222) -- Adjusted for new elements
+RecordList.Size = UDim2.new(1, 0, 1, -222)
 RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
@@ -870,9 +891,7 @@ UserInputService.InputChanged:Connect(function(input)
             RespawnBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
             RespawnBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 75)
             
-            ShiftLockBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
-            HideJumpBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
-            HideJumpBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 102)
+            ShiftLockBtn.Size = UDim2.fromOffset(240 * widthScale, 22)
             
             FilenameBox.Size = UDim2.fromOffset(117 * widthScale, 26)
             SpeedBox.Size = UDim2.fromOffset(117 * widthScale, 26)
@@ -1220,13 +1239,11 @@ function PlayRecording(name)
     DisableJump()
     
     -- Hide jump button when playback starts
-    if originalJumpButtonEnabled then
-        HideJumpButton()
-    end
+    HideJumpButton()
     
-    -- Apply shift lock if enabled
-    if ShiftLockMode then
-        EnableShiftLock()
+    -- Disable shift lock during playback
+    if ShiftLockEnabled then
+        DisableShiftLock()
     end
 
     playbackConnection = RunService.Heartbeat:Connect(function()
@@ -1413,13 +1430,11 @@ function StartAutoLoopAll()
             DisableJump()
             
             -- Hide jump button when playback starts
-            if originalJumpButtonEnabled then
-                HideJumpButton()
-            end
+            HideJumpButton()
             
-            -- Apply shift lock if enabled
-            if ShiftLockMode then
-                EnableShiftLock()
+            -- Disable shift lock during playback
+            if ShiftLockEnabled then
+                DisableShiftLock()
             end
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
@@ -1803,30 +1818,17 @@ RespawnBtn.MouseButton1Click:Connect(function()
     print("Auto Respawn: " .. (AutoRespawn and "ON" or "OFF"))
 end)
 
--- NEW: Shift Lock Toggle
+-- SHIFTLOCK BUTTON
 ShiftLockBtn.MouseButton1Click:Connect(function()
-    ShiftLockMode = not ShiftLockMode
-    AnimateShiftLock(ShiftLockMode)
+    ShiftLockEnabled = not ShiftLockEnabled
+    AnimateShiftLock(ShiftLockEnabled)
     
-    if ShiftLockMode then
+    if ShiftLockEnabled then
         EnableShiftLock()
     else
         DisableShiftLock()
     end
-    print("ShiftLock Mode: " .. (ShiftLockMode and "ON" or "OFF"))
-end)
-
--- NEW: Hide Jump Button Toggle
-HideJumpBtn.MouseButton1Click:Connect(function()
-    originalJumpButtonEnabled = not originalJumpButtonEnabled
-    AnimateHideJump(originalJumpButtonEnabled)
-    
-    if originalJumpButtonEnabled then
-        ShowJumpButton()
-    else
-        HideJumpButton()
-    end
-    print("Hide Jump Button: " .. (not originalJumpButtonEnabled and "ON" or "OFF"))
+    print("ShiftLock: " .. (ShiftLockEnabled and "ENABLED" or "DISABLED"))
 end)
 
 SaveFileBtn.MouseButton1Click:Connect(SaveToObfuscatedJSON)
@@ -1858,11 +1860,10 @@ end)
 CloseButton.MouseButton1Click:Connect(function()
     if IsRecording then StopRecording() end
     if IsPlaying or AutoLoop then StopPlayback() end
+    if ShiftLockEnabled then DisableShiftLock() end
     CleanupConnections()
     ClearPathVisualization()
-    -- Restore jump button and shift lock on close
     ShowJumpButton()
-    DisableShiftLock()
     ScreenGui:Destroy()
     print("ByaruL Auto Walk System Closed")
 end)
@@ -1897,17 +1898,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
             ClearPathVisualization()
         end
     elseif input.KeyCode == Enum.KeyCode.F3 then
-        ShiftLockMode = not ShiftLockMode
-        AnimateShiftLock(ShiftLockMode)
-        if ShiftLockMode then EnableShiftLock() else DisableShiftLock() end
+        ShiftLockEnabled = not ShiftLockEnabled
+        AnimateShiftLock(ShiftLockEnabled)
+        if ShiftLockEnabled then EnableShiftLock() else DisableShiftLock() end
     end
 end)
-
--- Initialize
-UpdateRecordList()
--- Set initial jump button state
-if originalJumpButtonEnabled then
-    ShowJumpButton()
-else
-    HideJumpButton()
-end
