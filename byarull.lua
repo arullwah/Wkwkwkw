@@ -739,13 +739,16 @@ local function ResetAnimations()
     end
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS =========
+-- ========= ADVANCED LOAD SAVED ANIMATIONS (FIXED) =========
 local function LoadSavedAnimations()
     task.spawn(function()
         local character = player.Character
-        if not character then return end
+        if not character then 
+            print("[AnimHub] No character found!")
+            return 
+        end
         
-        -- Wait for Animate script to fully load with longer timeout
+        -- Wait for Animate script to fully load
         local animate = character:WaitForChild("Animate", 10)
         if not animate then 
             warn("[AnimHub] Animate script not found!")
@@ -760,72 +763,88 @@ local function LoadSavedAnimations()
         end
         
         -- Extra wait to ensure all animation children are loaded
-        task.wait(0.3)
+        task.wait(0.5)
         
-        -- Load saved data
-        local success, result = pcall(function()
+        -- Load saved data dengan error handling yang better
+        local success, savedData = pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
-                local savedData = HttpService:JSONEncode(fileContent)
+                print("[AnimHub] File content loaded:", fileContent:sub(1, 100) .. "...")
                 
-                if not savedData or type(savedData) ~= "table" then
-                    warn("[AnimHub] Invalid save data!")
-                    return
+                local decodedData = HttpService:JSONDecode(fileContent) -- ✅ FIX: JSONDecode bukan JSONEncode
+                
+                if not decodedData or type(decodedData) ~= "table" then
+                    warn("[AnimHub] Invalid save data format!")
+                    return nil
                 end
                 
-                -- Apply each animation type with verification
-                for animType, animId in pairs(savedData) do
-                    task.wait(0.08) -- Small delay between each animation
-                    
-                    if animType == "Idle" and animate:FindFirstChild("idle") then
-                        local idle = animate.idle
-                        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                            idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                            idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                        end
-                    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-                        local walk = animate.walk
-                        if walk:FindFirstChild("WalkAnim") then
-                            walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Run" and animate:FindFirstChild("run") then
-                        local run = animate.run
-                        if run:FindFirstChild("RunAnim") then
-                            run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-                        local jump = animate.jump
-                        if jump:FindFirstChild("JumpAnim") then
-                            jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-                        local fall = animate.fall
-                        if fall:FindFirstChild("FallAnim") then
-                            fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-                        local climb = animate.climb
-                        if climb:FindFirstChild("ClimbAnim") then
-                            climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    end
-                end
-                
-                lastAnimations = savedData
-                
-                -- Force refresh animations
-                task.wait(0.15)
-                RefreshCharacter()
-                
-                print("[AnimHub] Animations loaded successfully!")
+                return decodedData
             else
-                print("[AnimHub] No saved animations found.")
+                print("[AnimHub] No saved animations file found")
+                return nil
             end
         end)
         
-        if not success then
-            warn("[AnimHub] Error loading animations: " .. tostring(result))
+        if not success or not savedData then
+            warn("[AnimHub] Error loading animations: " .. tostring(savedData))
+            return
         end
+        
+        print("[AnimHub] Successfully loaded saved data:", savedData)
+        
+        -- Apply each animation type dengan verification
+        for animType, animId in pairs(savedData) do
+            task.wait(0.05) -- Small delay between each animation
+            
+            if animType == "Idle" and animate:FindFirstChild("idle") then
+                local idle = animate.idle
+                if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+                    if type(animId) == "table" and #animId >= 2 then
+                        idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                        idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                        print("[AnimHub] Set Idle animation:", animId[1], animId[2])
+                    end
+                end
+            elseif animType == "Walk" and animate:FindFirstChild("walk") then
+                local walk = animate.walk
+                if walk:FindFirstChild("WalkAnim") and type(animId) == "string" then
+                    walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Walk animation:", animId)
+                end
+            elseif animType == "Run" and animate:FindFirstChild("run") then
+                local run = animate.run
+                if run:FindFirstChild("RunAnim") and type(animId) == "string" then
+                    run.RunAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Run animation:", animId)
+                end
+            elseif animType == "Jump" and animate:FindFirstChild("jump") then
+                local jump = animate.jump
+                if jump:FindFirstChild("JumpAnim") and type(animId) == "string" then
+                    jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Jump animation:", animId)
+                end
+            elseif animType == "Fall" and animate:FindFirstChild("fall") then
+                local fall = animate.fall
+                if fall:FindFirstChild("FallAnim") and type(animId) == "string" then
+                    fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Fall animation:", animId)
+                end
+            elseif animType == "Climb" and animate:FindFirstChild("climb") then
+                local climb = animate.climb
+                if climb:FindFirstChild("ClimbAnim") and type(animId) == "string" then
+                    climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Climb animation:", animId)
+                end
+            end
+        end
+        
+        lastAnimations = savedData
+        
+        -- Force refresh animations
+        task.wait(0.2)
+        RefreshCharacter()
+        
+        print("[AnimHub] All animations loaded successfully!")
     end)
 end
 
