@@ -1651,6 +1651,7 @@ function StartAutoLoopAll()
                 if not AutoLoop or not IsAutoLoopPlaying then break end
                 
                 task.wait(1.0)
+                continue
             end
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
