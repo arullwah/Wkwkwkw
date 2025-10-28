@@ -10,8 +10,8 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 90
-local MAX_FRAMES = 20000
+local RECORDING_FPS = 60
+local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -86,14 +86,14 @@ local isShiftLockActive = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://9114262381",
-    Toggle = "rbxassetid://9114262381", 
-    RecordStart = "rbxassetid://9114262381",
-    RecordStop = "rbxassetid://9114262381",
-    Play = "rbxassetid://9114262381",
-    Stop = "rbxassetid://9114262381",
-    Error = "rbxassetid://9114262381",
-    Success = "rbxassetid://9114262381"
+    Click = "rbxassetid://4499400560",
+    Toggle = "rbxassetid://7468131335", 
+    RecordStart = "rbxassetid://4499400560",
+    RecordStop = "rbxassetid://4499400560",
+    Play = "rbxassetid://4499400560",
+    Stop = "rbxassetid://4499400560",
+    Error = "rbxassetid://7772283448",
+    Success = "rbxassetid://2865227271"
 }
 
 -- ========= MEMORY MANAGEMENT =========
@@ -821,10 +821,10 @@ CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
 
 local ResizeButton = Instance.new("TextButton")
-ResizeButton.Size = UDim2.fromOffset(30, 30)
+ResizeButton.Size = UDim2.fromOffset(24, 24)
 ResizeButton.Position = UDim2.new(1, -30, 1, -30)
 ResizeButton.BackgroundColor3 = Color3.fromRGB(200, 60, 70)
-ResizeButton.Text = "⤢"
+ResizeButton.Text = ""⛶""
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
 ResizeButton.TextSize = 14
@@ -1242,7 +1242,7 @@ function UpdateRecordList()
         upBtn.Size = UDim2.fromOffset(25, 25)
         upBtn.Position = UDim2.new(1, -80, 0, 7)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(40, 120, 200) or Color3.fromRGB(30, 30, 30)
-        upBtn.Text = "UP"
+        upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
         upBtn.TextSize = 20
@@ -1256,7 +1256,7 @@ function UpdateRecordList()
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(40, 120, 200) or Color3.fromRGB(30, 30, 30)
-        downBtn.Text = "DOWN"
+        downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
         downBtn.TextSize = 20
