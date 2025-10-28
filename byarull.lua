@@ -47,15 +47,17 @@ local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoLoop = false
 local AutoRespawn = false
+local InfiniteJump = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
+local jumpConnection = nil
 local lastRecordTime = 0
 local lastRecordPos = nil
 local checkpointNames = {}
 local PathVisualization = {}
 local ShowPaths = false
-local PauseTexts = {} -- NEW: Untuk menyimpan teks pause
+local PauseMarkers = {}
 
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
@@ -84,14 +86,14 @@ local isShiftLockActive = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://4499400560",      -- Soft click
-    Toggle = "rbxassetid://7468131335",     -- Toggle sound  
-    RecordStart = "rbxassetid://9119720940", -- Record start
-    RecordStop = "rbxassetid://1289263994",  -- Record stop
-    Play = "rbxassetid://9119720940",       -- Play sound
-    Stop = "rbxassetid://1289263994",       -- Stop sound
-    Error = "rbxassetid://18900008907",      -- Error sound
-    Success = "rbxassetid://2865227271"     -- Success sound
+    Click = "rbxassetid://9114262381",
+    Toggle = "rbxassetid://9114262381", 
+    RecordStart = "rbxassetid://9114262381",
+    RecordStop = "rbxassetid://9114262381",
+    Play = "rbxassetid://9114262381",
+    Stop = "rbxassetid://9114262381",
+    Error = "rbxassetid://9114262381",
+    Success = "rbxassetid://9114262381"
 }
 
 -- ========= MEMORY MANAGEMENT =========
@@ -125,6 +127,10 @@ local function CleanupConnections()
         shiftLockConnection:Disconnect()
         shiftLockConnection = nil
     end
+    if jumpConnection then
+        jumpConnection:Disconnect()
+        jumpConnection = nil
+    end
 end
 
 -- ========= SOUND SYSTEM =========
@@ -143,13 +149,11 @@ end
 local function AnimateButtonClick(button)
     PlaySound("Click")
     
-    -- Scale down animation
     local originalSize = button.Size
     TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
         Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 4)
     }):Play()
     
-    -- Brightness effect
     local originalColor = button.BackgroundColor3
     local brighterColor = Color3.new(
         math.min(originalColor.R * 1.3, 1),
@@ -161,7 +165,6 @@ local function AnimateButtonClick(button)
         BackgroundColor3 = brighterColor
     }):Play()
     
-    -- Reset after animation
     wait(0.1)
     TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
         Size = originalSize,
@@ -187,7 +190,6 @@ local function WaitForRespawn()
     repeat
         task.wait(0.1)
         if tick() - startTime > timeout then
-            warn("Respawn timeout!")
             return false
         end
     until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
@@ -234,13 +236,12 @@ local function ApplyVisibleShiftLock()
     local camera = workspace.CurrentCamera
     
     if humanoid and hrp and camera then
-        humanoid.AutoRotate = false  -- Ini yang bikin orang lain lihat shiftlock
+        humanoid.AutoRotate = false
         
         local lookVector = camera.CFrame.LookVector
         local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
         
         if horizontalLook.Magnitude > 0 then
-            -- INI YANG DILIHAT SEMUA ORANG - karakter selalu hadap kamera
             hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
         end
     end
@@ -261,7 +262,6 @@ local function EnableVisibleShiftLock()
     
     AddConnection(shiftLockConnection)
     PlaySound("Toggle")
-    print("🔒 Visible ShiftLock: ENABLED - Orang lain bisa lihat!")
 end
 
 local function DisableVisibleShiftLock()
@@ -276,12 +276,11 @@ local function DisableVisibleShiftLock()
     
     local char = player.Character
     if char and char:FindFirstChildOfClass("Humanoid") then
-        char.Humanoid.AutoRotate = true  -- Kembali ke rotate normal
+        char.Humanoid.AutoRotate = true
     end
     
     isShiftLockActive = false
     PlaySound("Toggle")
-    print("🔒 Visible ShiftLock: DISABLED")
 end
 
 local function ToggleVisibleShiftLock()
@@ -291,6 +290,39 @@ local function ToggleVisibleShiftLock()
         EnableVisibleShiftLock()
     else
         DisableVisibleShiftLock()
+    end
+end
+
+-- ========= INFINITE JUMP SYSTEM =========
+local function EnableInfiniteJump()
+    if jumpConnection then return end
+    
+    jumpConnection = UserInputService.JumpRequest:Connect(function()
+        if InfiniteJump and player.Character then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Freefall then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end
+    end)
+    
+    AddConnection(jumpConnection)
+end
+
+local function DisableInfiniteJump()
+    if jumpConnection then
+        jumpConnection:Disconnect()
+        jumpConnection = nil
+    end
+end
+
+local function ToggleInfiniteJump()
+    InfiniteJump = not InfiniteJump
+    
+    if InfiniteJump then
+        EnableInfiniteJump()
+    else
+        DisableInfiniteJump()
     end
 end
 
@@ -313,7 +345,6 @@ local function HideJumpButton()
         
         StarterGui:SetCore("TopbarEnabled", false)
     end)
-    print("🔼 Jump Button: HIDDEN")
 end
 
 local function ShowJumpButton()
@@ -334,7 +365,6 @@ local function ShowJumpButton()
         
         StarterGui:SetCore("TopbarEnabled", true)
     end)
-    print("🔼 Jump Button: VISIBLE")
 end
 
 local function SaveJumpButtonState()
@@ -413,8 +443,6 @@ local function RestoreFullUserControl()
     if ShiftLockEnabled then
         EnableVisibleShiftLock()
     end
-    
-    print("🎮 Full user control restored")
 end
 
 -- ========= PERFECT JUMP DETECTION =========
@@ -438,13 +466,12 @@ local function ClearPathVisualization()
     end
     PathVisualization = {}
     
-    -- NEW: Clear pause texts
-    for _, text in pairs(PauseTexts) do
-        if text and text.Parent then
-            text:Destroy()
+    for _, marker in pairs(PauseMarkers) do
+        if marker and marker.Parent then
+            marker:Destroy()
         end
     end
-    PauseTexts = {}
+    PauseMarkers = {}
 end
 
 local function CreatePathSegment(startPos, endPos, color)
@@ -466,66 +493,62 @@ local function CreatePathSegment(startPos, endPos, color)
     return part
 end
 
--- NEW: Function untuk membuat teks pause
-local function CreatePauseText(position, text)
+local function CreatePauseMarker(position)
+    local part = Instance.new("Part")
+    part.Name = "PauseMarker"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.BrickColor = BrickColor.new("Bright yellow")
+    part.Size = Vector3.new(1, 1, 1)
+    part.Position = position + Vector3.new(0, 2.5, 0)
+    part.Shape = Enum.PartType.Ball
+    part.Transparency = 0.3
+    
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "PauseText"
-    billboard.Adornee = workspace.Terrain
-    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.Size = UDim2.new(0, 100, 0, 40)
     billboard.StudsOffset = Vector3.new(0, 3, 0)
     billboard.AlwaysOnTop = true
+    billboard.Parent = part
     
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(1, 0, 1, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.Text = text
-    textLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- Kuning
-    textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    textLabel.TextStrokeTransparency = 0
-    textLabel.Font = Enum.Font.GothamBold
-    textLabel.TextSize = 14
-    textLabel.TextScaled = true
-    textLabel.Parent = billboard
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "PAUSE"
+    label.TextColor3 = Color3.new(1, 1, 0)
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.TextStrokeTransparency = 0
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.TextScaled = true
+    label.Parent = billboard
     
-    billboard.Parent = workspace
-    billboard.Adornee = nil
-    billboard.Enabled = true
+    part.Parent = workspace
+    table.insert(PauseMarkers, part)
     
-    -- Position the billboard
-    local attachment = Instance.new("Attachment")
-    attachment.Parent = workspace.Terrain
-    attachment.Position = position
-    billboard.Adornee = attachment
-    
-    table.insert(PauseTexts, billboard)
-    table.insert(PauseTexts, attachment)
-    
-    return billboard
+    return part
 end
 
-local function UpdatePauseTexts()
-    -- Clear existing pause texts
-    for _, text in pairs(PauseTexts) do
-        if text and text.Parent then
-            text:Destroy()
+local function UpdatePauseMarkers()
+    for _, marker in pairs(PauseMarkers) do
+        if marker and marker.Parent then
+            marker:Destroy()
         end
     end
-    PauseTexts = {}
+    PauseMarkers = {}
     
     if IsPaused and ShowPaths then
-        -- Create pause texts at strategic points along the path
         for _, name in ipairs(RecordingOrder) do
             local recording = RecordedMovements[name]
             if not recording or #recording < 10 then continue end
             
-            -- Place pause text at every 1/4 of the recording
             local quarter = math.floor(#recording / 4)
             for i = 1, 3 do
                 local frameIndex = quarter * i
                 if frameIndex <= #recording then
                     local frame = recording[frameIndex]
-                    local position = Vector3.new(frame.Position[1], frame.Position[2] + 2, frame.Position[3])
-                    CreatePauseText(position, "⏸️ PAUSED")
+                    local position = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+                    CreatePauseMarker(position)
                 end
             end
         end
@@ -553,8 +576,7 @@ local function VisualizeRecordingPath(recording, name)
         end
     end
     
-    -- Update pause texts if paused
-    UpdatePauseTexts()
+    UpdatePauseMarkers()
 end
 
 -- ========= OBFUSCATION FUNCTIONS =========
@@ -615,7 +637,6 @@ end
 -- ========= IMPROVED MACRO/MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
-        print("Need at least 2 checkpoints to merge!")
         PlaySound("Error")
         return
     end
@@ -627,20 +648,18 @@ local function CreateMergedReplay()
         local checkpoint = RecordedMovements[checkpointName]
         if not checkpoint then continue end
         
-        -- IMPROVED: Add transition frame between checkpoints
         if #mergedFrames > 0 and #checkpoint > 0 then
             local lastFrame = mergedFrames[#mergedFrames]
             local firstFrame = checkpoint[1]
             
-            -- Create smooth transition frame
             local transitionFrame = {
                 Position = lastFrame.Position,
                 LookVector = firstFrame.LookVector,
                 UpVector = firstFrame.UpVector,
-                Velocity = {0, 0, 0}, -- Zero velocity for smooth transition
+                Velocity = {0, 0, 0},
                 MoveState = "Grounded",
                 WalkSpeed = firstFrame.WalkSpeed,
-                Timestamp = lastFrame.Timestamp + 0.05 -- Very short transition
+                Timestamp = lastFrame.Timestamp + 0.05
             }
             table.insert(mergedFrames, transitionFrame)
             totalTimeOffset = totalTimeOffset + 0.05
@@ -664,7 +683,6 @@ local function CreateMergedReplay()
         end
     end
     
-    -- IMPROVED: Optimize merged frames for smoother playback
     local optimizedFrames = {}
     local lastSignificantFrame = nil
     
@@ -672,12 +690,10 @@ local function CreateMergedReplay()
         local shouldInclude = true
         
         if lastSignificantFrame then
-            -- Check if this frame is significantly different
             local pos1 = Vector3.new(lastSignificantFrame.Position[1], lastSignificantFrame.Position[2], lastSignificantFrame.Position[3])
             local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[2])
             local distance = (pos1 - pos2).Magnitude
             
-            -- Include frame if significant movement or state change
             if distance < 0.1 and frame.MoveState == lastSignificantFrame.MoveState then
                 shouldInclude = false
             end
@@ -689,16 +705,13 @@ local function CreateMergedReplay()
         end
     end
     
-    local mergedName = "arul_" .. os.date("%H%M%S")
+    local mergedName = "merged_" .. os.date("%H%M%S")
     RecordedMovements[mergedName] = optimizedFrames
     table.insert(RecordingOrder, mergedName)
     checkpointNames[mergedName] = "MERGED ALL"
     
     UpdateRecordList()
     PlaySound("Success")
-    print("✅ Improved Merge: " .. #RecordingOrder-1 .. " checkpoints into one replay!")
-    print("📊 Original frames: " .. #mergedFrames .. " | Optimized: " .. #optimizedFrames)
-    print("🎯 Smoother playback with transition frames")
 end
 
 -- ========= FRAME DATA FUNCTIONS =========
@@ -737,8 +750,8 @@ else
 end
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 320)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -160)
+MainFrame.Size = UDim2.fromOffset(250, 350)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -175)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -763,7 +776,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(100, 255, 150)
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Center
@@ -773,8 +786,8 @@ local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
-FrameLabel.Text = "Frames: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+FrameLabel.Text = "Frame: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
@@ -828,14 +841,14 @@ Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
 Content.ScrollBarThickness = 3
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-Content.CanvasSize = UDim2.new(0, 0, 0, 750)
+Content.CanvasSize = UDim2.new(0, 0, 0, 800)
 Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -20, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "ArL"
+MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 14
@@ -871,7 +884,6 @@ local function CreateButton(text, x, y, w, h, color, parent)
     stroke.Transparency = 0.7
     stroke.Parent = btn
     
-    -- Hover effect
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = Color3.new(
@@ -955,21 +967,24 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
--- UPDATED: Recording button now GREEN, Stop recording RED
-local RecordBtnBig = CreateButton("RECORDING", 5, 5, 240, 30, Color3.fromRGB(63, 8, 135)) -- HIJAU
+-- UPDATED COLORS: Recording button colors as requested
+local RecordBtnBig = CreateButton("RECORDING", 5, 5, 240, 30, Color3.fromRGB(34, 22, 169))
 
-local PlayBtnBig = CreateButton("️ PLAY", 5, 40, 75, 30, Color3.fromRGB(63, 8, 135))
-local StopBtnBig = CreateButton(" STOP", 85, 40, 75, 30, Color3.fromRGB(220, 60, 70))
-local PauseBtnBig = CreateButton(" PAUSE", 165, 40, 75, 30, Color3.fromRGB(192, 186, 44))
+local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(50, 200, 90))
+local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(220, 60, 70))
+local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(173, 197, 24))
 
 -- Toggle layout: Kiri=AutoLoop, Tengah=ShiftLock, Kanan=AutoRespawn
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
-local ShiftLockBtn, AnimateShiftLock = CreateToggle(" ShiftLock", 82, 75, 78, 22, false)
+local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 82, 75, 78, 22, false)
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 164, 75, 78, 22, false)
+
+-- NEW: Infinite Jump Toggle
+local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 0, 102, 240, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(117, 26)
-FilenameBox.Position = UDim2.fromOffset(0, 102)
+FilenameBox.Position = UDim2.fromOffset(0, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
@@ -987,7 +1002,7 @@ FilenameCorner.Parent = FilenameBox
 
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(117, 26)
-SpeedBox.Position = UDim2.fromOffset(123, 102)
+SpeedBox.Position = UDim2.fromOffset(123, 129)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -1003,15 +1018,15 @@ local SpeedCorner = Instance.new("UICorner")
 SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
-local SaveFileBtn = CreateButton("💾 SAVE FILE", 0, 133, 117, 26, Color3.fromRGB(50, 140, 220))
-local LoadFileBtn = CreateButton("📂 LOAD FILE", 123, 133, 117, 26, Color3.fromRGB(0, 163, 151))
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 160, 117, 26, Color3.fromRGB(50, 140, 220))
+local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(50, 200, 90))
 
-local PathToggleBtn = CreateButton("〽️ RUTE", 0, 164, 117, 26, Color3.fromRGB(180, 80, 220))
-local MergeBtn = CreateButton("🔄 MERGE", 123, 164, 117, 26, Color3.fromRGB(180, 80, 220))
+local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(180, 80, 220))
+local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(180, 80, 220))
 
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 1, -195)
-RecordList.Position = UDim2.fromOffset(0, 195)
+RecordList.Size = UDim2.new(1, 0, 1, -222)
+RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
 RecordList.ScrollBarThickness = 3
@@ -1105,17 +1120,19 @@ UserInputService.InputChanged:Connect(function(input)
             ShiftLockBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) + 5, 75)
             RespawnBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) * 2 + 10, 75)
             
+            JumpBtn.Size = UDim2.fromOffset(240 * widthScale, 22)
+            
             FilenameBox.Size = UDim2.fromOffset(117 * widthScale, 26)
             SpeedBox.Size = UDim2.fromOffset(117 * widthScale, 26)
-            SpeedBox.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 102)
+            SpeedBox.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 129)
             
             SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
-            LoadFileBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 133)
+            LoadFileBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 160)
             
             PathToggleBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
-            MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 164)
+            MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
         end
     end
 end)
@@ -1211,7 +1228,7 @@ function UpdateRecordList()
         playBtn.Size = UDim2.fromOffset(25, 25)
         playBtn.Position = UDim2.new(1, -110, 0, 7)
         playBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        playBtn.Text = "▶️"
+        playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
         playBtn.TextSize = 20
@@ -1225,7 +1242,7 @@ function UpdateRecordList()
         upBtn.Size = UDim2.fromOffset(25, 25)
         upBtn.Position = UDim2.new(1, -80, 0, 7)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(40, 120, 200) or Color3.fromRGB(30, 30, 30)
-        upBtn.Text = "⬆️"
+        upBtn.Text = "UP"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
         upBtn.TextSize = 20
@@ -1239,7 +1256,7 @@ function UpdateRecordList()
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(40, 120, 200) or Color3.fromRGB(30, 30, 30)
-        downBtn.Text = "⬇️"
+        downBtn.Text = "DOWN"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
         downBtn.TextSize = 20
@@ -1253,7 +1270,7 @@ function UpdateRecordList()
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
         delBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        delBtn.Text = "🚮"
+        delBtn.Text = "❌️"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
         delBtn.TextSize = 20
@@ -1333,7 +1350,6 @@ end
 -- ========= AUTOMATIC SAVE SYSTEM =========
 local function AutoSaveRecording()
     if #CurrentRecording.Frames == 0 then
-        print("No recording to save!")
         PlaySound("Error")
         return
     end
@@ -1346,29 +1362,26 @@ local function AutoSaveRecording()
     UpdateRecordList()
     
     PlaySound("Success")
-    print("Auto-saved recording: " .. name)
-    print("Frames: " .. #CurrentRecording.Frames)
     
-    CurrentRecording = {Frames = {}, StartTime = 0, Name = "Roel_" .. os.date("%H%M%S")}
+    CurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
 end
 
 function StartRecording()
     if IsRecording then return end
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
-        print("Character not found!")
         PlaySound("Error")
         return
     end
     
     IsRecording = true
-    CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Roel_" .. os.date("%H%M%S")}
+    CurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
     lastRecordTime = 0
     lastRecordPos = nil
     lastFrameTime = 0
     
-    RecordBtnBig.Text = "⏹️ STOP RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(220, 60, 70) -- MERAH saat recording
+    RecordBtnBig.Text = "STOP RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10) -- MERAH saat recording
     
     PlaySound("RecordStart")
     
@@ -1434,8 +1447,8 @@ function StopRecording()
         AutoSaveRecording()
     end
     
-    RecordBtnBig.Text = "⏺️ RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(50, 200, 90) -- HIJAU saat idle
+    RecordBtnBig.Text = "RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(34, 22, 169) -- BIRU saat idle
     
     PlaySound("RecordStop")
     FrameLabel.Text = "Frames: 0"
@@ -1447,14 +1460,12 @@ function PlayRecording(name)
     
     local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
     if not recording or #recording == 0 then
-        print("No recordings or empty recording!")
         PlaySound("Error")
         return
     end
     
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
-        print("Character not found!")
         PlaySound("Error")
         return
     end
@@ -1487,8 +1498,7 @@ function PlayRecording(name)
                 if ShiftLockEnabled then
                     ApplyVisibleShiftLock()
                 end
-                -- NEW: Update pause texts when paused
-                UpdatePauseTexts()
+                UpdatePauseMarkers()
             end
             return
         else
@@ -1497,8 +1507,7 @@ function PlayRecording(name)
                 pauseStartTime = 0
                 DisableJump()
                 HideJumpButton()
-                -- NEW: Clear pause texts when resumed
-                UpdatePauseTexts()
+                UpdatePauseMarkers()
             end
         end
 
@@ -1528,7 +1537,6 @@ function PlayRecording(name)
             IsPlaying = false
             RestoreFullUserControl()
             PlaySound("Success")
-            print("Playback finished - Control restored")
             return
         end
 
@@ -1569,7 +1577,6 @@ function PlayRecording(name)
                 end
             end
             
-            -- Apply VISIBLE shift lock during playback
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
@@ -1584,14 +1591,12 @@ function StartAutoLoopAll()
     if not AutoLoop then return end
     
     if #RecordingOrder == 0 then
-        print("No checkpoints to loop!")
         AutoLoop = false
         AnimateLoop(false)
         PlaySound("Error")
         return
     end
     
-    print("Starting auto loop with " .. #RecordingOrder .. " recordings")
     PlaySound("Play")
     
     CurrentLoopIndex = 1
@@ -1603,7 +1608,6 @@ function StartAutoLoopAll()
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
-                print("Skipping empty recording: " .. recordingName)
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -1618,11 +1622,9 @@ function StartAutoLoopAll()
             end
             
             if shouldReset then
-                print("Resetting character for new loop")
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
-                    print("Respawn failed! Stopping loop.")
                     AutoLoop = false
                     IsAutoLoopPlaying = false
                     AnimateLoop(false)
@@ -1630,18 +1632,15 @@ function StartAutoLoopAll()
                     break
                 end
                 
-                print("Waiting for character to fully load...")
                 task.wait(1.5)
             end
             
             if not IsCharacterReady() then
-                print("Character died, waiting for respawn...")
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
-                        print("Respawn timeout! Stopping loop.")
                         AutoLoop = false
                         IsAutoLoopPlaying = false
                         AnimateLoop(false)
@@ -1653,13 +1652,10 @@ function StartAutoLoopAll()
                 
                 if not AutoLoop or not IsAutoLoopPlaying then break end
                 
-                print("Character respawned, waiting to stabilize...")
                 task.wait(1.0)
             end
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            print("Playing recording " .. CurrentLoopIndex .. "/" .. #RecordingOrder .. ": " .. recordingName)
             
             local playbackCompleted = false
             local playbackStart = tick()
@@ -1674,7 +1670,6 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
-                    print("Character died during playback, stopping current recording")
                     break
                 end
                 
@@ -1686,8 +1681,7 @@ function StartAutoLoopAll()
                         if ShiftLockEnabled then
                             ApplyVisibleShiftLock()
                         end
-                        -- NEW: Update pause texts when paused
-                        UpdatePauseTexts()
+                        UpdatePauseMarkers()
                     end
                     task.wait(0.1)
                 else
@@ -1696,8 +1690,7 @@ function StartAutoLoopAll()
                         playbackPauseStart = 0
                         DisableJump()
                         HideJumpButton()
-                        -- NEW: Clear pause texts when resumed
-                        UpdatePauseTexts()
+                        UpdatePauseMarkers()
                     end
                     
                     local char = player.Character
@@ -1755,7 +1748,6 @@ function StartAutoLoopAll()
                                 end
                             end
                             
-                            -- Apply VISIBLE shift lock during playback
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
                             end
@@ -1769,21 +1761,16 @@ function StartAutoLoopAll()
             RestoreFullUserControl()
             
             if playbackCompleted then
-                print("Finished recording: " .. recordingName)
                 PlaySound("Success")
                 
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
-                    print("Loop completed, restarting from beginning")
                 end
                 
                 task.wait(0.5)
             else
                 if not IsCharacterReady() then
-                    print("Playback interrupted - character died")
-                else
-                    print("Playback interrupted")
                     break
                 end
             end
@@ -1792,7 +1779,6 @@ function StartAutoLoopAll()
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
-        print("Auto loop stopped")
     end)
 end
 
@@ -1813,7 +1799,6 @@ function StopAutoLoopAll()
     if char then CompleteCharacterReset(char) end
     
     PlaySound("Stop")
-    print("Auto loop stopped")
 end
 
 function StopPlayback()
@@ -1831,7 +1816,6 @@ function StopPlayback()
     if char then CompleteCharacterReset(char) end
     
     PlaySound("Stop")
-    print("Playback stopped")
 end
 
 function PausePlayback()
@@ -1840,52 +1824,44 @@ function PausePlayback()
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
-            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116) -- HIJAU untuk resume
             RestoreHumanoidState()
             ShowJumpButton()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            -- NEW: Update pause texts
-            UpdatePauseTexts()
+            UpdatePauseMarkers()
             PlaySound("Click")
-            print("Auto Loop paused")
         else
             PauseBtnBig.Text = "PAUSE"
-            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
+            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(173, 197, 24) -- KUNING untuk pause
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            -- NEW: Clear pause texts
-            UpdatePauseTexts()
+            UpdatePauseMarkers()
             PlaySound("Click")
-            print("Auto Loop resumed")
         end
     elseif IsPlaying then
         IsPaused = not IsPaused
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
-            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116) -- HIJAU untuk resume
             RestoreHumanoidState()
             ShowJumpButton()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            -- NEW: Update pause texts
-            UpdatePauseTexts()
+            UpdatePauseMarkers()
             PlaySound("Click")
-            print("Playback paused")
         else
             PauseBtnBig.Text = "PAUSE"
-            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
+            PauseBtnBig.BackgroundColor3 = Color3.fromRGB(173, 197, 24) -- KUNING untuk pause
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            -- NEW: Clear pause texts
-            UpdatePauseTexts()
+            UpdatePauseMarkers()
             PlaySound("Click")
-            print("Playback resumed")
         end
     end
 end
@@ -1897,7 +1873,6 @@ local function SaveToObfuscatedJSON()
     filename = filename .. ".json"
     
     if not next(RecordedMovements) then
-        print("No recordings to save!")
         PlaySound("Error")
         return
     end
@@ -1924,14 +1899,10 @@ local function SaveToObfuscatedJSON()
         local jsonString = HttpService:JSONEncode(saveData)
         writefile(filename, jsonString)
         PlaySound("Success")
-        print("Saved OBFUSCATED file: " .. filename)
-        print(" Field mapping: Position→11, LookVector→88, UpVector→55, etc.")
-        print(" Total checkpoints saved: " .. #saveData.Checkpoints)
     end)
     
     if not success then
         PlaySound("Error")
-        print("Save failed: " .. tostring(err))
     end
 end
 
@@ -1942,7 +1913,6 @@ local function LoadFromObfuscatedJSON()
     
     local success, err = pcall(function()
         if not isfile(filename) then
-            print("File not found: " .. filename)
             PlaySound("Error")
             return
         end
@@ -1954,12 +1924,7 @@ local function LoadFromObfuscatedJSON()
         RecordingOrder = {}
         checkpointNames = {}
         
-        print("🔍 Loading file: " .. filename)
-        print("📁 File version: " .. tostring(saveData.Version))
-        print("🔒: " .. tostring(saveData.Obfuscated))
-        
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            print("")
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
@@ -1970,13 +1935,9 @@ local function LoadFromObfuscatedJSON()
                     RecordedMovements[name] = frames
                     table.insert(RecordingOrder, name)
                     checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
-                    print(" Loaded checkpoint: " .. name .. " (" .. #frames .. " frames)")
-                else
-                    print("⚠️  Missing frames for: " .. name)
                 end
             end
         else
-            print(" Loading normal file format...")
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 local name = checkpointData.Name
                 local frames = checkpointData.Frames
@@ -1985,22 +1946,16 @@ local function LoadFromObfuscatedJSON()
                     RecordedMovements[name] = frames
                     table.insert(RecordingOrder, name)
                     checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
-                    print("Loaded checkpoint: " .. name .. " (" .. #frames .. " frames)")
-                else
-                    print("⚠️  Missing frames for: " .. name)
                 end
             end
         end
         
         UpdateRecordList()
         PlaySound("Success")
-        print("Successfully loaded file: " .. filename)
-        print(" Total checkpoints loaded: " .. #RecordingOrder)
     end)
     
     if not success then
         PlaySound("Error")
-        print("Load failed: " .. tostring(err))
     end
 end
 
@@ -2031,10 +1986,7 @@ local function VisualizeAllPaths()
         end
     end
     
-    -- NEW: Add pause texts if paused
-    UpdatePauseTexts()
-    
-    print("Visualized paths for all recordings")
+    UpdatePauseMarkers()
 end
 
 -- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
@@ -2072,7 +2024,6 @@ LoopBtn.MouseButton1Click:Connect(function()
         if not next(RecordedMovements) then
             AutoLoop = false
             AnimateLoop(false)
-            print("No recordings to loop!")
             return
         end
         
@@ -2082,11 +2033,9 @@ LoopBtn.MouseButton1Click:Connect(function()
             RestoreFullUserControl()
         end
         
-        print("Auto Loop Started")
         StartAutoLoopAll()
     else
         StopAutoLoopAll()
-        print("Auto Loop Stopped")
     end
 end)
 
@@ -2101,7 +2050,14 @@ RespawnBtn.MouseButton1Click:Connect(function()
     AutoRespawn = not AutoRespawn
     AnimateRespawn(AutoRespawn)
     PlaySound("Toggle")
-    print("Auto Respawn: " .. (AutoRespawn and "ON" or "OFF"))
+end)
+
+-- NEW: Infinite Jump Button
+JumpBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(JumpBtn)
+    ToggleInfiniteJump()
+    AnimateJump(InfiniteJump)
+    PlaySound("Toggle")
 end)
 
 SaveFileBtn.MouseButton1Click:Connect(function()
@@ -2118,10 +2074,10 @@ PathToggleBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(PathToggleBtn)
     ShowPaths = not ShowPaths
     if ShowPaths then
-        PathToggleBtn.Text = "RUTE OFF"
+        PathToggleBtn.Text = "HIDE RUTE"
         VisualizeAllPaths()
     else
-        PathToggleBtn.Text = "RUTE ON"
+        PathToggleBtn.Text = "SHOW RUTE"
         ClearPathVisualization()
     end
 end)
@@ -2148,11 +2104,11 @@ CloseButton.MouseButton1Click:Connect(function()
     if IsRecording then StopRecording() end
     if IsPlaying or AutoLoop then StopPlayback() end
     if ShiftLockEnabled then DisableVisibleShiftLock() end
+    if InfiniteJump then DisableInfiniteJump() end
     CleanupConnections()
     ClearPathVisualization()
     ShowJumpButton()
     ScreenGui:Destroy()
-    print("ByaruL Auto Walk System Closed")
 end)
 
 -- ========= HOTKEYS =========
@@ -2187,5 +2143,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F3 then
         ToggleVisibleShiftLock()
         AnimateShiftLock(ShiftLockEnabled)
+    elseif input.KeyCode == Enum.KeyCode.F2 then
+        ToggleInfiniteJump()
+        AnimateJump(InfiniteJump)
     end
 end)
