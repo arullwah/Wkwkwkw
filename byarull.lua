@@ -9,8 +9,8 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
-local MAX_FRAMES = 30000
+local RECORDING_FPS = 90
+local MAX_FRAMES = 20000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -490,31 +490,23 @@ local function CreatePathSegment(startPos, endPos, color)
     return part
 end
 
-local function CreatePauseMarker()
+local function CreatePauseMarker(position)
     if CurrentPauseMarker and CurrentPauseMarker.Parent then
         CurrentPauseMarker:Destroy()
         CurrentPauseMarker = nil
     end
     
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hrp = char.HumanoidRootPart
-    local position = hrp.Position + Vector3.new(0, 3, 0)
-    
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "PauseMarker"
     billboard.Size = UDim2.new(0, 200, 0, 60)
-    billboard.StudsOffset = Vector3.new(0, 2, 0)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
     billboard.AlwaysOnTop = true
-    billboard.Adornee = hrp
-    billboard.Parent = hrp
     
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = "PAUSE"
-    label.TextColor3 = Color3.new(1, 1, 0)
+    label.TextColor3 = Color3.new(1, 1, 0) -- Kuning
     label.TextStrokeColor3 = Color3.new(0, 0, 0)
     label.TextStrokeTransparency = 0
     label.Font = Enum.Font.GothamBold
@@ -522,14 +514,33 @@ local function CreatePauseMarker()
     label.TextScaled = false
     label.Parent = billboard
     
-    CurrentPauseMarker = billboard
-    return billboard
+    -- Buat part untuk menempatkan billboard di posisi tertentu
+    local part = Instance.new("Part")
+    part.Name = "PauseMarkerPart"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Size = Vector3.new(0.1, 0.1, 0.1)
+    part.Transparency = 1
+    part.Position = position + Vector3.new(0, 2, 0)
+    part.Parent = workspace
+    
+    billboard.Adornee = part
+    billboard.Parent = part
+    
+    CurrentPauseMarker = part
+    
+    return part
 end
 
 local function UpdatePauseMarker()
     if IsPaused then
         if not CurrentPauseMarker then
-            CreatePauseMarker()
+            -- Dapatkan posisi karakter saat ini
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local position = char.HumanoidRootPart.Position
+                CreatePauseMarker(position)
+            end
         end
     else
         if CurrentPauseMarker and CurrentPauseMarker.Parent then
@@ -758,7 +769,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(100, 255, 150)
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Center
@@ -768,8 +779,8 @@ local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
-FrameLabel.Text = "Frames: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+FrameLabel.Text = "Frame: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
@@ -777,7 +788,7 @@ FrameLabel.Parent = Header
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(30, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+HideButton.BackgroundColor3 = Color3.fromRGB(181, 179, 179)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
@@ -791,7 +802,7 @@ HideCorner.Parent = HideButton
 local CloseButton = Instance.new("TextButton")
 CloseButton.Size = UDim2.fromOffset(30, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+CloseButton.BackgroundColor3 = Color3.fromRGB(197, 31, 31)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -803,10 +814,10 @@ CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
 
 local ResizeButton = Instance.new("TextButton")
-ResizeButton.Size = UDim2.fromOffset(30, 30)
+ResizeButton.Size = UDim2.fromOffset(24, 24)
 ResizeButton.Position = UDim2.new(1, -30, 1, -30)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-ResizeButton.Text = "⤢"
+ResizeButton.BackgroundColor3 = Color3.fromRGB(197, 31, 31)
+ResizeButton.Text = "⛶"
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
 ResizeButton.TextSize = 14
@@ -828,9 +839,9 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -20, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "ArL"
+MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 14
@@ -1182,7 +1193,7 @@ function UpdateRecordList()
         nameBox.Font = Enum.Font.GothamBold
         nameBox.TextSize = 10
         nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.PlaceholderText = "Enter name..."
+        nameBox.PlaceholderText = "nama..."
         nameBox.ClearTextOnFocus = false
         nameBox.Parent = item
         
@@ -1237,7 +1248,7 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(189, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
@@ -1252,10 +1263,10 @@ function UpdateRecordList()
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
         delBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        delBtn.Text = "✕"
+        delBtn.Text = "❌️"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 20
+        delBtn.TextSize = 15
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
@@ -1821,7 +1832,7 @@ function PausePlayback()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            UpdatePauseMarker()
+            UpdatePauseMarker() -- TAMBAHKAN INI
             PlaySound("Click")
         else
             PauseBtnBig.Text = "PAUSE"
@@ -1829,7 +1840,7 @@ function PausePlayback()
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            UpdatePauseMarker()
+            UpdatePauseMarker() -- TAMBAHKAN INI
             PlaySound("Click")
         end
     elseif IsPlaying then
@@ -1843,7 +1854,7 @@ function PausePlayback()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            UpdatePauseMarker()
+            UpdatePauseMarker() -- TAMBAHKAN INI
             PlaySound("Click")
         else
             PauseBtnBig.Text = "PAUSE"
@@ -1851,7 +1862,7 @@ function PausePlayback()
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            UpdatePauseMarker()
+            UpdatePauseMarker() -- TAMBAHKAN INI
             PlaySound("Click")
         end
     end
