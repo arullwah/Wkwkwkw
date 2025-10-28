@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local StarterGui = game:GetService("StarterGui")
+local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 wait(1)
 
@@ -73,11 +74,23 @@ local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
 
--- ========= SHIFTLOCK SYSTEM =========
+-- ========= VISIBLE SHIFTLOCK SYSTEM =========
 local shiftLockConnection = nil
 local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
+
+-- ========= SOUND EFFECTS =========
+local SoundEffects = {
+    Click = "rbxassetid://9114262381",      -- Soft click
+    Toggle = "rbxassetid://9114262381",     -- Toggle sound  
+    RecordStart = "rbxassetid://9114262381", -- Record start
+    RecordStop = "rbxassetid://9114262381",  -- Record stop
+    Play = "rbxassetid://9114262381",       -- Play sound
+    Stop = "rbxassetid://9114262381",       -- Stop sound
+    Error = "rbxassetid://9114262381",      -- Error sound
+    Success = "rbxassetid://9114262381"     -- Success sound
+}
 
 -- ========= MEMORY MANAGEMENT =========
 local activeConnections = {}
@@ -110,6 +123,48 @@ local function CleanupConnections()
         shiftLockConnection:Disconnect()
         shiftLockConnection = nil
     end
+end
+
+-- ========= SOUND SYSTEM =========
+local function PlaySound(soundType)
+    pcall(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = SoundEffects[soundType] or SoundEffects.Click
+        sound.Volume = 0.3
+        sound.Parent = workspace
+        sound:Play()
+        game:GetService("Debris"):AddItem(sound, 2)
+    end)
+end
+
+-- ========= ENHANCED BUTTON ANIMATION =========
+local function AnimateButtonClick(button)
+    PlaySound("Click")
+    
+    -- Scale down animation
+    local originalSize = button.Size
+    TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 4)
+    }):Play()
+    
+    -- Brightness effect
+    local originalColor = button.BackgroundColor3
+    local brighterColor = Color3.new(
+        math.min(originalColor.R * 1.3, 1),
+        math.min(originalColor.G * 1.3, 1), 
+        math.min(originalColor.B * 1.3, 1)
+    )
+    
+    TweenService:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = brighterColor
+    }):Play()
+    
+    -- Reset after animation
+    wait(0.1)
+    TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
+        Size = originalSize,
+        BackgroundColor3 = originalColor
+    }):Play()
 end
 
 -- ========= AUTO RESPAWN FUNCTION =========
@@ -167,8 +222,8 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= SHIFTLOCK SYSTEM FUNCTIONS =========
-local function ApplyShiftLock()
+-- ========= VISIBLE SHIFTLOCK SYSTEM FUNCTIONS =========
+local function ApplyVisibleShiftLock()
     if not ShiftLockEnabled or not player.Character then return end
     
     local char = player.Character
@@ -177,19 +232,19 @@ local function ApplyShiftLock()
     local camera = workspace.CurrentCamera
     
     if humanoid and hrp and camera then
-        humanoid.AutoRotate = false
+        humanoid.AutoRotate = false  -- Ini yang bikin orang lain lihat shiftlock
         
-        -- Calculate look direction without Y axis
         local lookVector = camera.CFrame.LookVector
         local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
         
         if horizontalLook.Magnitude > 0 then
+            -- INI YANG DILIHAT SEMUA ORANG - karakter selalu hadap kamera
             hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
         end
     end
 end
 
-local function EnableShiftLock()
+local function EnableVisibleShiftLock()
     if shiftLockConnection or not ShiftLockEnabled then return end
     
     originalMouseBehavior = UserInputService.MouseBehavior
@@ -198,15 +253,16 @@ local function EnableShiftLock()
     
     shiftLockConnection = RunService.RenderStepped:Connect(function()
         if ShiftLockEnabled and player.Character then
-            ApplyShiftLock()
+            ApplyVisibleShiftLock()
         end
     end)
     
     AddConnection(shiftLockConnection)
-    print("🔒 ShiftLock: ENABLED")
+    PlaySound("Toggle")
+    print("🔒 Visible ShiftLock: ENABLED - Orang lain bisa lihat!")
 end
 
-local function DisableShiftLock()
+local function DisableVisibleShiftLock()
     if shiftLockConnection then
         shiftLockConnection:Disconnect()
         shiftLockConnection = nil
@@ -218,20 +274,21 @@ local function DisableShiftLock()
     
     local char = player.Character
     if char and char:FindFirstChildOfClass("Humanoid") then
-        char.Humanoid.AutoRotate = true
+        char.Humanoid.AutoRotate = true  -- Kembali ke rotate normal
     end
     
     isShiftLockActive = false
-    print("🔒 ShiftLock: DISABLED")
+    PlaySound("Toggle")
+    print("🔒 Visible ShiftLock: DISABLED")
 end
 
-local function ToggleShiftLock()
+local function ToggleVisibleShiftLock()
     ShiftLockEnabled = not ShiftLockEnabled
     
     if ShiftLockEnabled then
-        EnableShiftLock()
+        EnableVisibleShiftLock()
     else
-        DisableShiftLock()
+        DisableVisibleShiftLock()
     end
 end
 
@@ -241,7 +298,6 @@ local function HideJumpButton()
         StarterGui:SetCore("VRLaserPointerMode", 0)
         StarterGui:SetCore("VREnableControllerModels", false)
         
-        -- Alternative method for mobile jump button
         local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
         if touchGui then
             local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
@@ -253,7 +309,6 @@ local function HideJumpButton()
             end
         end
         
-        -- Hide jump button for PC
         StarterGui:SetCore("TopbarEnabled", false)
     end)
     print("🔼 Jump Button: HIDDEN")
@@ -264,7 +319,6 @@ local function ShowJumpButton()
         StarterGui:SetCore("VRLaserPointerMode", 3)
         StarterGui:SetCore("VREnableControllerModels", true)
         
-        -- Show mobile jump button
         local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
         if touchGui then
             local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
@@ -276,7 +330,6 @@ local function ShowJumpButton()
             end
         end
         
-        -- Show topbar for PC
         StarterGui:SetCore("TopbarEnabled", true)
     end)
     print("🔼 Jump Button: VISIBLE")
@@ -353,12 +406,10 @@ local function RestoreFullUserControl()
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
     
-    -- Restore jump button
     ShowJumpButton()
     
-    -- Restore shift lock if enabled
     if ShiftLockEnabled then
-        EnableShiftLock()
+        EnableVisibleShiftLock()
     end
     
     print("🎮 Full user control restored")
@@ -486,6 +537,7 @@ end
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
         print("Need at least 2 checkpoints to merge!")
+        PlaySound("Error")
         return
     end
     
@@ -520,6 +572,7 @@ local function CreateMergedReplay()
     checkpointNames[mergedName] = "MERGED ALL"
     
     UpdateRecordList()
+    PlaySound("Success")
     print("Merge " .. #RecordingOrder-1 .. " checkpoints into one replay!")
     print("Total frames: " .. #mergedFrames)
 end
@@ -671,7 +724,7 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- Helper Functions
+-- Enhanced Button Creation with Powerful Animations
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -690,19 +743,30 @@ local function CreateButton(text, x, y, w, h, color, parent)
     
     local stroke = Instance.new("UIStroke")
     stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.85
+    stroke.Thickness = 1.5
+    stroke.Transparency = 0.7
     stroke.Parent = btn
     
-    btn.MouseButton1Down:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = UDim2.fromOffset(w - 2, h - 2)
+    -- Hover effect
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.new(
+                math.min(color.R * 1.2, 1),
+                math.min(color.G * 1.2, 1),
+                math.min(color.B * 1.2, 1)
+            )
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.3
         }):Play()
     end)
     
-    btn.MouseButton1Up:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
-            Size = UDim2.fromOffset(w, h)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundColor3 = color
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.7
         }):Play()
     end)
     
@@ -755,6 +819,7 @@ local function CreateToggle(text, x, y, w, h, default)
     knobCorner.Parent = knob
     
     local function Animate(isOn)
+        PlaySound("Toggle")
         local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
         local knobPos = isOn and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
@@ -766,13 +831,14 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
-local RecordBtnBig = CreateButton("⏺️ RECORDING", 5, 5, 240, 30, Color3.fromRGB(220, 60, 70))
+-- UPDATED: Recording button now GREEN, Stop recording RED
+local RecordBtnBig = CreateButton("⏺️ RECORDING", 5, 5, 240, 30, Color3.fromRGB(50, 200, 90)) -- HIJAU
 
 local PlayBtnBig = CreateButton("▶️ PLAY", 5, 40, 75, 30, Color3.fromRGB(50, 200, 90))
 local StopBtnBig = CreateButton("⏹️ STOP", 85, 40, 75, 30, Color3.fromRGB(220, 60, 70))
 local PauseBtnBig = CreateButton("⏸️ PAUSE", 165, 40, 75, 30, Color3.fromRGB(200, 160, 50))
 
--- NEW TOGGLE LAYOUT: Kiri=AutoLoop, Tengah=ShiftLock, Kanan=AutoRespawn
+-- Toggle layout: Kiri=AutoLoop, Tengah=ShiftLock, Kanan=AutoRespawn
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("🔒 ShiftLock", 82, 75, 78, 22, false)
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 164, 75, 78, 22, false)
@@ -847,8 +913,10 @@ SpeedBox.FocusLost:Connect(function()
     if success then
         CurrentSpeed = result
         SpeedBox.Text = string.format("%.2f", result)
+        PlaySound("Success")
     else
         SpeedBox.Text = string.format("%.2f", CurrentSpeed)
+        PlaySound("Error")
     end
 end)
 
@@ -1072,18 +1140,28 @@ function UpdateRecordList()
         delCorner.Parent = delBtn
         
         upBtn.MouseButton1Click:Connect(function()
-            if index > 1 then MoveRecordingUp(name) end
+            if index > 1 then 
+                AnimateButtonClick(upBtn)
+                MoveRecordingUp(name) 
+            end
         end)
         
         downBtn.MouseButton1Click:Connect(function()
-            if index < #RecordingOrder then MoveRecordingDown(name) end
+            if index < #RecordingOrder then 
+                AnimateButtonClick(downBtn)
+                MoveRecordingDown(name) 
+            end
         end)
         
         playBtn.MouseButton1Click:Connect(function()
-            if not IsPlaying then PlayRecording(name) end
+            if not IsPlaying then 
+                AnimateButtonClick(playBtn)
+                PlayRecording(name) 
+            end
         end)
         
         delBtn.MouseButton1Click:Connect(function()
+            AnimateButtonClick(delBtn)
             RecordedMovements[name] = nil
             checkpointNames[name] = nil
             local idx = table.find(RecordingOrder, name)
@@ -1132,6 +1210,7 @@ end
 local function AutoSaveRecording()
     if #CurrentRecording.Frames == 0 then
         print("No recording to save!")
+        PlaySound("Error")
         return
     end
     
@@ -1142,6 +1221,7 @@ local function AutoSaveRecording()
     
     UpdateRecordList()
     
+    PlaySound("Success")
     print("Auto-saved recording: " .. name)
     print("Frames: " .. #CurrentRecording.Frames)
     
@@ -1153,6 +1233,7 @@ function StartRecording()
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         print("Character not found!")
+        PlaySound("Error")
         return
     end
     
@@ -1162,8 +1243,10 @@ function StartRecording()
     lastRecordPos = nil
     lastFrameTime = 0
     
-    RecordBtnBig.Text = "STOP RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    RecordBtnBig.Text = "⏹️ STOP RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(220, 60, 70) -- MERAH saat recording
+    
+    PlaySound("RecordStart")
     
     recordConnection = RunService.Heartbeat:Connect(function()
         if not IsRecording then return end
@@ -1228,23 +1311,27 @@ function StopRecording()
     end
     
     RecordBtnBig.Text = "⏺️ RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(220, 60, 70)
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(50, 200, 90) -- HIJAU saat idle
+    
+    PlaySound("RecordStop")
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH SHIFTLOCK SUPPORT =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH VISIBLE SHIFTLOCK =========
 function PlayRecording(name)
     if IsPlaying then return end
     
     local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
     if not recording or #recording == 0 then
         print("No recordings or empty recording!")
+        PlaySound("Error")
         return
     end
     
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         print("Character not found!")
+        PlaySound("Error")
         return
     end
 
@@ -1258,8 +1345,8 @@ function PlayRecording(name)
     SaveHumanoidState()
     DisableJump()
     
-    -- Hide jump button when playback starts
     HideJumpButton()
+    PlaySound("Play")
 
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
@@ -1272,11 +1359,9 @@ function PlayRecording(name)
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
                 RestoreHumanoidState()
-                -- Show jump button when paused
                 ShowJumpButton()
-                -- Apply shift lock if enabled during pause
                 if ShiftLockEnabled then
-                    ApplyShiftLock()
+                    ApplyVisibleShiftLock()
                 end
             end
             return
@@ -1285,7 +1370,6 @@ function PlayRecording(name)
                 totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
                 pauseStartTime = 0
                 DisableJump()
-                -- Hide jump button when resumed
                 HideJumpButton()
             end
         end
@@ -1315,6 +1399,7 @@ function PlayRecording(name)
         if currentPlaybackFrame >= #recording then
             IsPlaying = false
             RestoreFullUserControl()
+            PlaySound("Success")
             print("Playback finished - Control restored")
             return
         end
@@ -1356,9 +1441,9 @@ function PlayRecording(name)
                 end
             end
             
-            -- Apply shift lock during playback if enabled
+            -- Apply VISIBLE shift lock during playback
             if ShiftLockEnabled then
-                ApplyShiftLock()
+                ApplyVisibleShiftLock()
             end
         end)
     end)
@@ -1366,7 +1451,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM WITH SHIFTLOCK SUPPORT =========
+-- ========= FIXED AUTO LOOP SYSTEM WITH VISIBLE SHIFTLOCK =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -1374,10 +1459,12 @@ function StartAutoLoopAll()
         print("No checkpoints to loop!")
         AutoLoop = false
         AnimateLoop(false)
+        PlaySound("Error")
         return
     end
     
     print("Starting auto loop with " .. #RecordingOrder .. " recordings")
+    PlaySound("Play")
     
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
@@ -1411,6 +1498,7 @@ function StartAutoLoopAll()
                     AutoLoop = false
                     IsAutoLoopPlaying = false
                     AnimateLoop(false)
+                    PlaySound("Error")
                     break
                 end
                 
@@ -1429,6 +1517,7 @@ function StartAutoLoopAll()
                         AutoLoop = false
                         IsAutoLoopPlaying = false
                         AnimateLoop(false)
+                        PlaySound("Error")
                         break
                     end
                     task.wait(0.5)
@@ -1453,7 +1542,6 @@ function StartAutoLoopAll()
             SaveHumanoidState()
             DisableJump()
             
-            -- Hide jump button when playback starts
             HideJumpButton()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
@@ -1466,11 +1554,9 @@ function StartAutoLoopAll()
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
                         RestoreHumanoidState()
-                        -- Show jump button when paused
                         ShowJumpButton()
-                        -- Apply shift lock if enabled during pause
                         if ShiftLockEnabled then
-                            ApplyShiftLock()
+                            ApplyVisibleShiftLock()
                         end
                     end
                     task.wait(0.1)
@@ -1479,7 +1565,6 @@ function StartAutoLoopAll()
                         playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
                         playbackPauseStart = 0
                         DisableJump()
-                        -- Hide jump button when resumed
                         HideJumpButton()
                     end
                     
@@ -1538,9 +1623,9 @@ function StartAutoLoopAll()
                                 end
                             end
                             
-                            -- Apply shift lock during playback if enabled
+                            -- Apply VISIBLE shift lock during playback
                             if ShiftLockEnabled then
-                                ApplyShiftLock()
+                                ApplyVisibleShiftLock()
                             end
                         end)
                     end
@@ -1553,6 +1638,7 @@ function StartAutoLoopAll()
             
             if playbackCompleted then
                 print("Finished recording: " .. recordingName)
+                PlaySound("Success")
                 
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
@@ -1594,6 +1680,7 @@ function StopAutoLoopAll()
     local char = player.Character
     if char then CompleteCharacterReset(char) end
     
+    PlaySound("Stop")
     print("Auto loop stopped")
 end
 
@@ -1611,6 +1698,7 @@ function StopPlayback()
     local char = player.Character
     if char then CompleteCharacterReset(char) end
     
+    PlaySound("Stop")
     print("Playback stopped")
 end
 
@@ -1622,20 +1710,19 @@ function PausePlayback()
             PauseBtnBig.Text = "RESUME"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             RestoreHumanoidState()
-            -- Show jump button when paused
             ShowJumpButton()
-            -- Apply shift lock if enabled during pause
             if ShiftLockEnabled then
-                ApplyShiftLock()
+                ApplyVisibleShiftLock()
             end
+            PlaySound("Click")
             print("Auto Loop paused")
         else
             PauseBtnBig.Text = "PAUSE"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
             SaveHumanoidState()
             DisableJump()
-            -- Hide jump button when resumed
             HideJumpButton()
+            PlaySound("Click")
             print("Auto Loop resumed")
         end
     elseif IsPlaying then
@@ -1645,20 +1732,19 @@ function PausePlayback()
             PauseBtnBig.Text = "RESUME"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             RestoreHumanoidState()
-            -- Show jump button when paused
             ShowJumpButton()
-            -- Apply shift lock if enabled during pause
             if ShiftLockEnabled then
-                ApplyShiftLock()
+                ApplyVisibleShiftLock()
             end
+            PlaySound("Click")
             print("Playback paused")
         else
             PauseBtnBig.Text = "PAUSE"
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(180, 140, 40)
             SaveHumanoidState()
             DisableJump()
-            -- Hide jump button when resumed
             HideJumpButton()
+            PlaySound("Click")
             print("Playback resumed")
         end
     end
@@ -1672,6 +1758,7 @@ local function SaveToObfuscatedJSON()
     
     if not next(RecordedMovements) then
         print("No recordings to save!")
+        PlaySound("Error")
         return
     end
     
@@ -1696,12 +1783,14 @@ local function SaveToObfuscatedJSON()
         
         local jsonString = HttpService:JSONEncode(saveData)
         writefile(filename, jsonString)
+        PlaySound("Success")
         print("✅ Saved OBFUSCATED file: " .. filename)
         print("📊 Field mapping: Position→11, LookVector→88, UpVector→55, etc.")
         print("💾 Total checkpoints saved: " .. #saveData.Checkpoints)
     end)
     
     if not success then
+        PlaySound("Error")
         print("❌ Save failed: " .. tostring(err))
     end
 end
@@ -1714,6 +1803,7 @@ local function LoadFromObfuscatedJSON()
     local success, err = pcall(function()
         if not isfile(filename) then
             print("File not found: " .. filename)
+            PlaySound("Error")
             return
         end
         
@@ -1763,11 +1853,13 @@ local function LoadFromObfuscatedJSON()
         end
         
         UpdateRecordList()
+        PlaySound("Success")
         print("🎉 Successfully loaded file: " .. filename)
         print("📊 Total checkpoints loaded: " .. #RecordingOrder)
     end)
     
     if not success then
+        PlaySound("Error")
         print("❌ Load failed: " .. tostring(err))
     end
 end
@@ -1802,20 +1894,34 @@ local function VisualizeAllPaths()
     print("Visualized paths for all recordings")
 end
 
--- ========= BUTTON EVENTS =========
+-- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
 RecordBtnBig.MouseButton1Click:Connect(function()
-    if IsRecording then StopRecording() else StartRecording() end
+    AnimateButtonClick(RecordBtnBig)
+    if IsRecording then 
+        StopRecording() 
+    else 
+        StartRecording() 
+    end
 end)
 
 PlayBtnBig.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PlayBtnBig)
     if AutoLoop then return end
     PlayRecording()
 end)
 
-StopBtnBig.MouseButton1Click:Connect(StopPlayback)
-PauseBtnBig.MouseButton1Click:Connect(PausePlayback)
+StopBtnBig.MouseButton1Click:Connect(function()
+    AnimateButtonClick(StopBtnBig)
+    StopPlayback()
+end)
+
+PauseBtnBig.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PauseBtnBig)
+    PausePlayback()
+end)
 
 LoopBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(LoopBtn)
     AutoLoop = not AutoLoop
     AnimateLoop(AutoLoop)
     
@@ -1842,20 +1948,31 @@ LoopBtn.MouseButton1Click:Connect(function()
 end)
 
 ShiftLockBtn.MouseButton1Click:Connect(function()
-    ToggleShiftLock()
+    AnimateButtonClick(ShiftLockBtn)
+    ToggleVisibleShiftLock()
     AnimateShiftLock(ShiftLockEnabled)
 end)
 
 RespawnBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(RespawnBtn)
     AutoRespawn = not AutoRespawn
     AnimateRespawn(AutoRespawn)
+    PlaySound("Toggle")
     print("Auto Respawn: " .. (AutoRespawn and "ON" or "OFF"))
 end)
 
-SaveFileBtn.MouseButton1Click:Connect(SaveToObfuscatedJSON)
-LoadFileBtn.MouseButton1Click:Connect(LoadFromObfuscatedJSON)
+SaveFileBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(SaveFileBtn)
+    SaveToObfuscatedJSON()
+end)
+
+LoadFileBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(LoadFileBtn)
+    LoadFromObfuscatedJSON()
+end)
 
 PathToggleBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PathToggleBtn)
     ShowPaths = not ShowPaths
     if ShowPaths then
         PathToggleBtn.Text = "🚫 RUTE"
@@ -1866,22 +1983,28 @@ PathToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-MergeBtn.MouseButton1Click:Connect(CreateMergedReplay)
+MergeBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MergeBtn)
+    CreateMergedReplay()
+end)
 
 HideButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(HideButton)
     MainFrame.Visible = false
     MiniButton.Visible = true
 end)
 
 MiniButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MiniButton)
     MainFrame.Visible = true
     MiniButton.Visible = false
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(CloseButton)
     if IsRecording then StopRecording() end
     if IsPlaying or AutoLoop then StopPlayback() end
-    if ShiftLockEnabled then DisableShiftLock() end
+    if ShiftLockEnabled then DisableVisibleShiftLock() end
     CleanupConnections()
     ClearPathVisualization()
     ShowJumpButton()
@@ -1919,7 +2042,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
             ClearPathVisualization()
         end
     elseif input.KeyCode == Enum.KeyCode.F3 then
-        ToggleShiftLock()
+        ToggleVisibleShiftLock()
         AnimateShiftLock(ShiftLockEnabled)
     end
 end)
