@@ -334,7 +334,7 @@ local function OpenAnimationGUI()
     
     -- Load GUI dari pastebin
     local success, result = pcall(function()
-        local url = https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/anim.lua"
+        local url = ""
         local request = (syn and syn.request) or (http and http.request) or http_request
         if request then
             local response = request({
@@ -2198,4 +2198,4 @@ UserInputService.InputBegan:Connect(function(input, processed)
         ToggleInfiniteJump()
         AnimateJump(InfiniteJump)
     end
-end)r
+end)
