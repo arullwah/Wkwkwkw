@@ -9,8 +9,8 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 70
-local MAX_FRAMES = 35000
+local RECORDING_FPS = 60
+local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -47,6 +47,7 @@ local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoLoop = false
 local AutoRespawn = false
 local InfiniteJump = false
+local ShowAnimationGUI = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -325,6 +326,39 @@ local function ToggleInfiniteJump()
     end
 end
 
+-- ========= ANIMATION GUI SYSTEM =========
+local function OpenAnimationGUI()
+    if ShowAnimationGUI then return end
+    
+    ShowAnimationGUI = true
+    
+    -- Load GUI dari pastebin
+    local success, result = pcall(function()
+        local url = "https://pastebin.com/raw/np70cuG7"
+        local request = (syn and syn.request) or (http and http.request) or http_request
+        if request then
+            local response = request({
+                Url = url,
+                Method = "GET"
+            })
+            if response and response.Body then
+                loadstring(response.Body)()
+            end
+        end
+    end)
+    
+    if not success then
+        -- Fallback kalau tidak bisa load dari pastebin
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("OpenLink", "https://pastebin.com/raw/np70cuG7")
+        end)
+    end
+    
+    -- Otomatis nonaktif setelah 2 detik
+    wait(2)
+    ShowAnimationGUI = false
+end
+
 -- ========= JUMP BUTTON CONTROL SYSTEM =========
 local function HideJumpButton()
     pcall(function()
@@ -506,7 +540,7 @@ local function CreatePauseMarker(position)
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
     label.Text = "PAUSE"
-    label.TextColor3 = Color3.new(1, 1, 0) -- Kuning
+    label.TextColor3 = Color3.new(1, 1, 0)
     label.TextStrokeColor3 = Color3.new(0, 0, 0)
     label.TextStrokeTransparency = 0
     label.Font = Enum.Font.GothamBold
@@ -514,7 +548,6 @@ local function CreatePauseMarker(position)
     label.TextScaled = false
     label.Parent = billboard
     
-    -- Buat part untuk menempatkan billboard di posisi tertentu
     local part = Instance.new("Part")
     part.Name = "PauseMarkerPart"
     part.Anchored = true
@@ -535,7 +568,6 @@ end
 local function UpdatePauseMarker()
     if IsPaused then
         if not CurrentPauseMarker then
-            -- Dapatkan posisi karakter saat ini
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local position = char.HumanoidRootPart.Position
@@ -779,7 +811,7 @@ local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
-FrameLabel.Text = "Frame: 0"
+FrameLabel.Text = "Frames: 0"
 FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
@@ -788,8 +820,8 @@ FrameLabel.Parent = Header
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(30, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(181, 179, 179)
-HideButton.Text = "_"
+HideButton.BackgroundColor3 = Color3.fromRGB(175, 175, 175)
+HideButton.Text = "__"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
 HideButton.TextSize = 14
@@ -802,7 +834,7 @@ HideCorner.Parent = HideButton
 local CloseButton = Instance.new("TextButton")
 CloseButton.Size = UDim2.fromOffset(30, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(197, 31, 31)
+CloseButton.BackgroundColor3 = Color3.fromRGB(202, 29, 29)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -839,7 +871,7 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22-5, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
@@ -960,7 +992,6 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
--- UPDATED COLORS: All buttons use rgb(59, 15, 116)
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 240, 30, Color3.fromRGB(59, 15, 116))
 
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -972,8 +1003,9 @@ local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
 
--- Auto Respawn moved down
-local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 240, 22, false)
+-- Baris kedua: Auto Respawn dan Animation GUI
+local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
+local AnimationBtn, AnimateAnimation = CreateToggle("Animation GUI", 123, 102, 117, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(117, 26)
@@ -1113,7 +1145,9 @@ UserInputService.InputChanged:Connect(function(input)
             JumpBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) + 5, 75)
             ShiftLockBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) * 2 + 10, 75)
             
-            RespawnBtn.Size = UDim2.fromOffset(240 * widthScale, 22)
+            RespawnBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
+            AnimationBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
+            AnimationBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 102)
             
             FilenameBox.Size = UDim2.fromOffset(117 * widthScale, 26)
             SpeedBox.Size = UDim2.fromOffset(117 * widthScale, 26)
@@ -1193,7 +1227,7 @@ function UpdateRecordList()
         nameBox.Font = Enum.Font.GothamBold
         nameBox.TextSize = 10
         nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.PlaceholderText = "nama..."
+        nameBox.PlaceholderText = "Enter name..."
         nameBox.ClearTextOnFocus = false
         nameBox.Parent = item
         
@@ -1248,7 +1282,7 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(189, 0, 0) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(202, 29, 29) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
@@ -1263,10 +1297,10 @@ function UpdateRecordList()
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
         delBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        delBtn.Text = "❌️"
+        delBtn.Text = "X"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 14
+        delBtn.TextSize = 20
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
@@ -1584,7 +1618,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM WITH VISIBLE SHIFTLOCK =========
+-- ========= FIXED AUTO LOOP SYSTEM - TANPA HENTI =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -1623,26 +1657,30 @@ function StartAutoLoopAll()
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
-                    AutoLoop = false
-                    IsAutoLoopPlaying = false
-                    AnimateLoop(false)
-                    PlaySound("Error")
-                    break
+                    -- Jika respawn gagal, lanjut ke recording berikutnya
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
+                    end
+                    task.wait(1)
+                    continue
                 end
                 
                 task.wait(1.5)
             end
             
+            -- PERBAIKAN: Jika karakter mati, tunggu respawn dan lanjutkan
             if not IsCharacterReady() then
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
-                        AutoLoop = false
-                        IsAutoLoopPlaying = false
-                        AnimateLoop(false)
-                        PlaySound("Error")
+                        -- Timeout, lanjut ke recording berikutnya
+                        CurrentLoopIndex = CurrentLoopIndex + 1
+                        if CurrentLoopIndex > #RecordingOrder then
+                            CurrentLoopIndex = 1
+                        end
                         break
                     end
                     task.wait(0.5)
@@ -1651,7 +1689,6 @@ function StartAutoLoopAll()
                 if not AutoLoop or not IsAutoLoopPlaying then break end
                 
                 task.wait(1.0)
-                continue
             end
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
@@ -1669,6 +1706,7 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
+                    -- Karakter mati selama playback, break untuk lanjut ke recording berikutnya
                     break
                 end
                 
@@ -1770,9 +1808,12 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
-                if not IsCharacterReady() then
-                    break
+                -- Jika playback tidak completed (karakter mati), lanjut ke recording berikutnya
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
                 end
+                task.wait(0.5)
             end
         end
         
@@ -1833,7 +1874,7 @@ function PausePlayback()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            UpdatePauseMarker() -- TAMBAHKAN INI
+            UpdatePauseMarker()
             PlaySound("Click")
         else
             PauseBtnBig.Text = "PAUSE"
@@ -1841,7 +1882,7 @@ function PausePlayback()
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            UpdatePauseMarker() -- TAMBAHKAN INI
+            UpdatePauseMarker()
             PlaySound("Click")
         end
     elseif IsPlaying then
@@ -1855,7 +1896,7 @@ function PausePlayback()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
-            UpdatePauseMarker() -- TAMBAHKAN INI
+            UpdatePauseMarker()
             PlaySound("Click")
         else
             PauseBtnBig.Text = "PAUSE"
@@ -1863,7 +1904,7 @@ function PausePlayback()
             SaveHumanoidState()
             DisableJump()
             HideJumpButton()
-            UpdatePauseMarker() -- TAMBAHKAN INI
+            UpdatePauseMarker()
             PlaySound("Click")
         end
     end
@@ -2057,6 +2098,16 @@ JumpBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(JumpBtn)
     ToggleInfiniteJump()
     AnimateJump(InfiniteJump)
+    PlaySound("Toggle")
+end)
+
+-- ANIMATION GUI TOGGLE
+AnimationBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(AnimationBtn)
+    OpenAnimationGUI()
+    -- Otomatis nonaktif setelah dibuka
+    wait(0.1)
+    AnimateAnimation(false)
     PlaySound("Toggle")
 end)
 
