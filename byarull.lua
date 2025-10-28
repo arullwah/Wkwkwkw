@@ -10,7 +10,7 @@ wait(1)
 
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 90
-local MAX_FRAMES = 20000
+local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
