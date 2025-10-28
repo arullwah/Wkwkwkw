@@ -10,7 +10,7 @@ wait(1)
 
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
-local MAX_FRAMES = 30000
+local MAX_FRAMES = 40000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -47,7 +47,6 @@ local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoLoop = false
 local AutoRespawn = false
 local InfiniteJump = false
-local ShowAnimationGUI = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -86,14 +85,14 @@ local isShiftLockActive = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://4499400560",
-    Toggle = "rbxassetid://7468131335", 
-    RecordStart = "rbxassetid://4499400560",
-    RecordStop = "rbxassetid://4499400560",
-    Play = "rbxassetid://4499400560",
-    Stop = "rbxassetid://4499400560",
-    Error = "rbxassetid://7772283448",
-    Success = "rbxassetid://2865227271"
+    Click = "rbxassetid://9114262381",
+    Toggle = "rbxassetid://9114262381", 
+    RecordStart = "rbxassetid://9114262381",
+    RecordStop = "rbxassetid://9114262381",
+    Play = "rbxassetid://9114262381",
+    Stop = "rbxassetid://9114262381",
+    Error = "rbxassetid://9114262381",
+    Success = "rbxassetid://9114262381"
 }
 
 -- ========= MEMORY MANAGEMENT =========
@@ -326,37 +325,160 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= ANIMATION GUI SYSTEM =========
+-- ========= COMPACT ANIMATION GUI 200x200 =========
 local function OpenAnimationGUI()
-    if ShowAnimationGUI then return end
+    -- Animation Database
+    local AnimationDB = {
+        ["Adidas Walk"] = "122150855457006",
+        ["Adidas Run"] = "82598234841035",
+        ["Adidas Jump"] = "75290611992385", 
+        ["Adidas Fall"] = "98600215928904",
+        ["Adidas Climb"] = "88763136693023",
+        ["Adidas Idle"] = "91000483612201",
+        ["Adidas Dance"] = "105214753632147"
+    }
     
-    ShowAnimationGUI = true
+    -- Create Compact Animation GUI
+    local AnimationGUI = Instance.new("ScreenGui")
+    AnimationGUI.Name = "AnimationGUI"
+    AnimationGUI.ResetOnSpawn = false
+    AnimationGUI.Parent = player.PlayerGui
     
-    -- Load GUI dari pastebin
-    local success, result = pcall(function()
-        local url = ""
-        local request = (syn and syn.request) or (http and http.request) or http_request
-        if request then
-            local response = request({
-                Url = url,
-                Method = "GET"
-            })
-            if response and response.Body then
-                loadstring(response.Body)()
-            end
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 200, 0, 200)
+    MainFrame.Position = UDim2.new(0.5, -100, 0.5, -100)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+    MainFrame.Parent = AnimationGUI
+    
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 8)
+    MainCorner.Parent = MainFrame
+    
+    -- Header
+    local Header = Instance.new("Frame")
+    Header.Size = UDim2.new(1, 0, 0, 25)
+    Header.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    Header.BorderSizePixel = 0
+    Header.Parent = MainFrame
+    
+    local HeaderCorner = Instance.new("UICorner")
+    HeaderCorner.CornerRadius = UDim.new(0, 8)
+    HeaderCorner.Parent = Header
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -30, 1, 0)
+    Title.Position = UDim2.new(0, 5, 0, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "ANIMATIONS"
+    Title.TextColor3 = Color3.new(1, 1, 1)
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 10
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Parent = Header
+    
+    local CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.new(0, 20, 0, 20)
+    CloseBtn.Position = UDim2.new(1, -22, 0.5, -10)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 80)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.TextSize = 10
+    CloseBtn.Parent = Header
+    
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 4)
+    CloseCorner.Parent = CloseBtn
+    
+    -- Animation List (Compact)
+    local AnimationList = Instance.new("ScrollingFrame")
+    AnimationList.Size = UDim2.new(1, -10, 1, -35)
+    AnimationList.Position = UDim2.new(0, 5, 0, 30)
+    AnimationList.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    AnimationList.BorderSizePixel = 0
+    AnimationList.ScrollBarThickness = 3
+    AnimationList.ScrollBarImageColor3 = Color3.fromRGB(59, 15, 116)
+    AnimationList.CanvasSize = UDim2.new(0, 0, 0, 0)
+    AnimationList.Parent = MainFrame
+    
+    local ListCorner = Instance.new("UICorner")
+    ListCorner.CornerRadius = UDim.new(0, 6)
+    ListCorner.Parent = AnimationList
+    
+    -- Function to play animation
+    local function PlayAnimation(animationId, animationName)
+        local char = player.Character
+        if not char then return end
+        
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animationId
+        
+        local animationTrack = humanoid:LoadAnimation(animation)
+        if animationTrack then
+            animationTrack:Play()
+            PlaySound("Success")
+        else
+            PlaySound("Error")
         end
-    end)
-    
-    if not success then
-        -- Fallback kalau tidak bisa load dari pastebin
-        pcall(function()
-            game:GetService("StarterGui"):SetCore("OpenLink", "https://pastebin.com/raw/np70cuG7")
-        end)
     end
     
-    -- Otomatis nonaktif setelah 2 detik
-    wait(2)
-    ShowAnimationGUI = false
+    -- Populate animation list
+    local yPos = 0
+    for animationName, animationId in pairs(AnimationDB) do
+        local item = Instance.new("TextButton")
+        item.Size = UDim2.new(1, -10, 0, 25)
+        item.Position = UDim2.new(0, 5, 0, yPos)
+        item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+        item.BorderSizePixel = 0
+        item.Text = animationName
+        item.TextColor3 = Color3.new(1, 1, 1)
+        item.Font = Enum.Font.GothamBold
+        item.TextSize = 9
+        item.TextXAlignment = Enum.TextXAlignment.Left
+        item.Parent = AnimationList
+        
+        local itemCorner = Instance.new("UICorner")
+        itemCorner.CornerRadius = UDim.new(0, 4)
+        itemCorner.Parent = item
+        
+        local padding = Instance.new("UIPadding")
+        padding.PaddingLeft = UDim.new(0, 8)
+        padding.Parent = item
+        
+        item.MouseButton1Click:Connect(function()
+            PlayAnimation(animationId, animationName)
+        end)
+        
+        -- Hover effects
+        item.MouseEnter:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            }):Play()
+        end)
+        
+        item.MouseLeave:Connect(function()
+            TweenService:Create(item, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+            }):Play()
+        end)
+        
+        yPos = yPos + 28
+    end
+    
+    -- Update canvas size
+    AnimationList.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    
+    -- Close button functionality
+    CloseBtn.MouseButton1Click:Connect(function()
+        AnimationGUI:Destroy()
+        PlaySound("Click")
+    end)
 end
 
 -- ========= JUMP BUTTON CONTROL SYSTEM =========
@@ -801,7 +923,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextColor3 = Color3.fromRGB(100, 255, 150)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Center
@@ -812,7 +934,7 @@ FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
 FrameLabel.Text = "Frames: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
@@ -820,8 +942,8 @@ FrameLabel.Parent = Header
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(30, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(175, 175, 175)
-HideButton.Text = "__"
+HideButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
 HideButton.TextSize = 14
@@ -834,7 +956,7 @@ HideCorner.Parent = HideButton
 local CloseButton = Instance.new("TextButton")
 CloseButton.Size = UDim2.fromOffset(30, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(202, 29, 29)
+CloseButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -848,8 +970,8 @@ CloseCorner.Parent = CloseButton
 local ResizeButton = Instance.new("TextButton")
 ResizeButton.Size = UDim2.fromOffset(24, 24)
 ResizeButton.Position = UDim2.new(1, -24, 1, -24)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-ResizeButton.Text = "↖️"
+ResizeButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+ResizeButton.Text = "⤢"
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
 ResizeButton.TextSize = 14
@@ -871,9 +993,9 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22-5, 0, 0)
+MiniButton.Position = UDim2.new(0.5, -20, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "⚙️"
+MiniButton.Text = "ArL"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 14
@@ -1005,7 +1127,7 @@ local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22
 
 -- Baris kedua: Auto Respawn dan Animation GUI
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
-local AnimationBtn, AnimateAnimation = CreateToggle("Animation GUI", 123, 102, 117, 22, false)
+local AnimationBtn, AnimateAnimation = CreateToggle("Animations", 123, 102, 117, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(117, 26)
@@ -1282,7 +1404,7 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(202, 29, 29) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
@@ -1297,7 +1419,7 @@ function UpdateRecordList()
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
         delBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        delBtn.Text = "X"
+        delBtn.Text = "✕"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
         delBtn.TextSize = 20
@@ -2105,9 +2227,6 @@ end)
 AnimationBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(AnimationBtn)
     OpenAnimationGUI()
-    -- Otomatis nonaktif setelah dibuka
-    wait(0.1)
-    AnimateAnimation(false)
     PlaySound("Toggle")
 end)
 
