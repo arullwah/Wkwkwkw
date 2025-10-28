@@ -9,8 +9,8 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 90
-local MAX_FRAMES = 30000
+local RECORDING_FPS = 70
+local MAX_FRAMES = 35000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -815,9 +815,9 @@ CloseCorner.Parent = CloseButton
 
 local ResizeButton = Instance.new("TextButton")
 ResizeButton.Size = UDim2.fromOffset(24, 24)
-ResizeButton.Position = UDim2.new(1, -30, 1, -30)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(197, 31, 31)
-ResizeButton.Text = "⛶"
+ResizeButton.Position = UDim2.new(1, -24, 1, -24)
+ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ResizeButton.Text = "↖️"
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
 ResizeButton.TextSize = 14
@@ -1266,7 +1266,7 @@ function UpdateRecordList()
         delBtn.Text = "❌️"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 15
+        delBtn.TextSize = 14
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
