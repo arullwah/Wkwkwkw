@@ -44,7 +44,7 @@ local CurrentSpeed = 1
 local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
-
+local AutoLoop = false
 local AutoRespawn = false
 local InfiniteJump = false
 local recordConnection = nil
@@ -3040,7 +3040,7 @@ player.CharacterRemoving:Connect(function()
     if IsRecording then
         StopRecording()
     end
-    if IsPlaying and not AutoLoop then
+    if IsPlaying or AutoLoop then
         StopPlayback()
     end
 end)
