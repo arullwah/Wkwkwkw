@@ -1567,7 +1567,7 @@ FrameLabel.Parent = Header
 
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(25, 25)
-HideButton.Position = UDim2.new(1, -65, 0.5, -12)
+HideButton.Position = UDim2.new(1, -60, 0.5, -12)
 HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
@@ -1619,7 +1619,7 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -20, 0, -30)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
