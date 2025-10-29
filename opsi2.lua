@@ -1,4 +1,3 @@
-byarull v1.0 - FIXED PLAYBACK VERSION
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -11,22 +10,11 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
-local MAX_FRAMES = 60000
+local RECORDING_FPS = 70
+local MAX_FRAMES = 35000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-
--- ========= ENHANCED NETWORK SYSTEM =========
-local NETWORK_OWNERSHIP_ENABLED = true
-local OWNERSHIP_TIMEOUT = 3.0
-local SAFE_MODE_FALLBACK = true
-
--- ========= SMART PRECISION CONFIG =========
-local SMART_PRECISION_ENABLED = false  -- Disable untuk sekarang
-local PRECISION_ANCHOR_TIME = 0.06
-local PRECISION_RELEASE_TIME = 0.12
-local NETWORK_SYNC_DELAY = 0.1
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -71,34 +59,18 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
--- ========= ENHANCED NETWORK VARIABLES =========
-local NetworkOwnershipAcquired = false
-local OriginalNetworkOwner = nil
-local OwnershipCheckTimer = 0
-local SafeModeActive = false
-
--- ========= ENHANCED PAUSE/RESUME VARIABLES =========
+-- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
 local currentPlaybackFrame = 1
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
-local prePauseJumpPower = 50
 local prePauseAutoRotate = true
+local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
 local originalJumpButtonEnabled = true
-
--- ========= ENHANCED HUMAN STATE BACKUP =========
-local OriginalHumanoidState = {
-    WalkSpeed = 16,
-    JumpPower = 50,
-    AutoRotate = true,
-    PlatformStand = false,
-    HipHeight = 0,
-    CameraOffset = Vector3.new(0, 0, 0)
-}
 
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
@@ -115,6 +87,7 @@ local isShiftLockActive = false
 -- ========= ANIMATION SYSTEM VARIABLES =========
 local lastAnimations = {}
 local animationGuiOpen = false
+local isLoadingAnimations = false
 
 -- ========= ANIMATIONS DATABASE (GAZE SYSTEM) =========
 local Animations = {
@@ -436,246 +409,6 @@ local function CleanupConnections()
     end
 end
 
--- ========= MISSING FRAME FUNCTIONS - FIXED =========
-local function GetFrameCFrame(frame)
-    if not frame or not frame.Position then 
-        warn("[ERROR] Invalid frame data in GetFrameCFrame")
-        return CFrame.new()
-    end
-    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    if not frame.Velocity then 
-        return Vector3.new(0, 0, 0)
-    end
-    return Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    )
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
-
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
-end
-
--- ========= FIXED NETWORK OWNERSHIP SYSTEM =========
-local function BackupOriginalState()
-    local character = player.Character
-    if not character then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        OriginalHumanoidState.WalkSpeed = humanoid.WalkSpeed
-        OriginalHumanoidState.JumpPower = humanoid.JumpPower
-        OriginalHumanoidState.AutoRotate = humanoid.AutoRotate
-        OriginalHumanoidState.PlatformStand = humanoid.PlatformStand
-        OriginalHumanoidState.HipHeight = humanoid.HipHeight
-    end
-    
-    if hrp then
-        -- Backup network owner jika memungkinkan
-        local success, currentOwner = pcall(function()
-            return hrp:GetNetworkOwner()
-        end)
-        if success then
-            OriginalNetworkOwner = currentOwner
-        end
-    end
-    
-    return true
-end
-
-local function TryAcquireNetworkOwnership()
-    if not NETWORK_OWNERSHIP_ENABLED then
-        return true  -- Skip jika tidak enabled
-    end
-    
-    local character = player.Character
-    if not character then return false end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    -- Backup state original
-    BackupOriginalState()
-    
-    -- Coba set network ownership
-    local success = pcall(function()
-        hrp:SetNetworkOwnership(player)
-    end)
-    
-    if success then
-        task.wait(0.1)
-        -- Verifikasi ownership
-        local verifySuccess, newOwner = pcall(function()
-            local owner = hrp:GetNetworkOwner()
-            return owner == player
-        end)
-        
-        if verifySuccess then
-            NetworkOwnershipAcquired = true
-            SafeModeActive = false
-            return true
-        end
-    end
-    
-    -- Fallback ke safe mode
-    SafeModeActive = true
-    NetworkOwnershipAcquired = false
-    return false
-end
-
-local function ReleaseNetworkOwnership()
-    if not NetworkOwnershipAcquired then return end
-    
-    local character = player.Character
-    if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            -- Kembalikan ke original owner atau server
-            pcall(function()
-                if OriginalNetworkOwner then
-                    hrp:SetNetworkOwner(OriginalNetworkOwner)
-                else
-                    hrp:SetNetworkOwner(nil)  -- Kembali ke server
-                end
-            end)
-        end
-    end
-    
-    NetworkOwnershipAcquired = false
-    SafeModeActive = false
-end
-
-local function RestoreOriginalState()
-    local character = player.Character
-    if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        humanoid.WalkSpeed = OriginalHumanoidState.WalkSpeed
-        humanoid.JumpPower = OriginalHumanoidState.JumpPower
-        humanoid.AutoRotate = OriginalHumanoidState.AutoRotate
-        humanoid.PlatformStand = OriginalHumanoidState.PlatformStand
-        humanoid.HipHeight = OriginalHumanoidState.HipHeight
-        
-        -- Reset ke state normal
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    end
-    
-    if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    end
-    
-    -- Restore jump button
-    ShowJumpButton()
-end
-
--- ========= FIXED ADAPTIVE MOVEMENT SYSTEM =========
-local function AdaptiveApplyFrame(frame)
-    local character = player.Character
-    if not character then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return false end
-
-    -- Reset semua problematic states
-    humanoid.PlatformStand = false
-    hrp.Anchored = false
-    humanoid.AutoRotate = false  -- Kita kontrol rotation
-
-    local success = false
-    
-    if NetworkOwnershipAcquired and not SafeModeActive then
-        -- METHOD A: Direct application (jika punya ownership)
-        success = pcall(function()
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-            
-            humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            
-            local moveState = frame.MoveState or "Grounded"
-            if moveState == "Climbing" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            elseif moveState == "Jumping" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif moveState == "Falling" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-            else
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    else
-        -- METHOD B: Velocity-based movement (fallback universal)
-        success = pcall(function()
-            local targetCFrame = GetFrameCFrame(frame)
-            local targetVelocity = GetFrameVelocity(frame)
-            local currentPos = hrp.Position
-            local targetPos = targetCFrame.Position
-            
-            -- Calculate direction and distance
-            local direction = (targetPos - currentPos)
-            local distance = direction.Magnitude
-            
-            if distance > 0.5 then  -- Threshold untuk movement
-                local moveDirection = direction.Unit
-                local speed = math.min(distance * 8, GetFrameWalkSpeed(frame) * CurrentSpeed)
-                
-                hrp.AssemblyLinearVelocity = Vector3.new(
-                    moveDirection.X * speed,
-                    targetVelocity.Y,  -- Pertahankan Y velocity asli
-                    moveDirection.Z * speed
-                )
-                
-                -- Smooth rotation towards target
-                local lookDirection = Vector3.new(targetCFrame.LookVector.X, 0, targetCFrame.LookVector.Z)
-                if lookDirection.Magnitude > 0 then
-                    hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + lookDirection)
-                end
-            else
-                -- Apply langsung jika dekat
-                hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = targetVelocity
-            end
-            
-            humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            
-            -- Natural state transitions berdasarkan velocity
-            local currentVel = hrp.AssemblyLinearVelocity
-            if currentVel.Y > 15 then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif currentVel.Y < -15 then
-                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif frame.MoveState == "Climbing" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            else
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    end
-    
-    if not success then
-        warn("[Playback] Failed to apply frame")
-    end
-    
-    return success
-end
-
 -- ========= SOUND SYSTEM =========
 local function PlaySound(soundType)
     pcall(function()
@@ -869,14 +602,14 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= SMART PRECISION ANIMATION SYSTEM =========
+-- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO PART ANCHORING) =========
 local function StopAllAnims()
     local character = player.Character
     if character then
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-                track:Stop(0.1)
+                track:Stop(0)
             end
         end
     end
@@ -887,161 +620,77 @@ local function RefreshCharacter()
     if character then
         local humanoid = character:FindFirstChild("Humanoid")
         if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+            humanoid:ChangeState(Enum.HumanoidStateType.Landed)
         end
     end
 end
 
--- ========= SMART PRECISION SET ANIMATION =========
 local function SetAnimation(animType, animId)
     local character = player.Character
-    if not character then 
-        warn("[AnimHub] No character for animation!")
-        return 
-    end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then
-        warn("[AnimHub] Humanoid not found!")
-        return
-    end
+    if not character then return end
     
     local animate = character:FindFirstChild("Animate")
-    if not animate then 
-        warn("[AnimHub] Animate script not found!")
-        return 
-    end
+    if not animate then return end
     
-    -- Validasi input
-    if not animType or not animId then
-        warn("[AnimHub] Invalid animation type or ID!")
-        return
-    end
-    
-    print("[AnimHub] Setting animation with Smart Precision:", animType, animId)
-    
-    -- Tentukan apakah butuh precision berdasarkan animasi
-    local needsPrecision = (
-        animType == "Idle" or 
-        animType == "Jump" or 
-        animType == "Fall" or
-        animType == "Climb"
-    )
-    
+    local humanoid = character:FindFirstChild("Humanoid")
     local hrp = character:FindFirstChild("HumanoidRootPart")
     
-    if needsPrecision and hrp and SMART_PRECISION_ENABLED then
-        -- ========= SMART PRECISION MODE =========
-        
-        -- PHASE 1: Brief Precision Lock
+    local wasAnchored = false
+    if humanoid and hrp then
         humanoid.PlatformStand = true
+        wasAnchored = hrp.Anchored
         hrp.Anchored = true
-        
-        -- Apply animation
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
-            end
-        end)
-        
-        -- PHASE 2: Quick Network Release
-        task.wait(PRECISION_ANCHOR_TIME)
-        hrp.Anchored = false
-        
-        -- PHASE 3: Final Network Sync
-        task.wait(PRECISION_RELEASE_TIME)
-        humanoid.PlatformStand = false
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation with precision:", animType)
+    end
+    
+    StopAllAnims()
+    task.wait(0.1)
+    
+    if animType == "Idle" and animate:FindFirstChild("idle") then
+        if type(animId) == "table" and #animId == 2 then
+            animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+            animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+            lastAnimations.Idle = animId
         end
-        
-    else
-        -- ========= NATURAL MOVEMENT MODE =========
-        humanoid.PlatformStand = false
-        
-        -- Apply animation tanpa precision
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
-            end
-        end)
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation:", animType)
+    elseif animType == "Walk" and animate:FindFirstChild("walk") then
+        if animate.walk:FindFirstChild("WalkAnim") then
+            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+            lastAnimations.Walk = animId
+        end
+    elseif animType == "Run" and animate:FindFirstChild("run") then
+        if animate.run:FindFirstChild("RunAnim") then
+            animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
+            lastAnimations.Run = animId
+        end
+    elseif animType == "Jump" and animate:FindFirstChild("jump") then
+        if animate.jump:FindFirstChild("JumpAnim") then
+            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+            lastAnimations.Jump = animId
+        end
+    elseif animType == "Fall" and animate:FindFirstChild("fall") then
+        if animate.fall:FindFirstChild("FallAnim") then
+            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+            lastAnimations.Fall = animId
+        end
+    elseif animType == "Climb" and animate:FindFirstChild("climb") then
+        if animate.climb:FindFirstChild("ClimbAnim") then
+            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+            lastAnimations.Climb = animId
         end
     end
     
-    -- Save ke file
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
     
-    -- Final network sync
-    task.wait(NETWORK_SYNC_DELAY)
     RefreshCharacter()
+    task.wait(0.1)
     
-    print("[AnimHub] Animation set successfully with Smart Precision!")
+    if humanoid and hrp then
+        humanoid.PlatformStand = false
+        hrp.Anchored = wasAnchored
+    end
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
@@ -1049,154 +698,159 @@ local function ResetAnimations()
     local character = player.Character
     if not character then return end
     
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
-    -- Reset state dulu
-    humanoid.PlatformStand = false
+    local humanoid = character:FindFirstChild("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
     
-    -- Stop semua animasi
-    for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-        track:Stop(0.1)
+    local wasAnchored = false
+    if humanoid and hrp then
+        humanoid.PlatformStand = true
+        wasAnchored = hrp.Anchored
+        hrp.Anchored = true
     end
     
-    task.wait(0.15)
+    StopAllAnims()
+    task.wait(0.1)
     
-    -- Reset ke default R15 animations
-    local success = pcall(function()
-        if animate.idle then
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
-        end
-        if animate.walk then
-            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
-        end
-        if animate.run then
-            animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
-        end
-        if animate.jump then
-            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
-        end
-        if animate.fall then
-            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
-        end
-        if animate.climb then
-            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
-        end
-    end)
+    if animate:FindFirstChild("idle") then
+        animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
+        animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
+    end
+    if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
+        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
+    end
+    if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
+        animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
+    end
+    if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
+        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
+    end
+    if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
+        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
+    end
+    if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
+        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
+    end
     
-    -- Clear saved animations
     lastAnimations = {}
     pcall(function()
-        if writefile and delfile and isfile and isfile("AnimHub_Saved.json") then
+        if delfile and isfile and isfile("AnimHub_Saved.json") then
             delfile("AnimHub_Saved.json")
         end
     end)
     
-    -- Force network update
+    RefreshCharacter()
     task.wait(0.1)
-    humanoid:ChangeState(Enum.HumanoidStateType.Running)
     
-    print("[AnimHub] Animations reset to default")
+    if humanoid and hrp then
+        humanoid.PlatformStand = false
+        hrp.Anchored = wasAnchored
+    end
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS =========
+-- ========= ADVANCED LOAD SAVED ANIMATIONS (IMPROVED) =========
 local function LoadSavedAnimations()
+    if isLoadingAnimations then 
+        return 
+    end
+    
+    isLoadingAnimations = true
+    
     task.spawn(function()
         local character = player.Character
         if not character then 
-            print("[AnimHub] No character found for animation load!")
+            isLoadingAnimations = false
             return 
         end
         
-        -- Wait for essential components
-        local humanoid = character:WaitForChild("Humanoid", 3)
-        local animate = character:WaitForChild("Animate", 3)
-        
-        if not humanoid or not animate then
-            warn("[AnimHub] Essential components not ready!")
-            return
+        local animate = character:WaitForChild("Animate", 10)
+        if not animate then 
+            isLoadingAnimations = false
+            return 
         end
         
-        -- Reset state sebelum load
-        pcall(function()
-            humanoid.PlatformStand = false
-            humanoid.AutoRotate = true
-        end)
-        
-        -- Cleanup existing animation tracks
-        task.wait(0.2)
-        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-            track:Stop(0.1)
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        if not humanoid then 
+            isLoadingAnimations = false
+            return 
         end
         
-        -- Wait for cleanup to replicate
         task.wait(0.3)
         
-        -- Load saved data
-        local success, savedData = pcall(function()
+        local success, result = pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
-                return HttpService:JSONDecode(fileContent)
-            end
-            return nil
-        end)
-        
-        if not success or not savedData then
-            print("[AnimHub] No valid saved animations found")
-            return
-        end
-        
-        -- Apply dengan NETWORK DELAYS
-        for animType, animId in pairs(savedData) do
-            task.wait(0.1) -- Network delay antara setiap animasi
-            
-            local applySuccess = pcall(function()
-                if animType == "Idle" and animate.idle then
-                    if type(animId) == "table" and #animId >= 2 then
-                        animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                        animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    end
-                elseif animType == "Walk" and animate.walk then
-                    if type(animId) == "string" then
-                        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Run" and animate.run then
-                    if type(animId) == "string" then
-                        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Jump" and animate.jump then
-                    if type(animId) == "string" then
-                        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Fall" and animate.fall then
-                    if type(animId) == "string" then
-                        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Climb" and animate.climb then
-                    if type(animId) == "string" then
-                        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                local savedData = HttpService:JSONDecode(fileContent)
+                
+                if not savedData or type(savedData) ~= "table" then
+                    return
+                end
+                
+                local validData = {}
+                for animType, animId in pairs(savedData) do
+                    if animType == "Idle" then
+                        if type(animId) == "table" and #animId == 2 then
+                            validData[animType] = animId
+                        end
+                    else
+                        if type(animId) == "string" then
+                            validData[animType] = animId
+                        end
                     end
                 end
-            end)
-            
-            if not applySuccess then
-                warn("[AnimHub] Failed to apply:", animType)
+                
+                if next(validData) == nil then
+                    isLoadingAnimations = false
+                    return
+                end
+                
+                for animType, animId in pairs(validData) do
+                    task.wait(0.08)
+                    
+                    if animType == "Idle" and animate:FindFirstChild("idle") then
+                        local idle = animate.idle
+                        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+                            idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                            idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                        end
+                    elseif animType == "Walk" and animate:FindFirstChild("walk") then
+                        local walk = animate.walk
+                        if walk:FindFirstChild("WalkAnim") then
+                            walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+                        end
+                    elseif animType == "Run" and animate:FindFirstChild("run") then
+                        local run = animate.run
+                        if run:FindFirstChild("RunAnim") then
+                            run.RunAnim.AnimationId = "rbxassetid://" .. animId
+                        end
+                    elseif animType == "Jump" and animate:FindFirstChild("jump") then
+                        local jump = animate.jump
+                        if jump:FindFirstChild("JumpAnim") then
+                            jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+                        end
+                    elseif animType == "Fall" and animate:FindFirstChild("fall") then
+                        local fall = animate.fall
+                        if fall:FindFirstChild("FallAnim") then
+                            fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+                        end
+                    elseif animType == "Climb" and animate:FindFirstChild("climb") then
+                        local climb = animate.climb
+                        if climb:FindFirstChild("ClimbAnim") then
+                            climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                        end
+                    end
+                end
+                
+                lastAnimations = validData
+                
+                task.wait(0.15)
+                RefreshCharacter()
             end
-        end
-        
-        lastAnimations = savedData
-        
-        -- Final network sync
-        task.wait(0.5)
-        pcall(function()
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
         end)
         
-        print("[AnimHub] Animations loaded with network sync!")
+        isLoadingAnimations = false
     end)
 end
 
@@ -1548,9 +1202,6 @@ local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
     
-    -- Release network ownership pertama
-    ReleaseNetworkOwnership()
-    
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
@@ -1573,9 +1224,6 @@ local function RestoreFullUserControl()
     if ShiftLockEnabled then
         EnableVisibleShiftLock()
     end
-    
-    -- Restore original state backup
-    RestoreOriginalState()
 end
 
 -- ========= PERFECT JUMP DETECTION =========
@@ -1588,12 +1236,6 @@ local function GetCurrentMoveState(hum)
     elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
     elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
     else return "Grounded" end
-end
-
--- ========= ENHANCED PLAYBACK SYSTEM =========
-local function ApplyFrameWithSmartPrecision(frame)
-    -- Gunakan adaptive system sebagai ganti smart precision
-    return AdaptiveApplyFrame(frame)
 end
 
 -- ========= PATH VISUALIZATION FUNCTIONS =========
@@ -1845,6 +1487,30 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
+-- ========= FRAME DATA FUNCTIONS =========
+local function GetFrameCFrame(frame)
+    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    return CFrame.lookAt(pos, pos + look, up)
+end
+
+local function GetFrameVelocity(frame)
+    return frame.Velocity and Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[3] * VELOCITY_SCALE
+    ) or Vector3.new(0, 0, 0)
+end
+
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
+end
+
+local function GetFrameTimestamp(frame)
+    return frame.Timestamp or 0
+end
+
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -1883,7 +1549,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Center
@@ -1893,16 +1559,16 @@ local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
-FrameLabel.Text = "Frames: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+FrameLabel.Text = "Frame: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(255,255,255)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
 
 local HideButton = Instance.new("TextButton")
-HideButton.Size = UDim2.fromOffset(30, 25)
+HideButton.Size = UDim2.fromOffset(25, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(155, 152, 181)
+HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
@@ -1914,9 +1580,9 @@ HideCorner.CornerRadius = UDim.new(0, 6)
 HideCorner.Parent = HideButton
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.fromOffset(30, 25)
+CloseButton.Size = UDim2.fromOffset(25, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(233, 83, 83)
+CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -1934,7 +1600,7 @@ ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 ResizeButton.Text = "↖️"
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
-ResizeButton.TextSize = 16
+ResizeButton.TextSize = 20
 ResizeButton.ZIndex = 2
 ResizeButton.Parent = MainFrame
 
@@ -1953,13 +1619,13 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -20, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -20, 0, -30)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 14
-MiniButton.Visible = false
+MiniButton.TextSize = 25
+MiniButton.Visible = true
 MiniButton.Active = true
 MiniButton.Draggable = true
 MiniButton.Parent = ScreenGui
@@ -1986,9 +1652,9 @@ local function CreateButton(text, x, y, w, h, color, parent)
     corner.Parent = btn
     
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1.5
-    stroke.Transparency = 0.7
+    stroke.Color = Color3.fromRGB(0,0,0)
+    stroke.Thickness = 1.0
+    stroke.Transparency = 0.0
     stroke.Parent = btn
     
     btn.MouseEnter:Connect(function()
@@ -2096,7 +1762,7 @@ FilenameBox.Position = UDim2.fromOffset(0, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
-FilenameBox.PlaceholderText = "Nama File..."
+FilenameBox.PlaceholderText = "File..."
 FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 FilenameBox.Font = Enum.Font.GothamBold
 FilenameBox.TextSize = 11
@@ -2338,11 +2004,11 @@ function UpdateRecordList()
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
         playBtn.Position = UDim2.new(1, -110, 0, 7)
-        playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 23
+        playBtn.TextSize = 35
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
@@ -2352,11 +2018,11 @@ function UpdateRecordList()
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
         upBtn.Position = UDim2.new(1, -80, 0, 7)
-        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 20
+        upBtn.TextSize = 35
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
@@ -2366,11 +2032,11 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(233, 83, 83) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 20
+        downBtn.TextSize = 35
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
@@ -2380,11 +2046,11 @@ function UpdateRecordList()
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
-        delBtn.BackgroundColor3 = Color3.fromRGB(233, 83, 83)
+        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         delBtn.Text = "x"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 22
+        delBtn.TextSize = 30
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
@@ -2565,7 +2231,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= FIXED PLAYBACK SYSTEM =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH VISIBLE SHIFTLOCK =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2588,12 +2254,6 @@ function PlayRecording(name)
     totalPausedDuration = 0
     pauseStartTime = 0
 
-    -- Try acquire network ownership
-    local ownershipSuccess = TryAcquireNetworkOwnership()
-    if not ownershipSuccess then
-        warn("[Playback] Network ownership tidak didapat, menggunakan safe mode")
-    end
-
     SaveHumanoidState()
     DisableJump()
     
@@ -2613,7 +2273,6 @@ function PlayRecording(name)
                 pauseStartTime = tick()
                 RestoreHumanoidState()
                 ShowJumpButton()
-                EnableJump()
                 if ShiftLockEnabled then
                     ApplyVisibleShiftLock()
                 end
@@ -2670,12 +2329,38 @@ function PlayRecording(name)
             return
         end
 
-        -- Apply frame dengan FIXED adaptive system
-        AdaptiveApplyFrame(frame)
-        
-        if ShiftLockEnabled then
-            ApplyVisibleShiftLock()
-        end
+        pcall(function()
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+            
+            if hum then
+                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                hum.AutoRotate = false
+                
+                local moveState = frame.MoveState
+                if moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    hum.PlatformStand = false
+                    hum.AutoRotate = false
+                elseif moveState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    task.spawn(function()
+                        wait(0.01)
+                        if hum and hum.Parent then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end
+            
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
+        end)
     end)
     
     AddConnection(playbackConnection)
@@ -2720,6 +2405,7 @@ function StartAutoLoopAll()
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
+                    -- Jika respawn gagal, lanjut ke recording berikutnya
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2731,12 +2417,14 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
+            -- PERBAIKAN: Jika karakter mati, tunggu respawn dan lanjutkan
             if not IsCharacterReady() then
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
+                        -- Timeout, lanjut ke recording berikutnya
                         CurrentLoopIndex = CurrentLoopIndex + 1
                         if CurrentLoopIndex > #RecordingOrder then
                             CurrentLoopIndex = 1
@@ -2759,9 +2447,6 @@ function StartAutoLoopAll()
             local playbackPauseStart = 0
             local currentFrame = 1
             
-            -- Try acquire network ownership untuk loop
-            TryAcquireNetworkOwnership()
-            
             SaveHumanoidState()
             DisableJump()
             
@@ -2769,6 +2454,7 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
+                    -- Karakter mati selama playback, break untuk lanjut ke recording berikutnya
                     break
                 end
                 
@@ -2777,7 +2463,6 @@ function StartAutoLoopAll()
                         playbackPauseStart = tick()
                         RestoreHumanoidState()
                         ShowJumpButton()
-                        EnableJump()
                         if ShiftLockEnabled then
                             ApplyVisibleShiftLock()
                         end
@@ -2818,7 +2503,38 @@ function StartAutoLoopAll()
                     
                     local frame = recording[currentFrame]
                     if frame then
-                        AdaptiveApplyFrame(frame)
+                        pcall(function()
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                            
+                            if hum then
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = false
+                                
+                                local moveState = frame.MoveState
+                                if moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                    hum.PlatformStand = false
+                                    hum.AutoRotate = false
+                                elseif moveState == "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    task.spawn(function()
+                                        wait(0.01)
+                                        if hum and hum.Parent then
+                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                        end
+                                    end)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                else
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                end
+                            end
+                            
+                            if ShiftLockEnabled then
+                                ApplyVisibleShiftLock()
+                            end
+                        end)
                     end
                     
                     task.wait()
@@ -2838,6 +2554,7 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
+                -- Jika playback tidak completed (karakter mati), lanjut ke recording berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2900,7 +2617,6 @@ function PausePlayback()
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
             RestoreHumanoidState()
             ShowJumpButton()
-            EnableJump()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
@@ -2923,7 +2639,6 @@ function PausePlayback()
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
             RestoreHumanoidState()
             ShowJumpButton()
-            EnableJump()
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
             end
@@ -3191,45 +2906,19 @@ CloseButton.MouseButton1Click:Connect(function()
 end)
 
 -- ========= AUTO-LOAD ANIMATIONS SYSTEM =========
-local characterLoadConnection
-characterLoadConnection = player.CharacterAdded:Connect(function(character)
-    if characterLoadConnection then
-        characterLoadConnection:Disconnect()
-        characterLoadConnection = nil
-    end
+-- This runs independently from GUI state
+player.CharacterAdded:Connect(function(character)
+    -- Wait 2 seconds for character to fully load
+    task.wait(2)
     
-    local humanoid = character:WaitForChild("Humanoid", 5)
-    local animate = character:WaitForChild("Animate", 5)
-    
-    if not humanoid or not animate then
-        warn("[AnimHub] Character components not found!")
-        return
-    end
-    
-    humanoid.PlatformStand = false
-    humanoid.AutoRotate = true
-    
-    task.wait(0.5)
-    
-    task.spawn(function()
+    -- Verify character still exists
+    if player.Character == character then
         LoadSavedAnimations()
-    end)
-    
-    task.wait(1)
-    characterLoadConnection = player.CharacterAdded:Connect(function(newChar)
-    end)
-end)
-
-player.CharacterRemoving:Connect(function(character)
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-            track:Stop(0)
-        end
     end
 end)
 
 -- === INITIAL LOAD ON SCRIPT EXECUTION ===
+-- Auto-load animations when script first runs
 task.spawn(function()
     if player.Character then
         task.wait(2)
@@ -3274,9 +2963,3 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AnimateJump(InfiniteJump)
     end
 end)
-
-print("=== BYARUL MOVEMENT RECORDER LOADED ===")
-print("Playback System: FIXED & WORKING")
-print("Network Ownership: OPTIMIZED")
-print("Frame Functions: IMPLEMENTED")
-print("Ready to use!")
