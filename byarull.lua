@@ -11,7 +11,7 @@ wait(1)
 
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
-local MAX_FRAMES = 30000
+local MAX_FRAMES = 40000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -1331,6 +1331,8 @@ local function ApplyFrameWithSmartPrecision(frame)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return false end
     
+    local success = false
+    
     if SMART_PRECISION_ENABLED then
         -- ========= SMART PRECISION MODE =========
         
@@ -1339,7 +1341,7 @@ local function ApplyFrameWithSmartPrecision(frame)
         hrp.Anchored = true
         
         -- Apply exact frame data
-        local success = pcall(function()
+        success = pcall(function()
             hrp.CFrame = GetFrameCFrame(frame)
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
@@ -1373,11 +1375,15 @@ local function ApplyFrameWithSmartPrecision(frame)
         return success
     else
         -- ========= NATURAL MOVEMENT MODE =========
-        humanoid.PlatformStand = false
+                if humanoid then
+            humanoid.PlatformStand = false
+        end
         
-        local success = pcall(function()
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+        success = pcall(function()
+            if hrp then
+                hrp.CFrame = GetFrameCFrame(frame)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+            end
             
             if humanoid then
                 humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
@@ -1397,9 +1403,9 @@ local function ApplyFrameWithSmartPrecision(frame)
                 end
             end
         end)
-        
-        return success
     end
+    
+    return success
 end
 
 -- ========= PATH VISUALIZATION FUNCTIONS =========
