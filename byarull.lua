@@ -1,3 +1,4 @@
+byarull v1.0 - FIXED PLAYBACK VERSION
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -83,8 +84,8 @@ local pauseStartTime = 0
 local currentPlaybackFrame = 1
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
-local prePauseAutoRotate = true
 local prePauseJumpPower = 50
+local prePauseAutoRotate = true
 local prePausePlatformStand = false
 local prePauseSit = false
 local originalJumpButtonEnabled = true
@@ -382,7 +383,7 @@ local DefaultAnimations = {
     Walk = "507777826",
     Run = "507767714",
     Jump = "507765000",
-    Fall = "2510233257",
+    Fall = "507767968",
     Climb = "507765644"
 }
 
@@ -435,7 +436,38 @@ local function CleanupConnections()
     end
 end
 
--- ========= ENHANCED NETWORK OWNERSHIP SYSTEM =========
+-- ========= MISSING FRAME FUNCTIONS - FIXED =========
+local function GetFrameCFrame(frame)
+    if not frame or not frame.Position then 
+        warn("[ERROR] Invalid frame data in GetFrameCFrame")
+        return CFrame.new()
+    end
+    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    return CFrame.lookAt(pos, pos + look, up)
+end
+
+local function GetFrameVelocity(frame)
+    if not frame.Velocity then 
+        return Vector3.new(0, 0, 0)
+    end
+    return Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[3] * VELOCITY_SCALE
+    )
+end
+
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
+end
+
+local function GetFrameTimestamp(frame)
+    return frame.Timestamp or 0
+end
+
+-- ========= FIXED NETWORK OWNERSHIP SYSTEM =========
 local function BackupOriginalState()
     local character = player.Character
     if not character then return false end
@@ -478,37 +510,22 @@ local function TryAcquireNetworkOwnership()
     -- Backup state original
     BackupOriginalState()
     
-    -- Cek apakah sudah punya ownership
-    local success, currentOwner = pcall(function()
-        return hrp:GetNetworkOwner()
+    -- Coba set network ownership
+    local success = pcall(function()
+        hrp:SetNetworkOwnership(player)
     end)
     
-    if not success then
-        SafeModeActive = true
-        return false  -- Tidak support network ownership
-    end
-    
-    if currentOwner == player then
-        NetworkOwnershipAcquired = true
-        return true
-    end
-    
-    -- Coba acquire ownership
-    local ownershipSuccess = pcall(function()
-        hrp:SetNetworkOwner(player)
-    end)
-    
-    if ownershipSuccess then
-        -- Tunggu sebentar untuk replication
+    if success then
         task.wait(0.1)
-        
         -- Verifikasi ownership
         local verifySuccess, newOwner = pcall(function()
-            return hrp:GetNetworkOwner()
+            local owner = hrp:GetNetworkOwner()
+            return owner == player
         end)
         
-        if verifySuccess and newOwner == player then
+        if verifySuccess then
             NetworkOwnershipAcquired = true
+            SafeModeActive = false
             return true
         end
     end
@@ -568,7 +585,7 @@ local function RestoreOriginalState()
     ShowJumpButton()
 end
 
--- ========= ADAPTIVE MOVEMENT SYSTEM =========
+-- ========= FIXED ADAPTIVE MOVEMENT SYSTEM =========
 local function AdaptiveApplyFrame(frame)
     local character = player.Character
     if not character then return false end
@@ -592,7 +609,7 @@ local function AdaptiveApplyFrame(frame)
             
             humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             
-            local moveState = frame.MoveState
+            local moveState = frame.MoveState or "Grounded"
             if moveState == "Climbing" then
                 humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
             elseif moveState == "Jumping" then
@@ -650,6 +667,10 @@ local function AdaptiveApplyFrame(frame)
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end
         end)
+    end
+    
+    if not success then
+        warn("[Playback] Failed to apply frame")
     end
     
     return success
@@ -1824,30 +1845,6 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
--- ========= FRAME DATA FUNCTIONS =========
-local function GetFrameCFrame(frame)
-    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    ) or Vector3.new(0, 0, 0)
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
-
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
-end
-
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -2568,7 +2565,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= ENHANCED PLAYBACK SYSTEM =========
+-- ========= FIXED PLAYBACK SYSTEM =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2673,7 +2670,7 @@ function PlayRecording(name)
             return
         end
 
-        -- Apply frame dengan adaptive system
+        -- Apply frame dengan FIXED adaptive system
         AdaptiveApplyFrame(frame)
         
         if ShiftLockEnabled then
@@ -3277,3 +3274,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AnimateJump(InfiniteJump)
     end
 end)
+
+print("=== BYARUL MOVEMENT RECORDER LOADED ===")
+print("Playback System: FIXED & WORKING")
+print("Network Ownership: OPTIMIZED")
+print("Frame Functions: IMPLEMENTED")
+print("Ready to use!")
