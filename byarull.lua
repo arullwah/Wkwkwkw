@@ -10,8 +10,8 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
-local MAX_FRAMES = 40000
+local RECORDING_FPS = 70
+local MAX_FRAMES = 35000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
@@ -361,14 +361,14 @@ local DefaultAnimations = {
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://9114262381",
-    Toggle = "rbxassetid://9114262381", 
-    RecordStart = "rbxassetid://9114262381",
-    RecordStop = "rbxassetid://9114262381",
-    Play = "rbxassetid://9114262381",
-    Stop = "rbxassetid://9114262381",
-    Error = "rbxassetid://9114262381",
-    Success = "rbxassetid://9114262381"
+    Click = "rbxassetid://4499400560",
+    Toggle = "rbxassetid://7468131335", 
+    RecordStart = "rbxassetid://4499400560",
+    RecordStop = "rbxassetid://4499400560",
+    Play = "rbxassetid://4499400560",
+    Stop = "rbxassetid://4499400560",
+    Error = "rbxassetid://7772283448",
+    Success = "rbxassetid://2865227271"
 }
 
 -- ========= MEMORY MANAGEMENT =========
@@ -1560,9 +1560,9 @@ FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
 
 local HideButton = Instance.new("TextButton")
-HideButton.Size = UDim2.fromOffset(30, 25)
+HideButton.Size = UDim2.fromOffset(25, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
@@ -1574,9 +1574,9 @@ HideCorner.CornerRadius = UDim.new(0, 6)
 HideCorner.Parent = HideButton
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.fromOffset(30, 25)
+CloseButton.Size = UDim2.fromOffset(25, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -1613,12 +1613,12 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -20, 0, -20)
+MiniButton.Position = UDim2.new(0.5, -20, 0, -30)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 14
+MiniButton.TextSize = 25
 MiniButton.Visible = true
 MiniButton.Active = true
 MiniButton.Draggable = true
@@ -1998,11 +1998,11 @@ function UpdateRecordList()
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
         playBtn.Position = UDim2.new(1, -110, 0, 7)
-        playBtn.BackgroundColor3 = Color3.fromRGB(74, 195, 147)
+        playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 28
+        playBtn.TextSize = 35
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
@@ -2016,7 +2016,7 @@ function UpdateRecordList()
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 28
+        upBtn.TextSize = 35
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
@@ -2026,11 +2026,11 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(230, 62, 62) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 28
+        downBtn.TextSize = 35
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
@@ -2044,7 +2044,7 @@ function UpdateRecordList()
         delBtn.Text = "x"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 28
+        delBtn.TextSize = 30
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
