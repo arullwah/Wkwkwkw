@@ -44,7 +44,7 @@ local CurrentSpeed = 1
 local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
-AutoLoop = false
+
 local AutoRespawn = false
 local InfiniteJump = false
 local recordConnection = nil
@@ -355,13 +355,13 @@ local Animations = {
 }
 
 -- ========= DEFAULT ANIMATIONS (R15 Standard) =========
-["Default Retarget"] = {
-    Idle = {"95884606664820", "95884606664820"},
-    Walk = "115825677624788", 
-    Run = "102294264237491",
-    Jump = "117150377950987",
-    Fall = "117150377950987", -- Sama dengan Jump
-    Climb = "Default" -- Tidak spesifik
+local DefaultAnimations = {
+    Idle = {"507766666", "507766951"},
+    Walk = "507777826",
+    Run = "507767714",
+    Jump = "507765000",
+    Fall = "507767968",
+    Climb = "507765644"
 }
 
 -- ========= SOUND EFFECTS =========
