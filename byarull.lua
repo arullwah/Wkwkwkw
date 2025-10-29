@@ -601,19 +601,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO PART ANCHORING) =========
-local function StopAllAnims()
-    local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-                track:Stop(0)
-            end
-        end
-    end
-end
-
+-- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO FREEZE) =========
 local function RefreshCharacter()
     local character = player.Character
     if character then
@@ -631,9 +619,7 @@ local function SetAnimation(animType, animId)
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
-    StopAllAnims()
-    task.wait(0.1)
-    
+    -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
     if animType == "Idle" and animate:FindFirstChild("idle") then
         if type(animId) == "table" and #animId == 2 then
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
@@ -667,14 +653,15 @@ local function SetAnimation(animType, animId)
         end
     end
     
+    -- ✅ Save config
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
     
+    -- ✅ Smooth refresh (optional)
     RefreshCharacter()
-    task.wait(0.1)
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
@@ -685,29 +672,44 @@ local function ResetAnimations()
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
-    StopAllAnims()
-    task.wait(0.1)
+    -- ✅ LANGSUNG RESET TANPA STOP ANIMATIONS
     
+    -- Reset Idle
     if animate:FindFirstChild("idle") then
-        animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
-        animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
+        if animate.idle:FindFirstChild("Animation1") then
+            animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
+        end
+        if animate.idle:FindFirstChild("Animation2") then
+            animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
+        end
     end
+    
+    -- Reset Walk
     if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
         animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
     end
+    
+    -- Reset Run
     if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
         animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
     end
+    
+    -- Reset Jump
     if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
         animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
     end
+    
+    -- Reset Fall
     if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
         animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
     end
+    
+    -- Reset Climb
     if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
         animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
     end
     
+    -- ✅ Clear saved data
     lastAnimations = {}
     pcall(function()
         if delfile and isfile and isfile("AnimHub_Saved.json") then
@@ -715,8 +717,11 @@ local function ResetAnimations()
         end
     end)
     
+    -- ✅ Smooth refresh
     RefreshCharacter()
-    task.wait(0.1)
+    
+    -- ✅ Notify user
+    PlaySound("Success")
 end
 
 -- ========= ADVANCED LOAD SAVED ANIMATIONS (IMPROVED) =========
@@ -740,12 +745,6 @@ local function LoadSavedAnimations()
             return 
         end
         
-        local humanoid = character:WaitForChild("Humanoid", 10)
-        if not humanoid then 
-            isLoadingAnimations = false
-            return 
-        end
-        
         task.wait(0.3)
         
         local success, result = pcall(function()
@@ -757,32 +756,17 @@ local function LoadSavedAnimations()
                     return
                 end
                 
-                local validData = {}
+                -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
                 for animType, animId in pairs(savedData) do
-                    if animType == "Idle" then
-                        if type(animId) == "table" and #animId == 2 then
-                            validData[animType] = animId
-                        end
-                    else
-                        if type(animId) == "string" then
-                            validData[animType] = animId
-                        end
-                    end
-                end
-                
-                if next(validData) == nil then
-                    isLoadingAnimations = false
-                    return
-                end
-                
-                for animType, animId in pairs(validData) do
-                    task.wait(0.08)
+                    task.wait(0.05) -- Minimal delay untuk network sync
                     
                     if animType == "Idle" and animate:FindFirstChild("idle") then
                         local idle = animate.idle
-                        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                            idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                            idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                        if type(animId) == "table" and #animId == 2 then
+                            if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+                                idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                                idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                            end
                         end
                     elseif animType == "Walk" and animate:FindFirstChild("walk") then
                         local walk = animate.walk
@@ -812,9 +796,9 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                lastAnimations = validData
+                lastAnimations = savedData
                 
-                task.wait(0.15)
+                task.wait(0.1)
                 RefreshCharacter()
             end
         end)
@@ -894,21 +878,6 @@ local function OpenAnimationGUI()
     local SearchPadding = Instance.new("UIPadding")
     SearchPadding.PaddingLeft = UDim.new(0, 8)
     SearchPadding.Parent = SearchBox
-    
-    -- Reset Button
-    local ResetBtn = Instance.new("TextButton")
-    ResetBtn.Size = UDim2.new(0, 25, 0, 25)
-    ResetBtn.Position = UDim2.new(0, 120, 0.5, -12.5)
-    ResetBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 50)
-    ResetBtn.Text = "🔄"
-    ResetBtn.TextColor3 = Color3.new(1, 1, 1)
-    ResetBtn.Font = Enum.Font.GothamBold
-    ResetBtn.TextSize = 14
-    ResetBtn.Parent = Header
-    
-    local ResetCorner = Instance.new("UICorner")
-    ResetCorner.CornerRadius = UDim.new(0, 4)
-    ResetCorner.Parent = ResetBtn
     
     -- Close Button (Kanan)
     local CloseBtn = Instance.new("TextButton")
@@ -1015,12 +984,6 @@ local function OpenAnimationGUI()
         AnimateButtonClick(LoadBtn)
         LoadSavedAnimations()
         PlaySound("Success")
-    end)
-    
-    ResetBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(ResetBtn)
-        ResetAnimations()
-        PlaySound("Toggle")
     end)
     
     CloseBtn.MouseButton1Click:Connect(function()
@@ -1493,7 +1456,7 @@ end
 
 -- PERBAIKAN: MainFrame diperbesar untuk scroll yang lebih baik
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 450) -- Diperbesar dari 350 ke 450
+MainFrame.Size = UDim2.fromOffset(250, 350) 
 MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
@@ -1592,13 +1555,13 @@ Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, -30)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 25
-MiniButton.Visible = true
+MiniButton.Visible = false
 MiniButton.Active = true
 MiniButton.Draggable = true
 MiniButton.Parent = ScreenGui
@@ -2983,7 +2946,7 @@ player.CharacterRemoving:Connect(function()
 end)
 
 -- ========= FINAL INITIALIZATION =========
-warn("🎮 AutoWalk ByaruL Successfully!")
+warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
 
 -- Ensure proper cleanup on script termination
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
