@@ -83,141 +83,6 @@ local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
 
--- ========= ANIMATION SYSTEM VARIABLES =========
-local lastAnimations = {}
-local animationGuiOpen = false
-local isLoadingAnimations = false
-
--- ========= ANIMATIONS DATABASE =========
-local Animations = {
-    ["Idle"] = {
-        ["2016 Animation (mm2)"] = {"387947158", "387947464"},
-        ["(UGC) Oh Really?"] = {"98004748982532", "98004748982532"},
-        ["Astronaut"] = {"891621366", "891633237"},
-        ["Adidas Community"] = {"122257458498464", "102357151005774"},
-        ["Bold"] = {"16738333868", "16738334710"},
-        ["(UGC) Slasher"] = {"140051337061095", "140051337061095"},
-        ["(UGC) Retro"] = {"80479383912838", "80479383912838"},
-        ["Borock"] = {"3293641938", "3293642554"},
-        ["Bubbly"] = {"910004836", "910009958"},
-        ["Cartoony"] = {"742637544", "742638445"},
-        ["Confident"] = {"1069977950", "1069987858"},
-        ["Cowboy"] = {"1014390418", "1014398616"},
-        ["Ghost"] = {"616006778","616008087"},
-        ["Knight"] = {"657595757", "657568135"},
-        ["Mage"] = {"707742142", "707855907"},
-        ["Ninja"] = {"656117400", "656118341"},
-        ["OldSchool"] = {"10921230744", "10921232093"},
-        ["Pirate"] = {"750781874", "750782770"},
-        ["Robot"] = {"616088211", "616089559"},
-        ["Stylish"] = {"616136790", "616138447"},
-        ["Superhero"] = {"10921288909", "10921290167"},
-        ["Toy"] = {"782841498", "782845736"},
-        ["Vampire"] = {"1083445855", "1083450166"},
-        ["Zombie"] = {"616158929", "616160636"}
-    },
-    ["Walk"] = {
-        ["Gojo"] = "95643163365384",
-        ["Geto"] = "85811471336028",
-        ["Astronaut"] = "891667138",
-        ["Bold"] = "16738340646",
-        ["Bubbly"] = "910034870",
-        ["Cartoony"] = "742640026",
-        ["Cowboy"] = "1014421541",
-        ["Ghost"] = "616013216",
-        ["Knight"] = "10921127095",
-        ["Mage"] = "707897309",
-        ["Ninja"] = "656121766",
-        ["OldSchool"] = "10921244891",
-        ["Pirate"] = "750785693",
-        ["Robot"] = "616095330",
-        ["Stylish"] = "616146177",
-        ["Superhero"] = "10921298616",
-        ["Toy"] = "10921306285",
-        ["Vampire"] = "1083473930",
-        ["Zombie"] = "616168032"
-    },
-    ["Run"] = {
-        ["Astronaut"] = "10921039308",
-        ["Bold"] = "16738337225",
-        ["Bubbly"] = "10921057244",
-        ["Cartoony"] = "10921076136",
-        ["Cowboy"] = "1014401683",
-        ["Knight"] = "10921121197",
-        ["Mage"] = "10921148209",
-        ["Ninja"] = "656118852",
-        ["OldSchool"] = "10921240218",
-        ["Pirate"] = "750783738",
-        ["Robot"] = "10921250460",
-        ["Stylish"] = "10921276116",
-        ["Superhero"] = "10921291831",
-        ["Toy"] = "10921306285",
-        ["Vampire"] = "10921320299",
-        ["Zombie"] = "616163682"
-    },
-    ["Jump"] = {
-        ["Astronaut"] = "891627522",
-        ["Bold"] = "16738336650",
-        ["Bubbly"] = "910016857",
-        ["Cartoony"] = "742637942",
-        ["Cowboy"] = "1014394726",
-        ["Knight"] = "910016857",
-        ["Mage"] = "10921149743",
-        ["Ninja"] = "656117878",
-        ["OldSchool"] = "10921242013",
-        ["Pirate"] = "750782230",
-        ["Robot"] = "616090535",
-        ["Stylish"] = "616139451",
-        ["Superhero"] = "10921294559",
-        ["Toy"] = "10921308158",
-        ["Vampire"] = "1083455352",
-        ["Zombie"] = "616161997"
-    },
-    ["Fall"] = {
-        ["Astronaut"] = "891617961",
-        ["Bold"] = "16738333171",
-        ["Bubbly"] = "910001910",
-        ["Cartoony"] = "742637151",
-        ["Cowboy"] = "1014384571",
-        ["Knight"] = "10921122579",
-        ["Mage"] = "707829716",
-        ["Ninja"] = "656115606",
-        ["OldSchool"] = "10921241244",
-        ["Robot"] = "616087089",
-        ["Stylish"] = "616134815",
-        ["Superhero"] = "10921293373",
-        ["Toy"] = "782846423",
-        ["Vampire"] = "1083443587",
-        ["Zombie"] = "616157476"
-    },
-    ["Climb"] = {
-        ["Astronaut"] = "10921032124",
-        ["Bold"] = "16738332169",
-        ["Cartoony"] = "742636889",
-        ["CowBoy"] = "1014380606",
-        ["Knight"] = "10921125160",
-        ["Mage"] = "707826056",
-        ["Ninja"] = "656114359",
-        ["OldSchool"] = "10921229866",
-        ["Robot"] = "616086039",
-        ["Stylish"] = "10921271391",
-        ["SuperHero"] = "10921286911",
-        ["Toy"] = "10921300839",
-        ["Vampire"] = "1083439238",
-        ["Zombie"] = "616156119"
-    }
-}
-
--- ========= DEFAULT ANIMATIONS =========
-local DefaultAnimations = {
-    Idle = {"507766666", "507766951"},
-    Walk = "507777826",
-    Run = "507767714",
-    Jump = "507765000",
-    Fall = "507767968",
-    Climb = "507765644"
-}
-
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -279,31 +144,31 @@ local function PlaySound(soundType)
     end)
 end
 
--- ========= SIMPLE BUTTON ANIMATION =========
+-- ========= ENHANCED BUTTON ANIMATION =========
 local function AnimateButtonClick(button)
     PlaySound("Click")
     
+    local originalSize = button.Size
+    TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 4)
+    }):Play()
+    
     local originalColor = button.BackgroundColor3
-    
-    local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    
     local brighterColor = Color3.new(
-        math.min(originalColor.R * 1.15, 1),
-        math.min(originalColor.G * 1.15, 1),
-        math.min(originalColor.B * 1.15, 1)
+        math.min(originalColor.R * 1.3, 1),
+        math.min(originalColor.G * 1.3, 1), 
+        math.min(originalColor.B * 1.3, 1)
     )
     
-    TweenService:Create(button, tweenInfo, {
+    TweenService:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         BackgroundColor3 = brighterColor
     }):Play()
     
-    task.delay(0.15, function()
-        if button and button.Parent then
-            TweenService:Create(button, tweenInfo, {
-                BackgroundColor3 = originalColor
-            }):Play()
-        end
-    end)
+    wait(0.1)
+    TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), {
+        Size = originalSize,
+        BackgroundColor3 = originalColor
+    }):Play()
 end
 
 -- ========= AUTO RESPAWN FUNCTION =========
@@ -360,7 +225,7 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= VISIBLE SHIFTLOCK SYSTEM =========
+-- ========= VISIBLE SHIFTLOCK SYSTEM FUNCTIONS =========
 local function ApplyVisibleShiftLock()
     if not ShiftLockEnabled or not player.Character then return end
     
@@ -460,376 +325,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= ANIMATION SYSTEM =========
-local function StopAllAnims()
-    local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-                track:Stop(0)
-            end
-        end
-    end
-end
-
-local function RefreshCharacter()
-    local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Landed)
-        end
-    end
-end
-
-local function SetAnimation(animType, animId)
-    local character = player.Character
-    if not character then return end
-    
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
-    
-    StopAllAnims()
-    task.wait(0.1)
-    
-    if animType == "Idle" and animate:FindFirstChild("idle") then
-        if type(animId) == "table" and #animId == 2 then
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-            lastAnimations.Idle = animId
-        end
-    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-        if animate.walk:FindFirstChild("WalkAnim") then
-            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Walk = animId
-        end
-    elseif animType == "Run" and animate:FindFirstChild("run") then
-        if animate.run:FindFirstChild("RunAnim") then
-            animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Run = animId
-        end
-    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-        if animate.jump:FindFirstChild("JumpAnim") then
-            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Jump = animId
-        end
-    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-        if animate.fall:FindFirstChild("FallAnim") then
-            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Fall = animId
-        end
-    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-        if animate.climb:FindFirstChild("ClimbAnim") then
-            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Climb = animId
-        end
-    end
-    
-    pcall(function()
-        if writefile and readfile and isfile then
-            writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
-        end
-    end)
-    
-    RefreshCharacter()
-    task.wait(0.1)
-end
-
-local function ResetAnimations()
-    local character = player.Character
-    if not character then return end
-    
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
-    
-    StopAllAnims()
-    task.wait(0.1)
-    
-    if animate:FindFirstChild("idle") then
-        animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
-        animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
-    end
-    if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
-        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
-    end
-    if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
-        animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
-    end
-    if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
-        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
-    end
-    if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
-        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
-    end
-    if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
-        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
-    end
-    
-    lastAnimations = {}
-    pcall(function()
-        if delfile and isfile and isfile("AnimHub_Saved.json") then
-            delfile("AnimHub_Saved.json")
-        end
-    end)
-    
-    RefreshCharacter()
-    task.wait(0.1)
-end
-
-local function LoadSavedAnimations()
-    if isLoadingAnimations then return end
-    isLoadingAnimations = true
-    
-    task.spawn(function()
-        local character = player.Character
-        if not character then 
-            isLoadingAnimations = false
-            return 
-        end
-        
-        local animate = character:WaitForChild("Animate", 10)
-        if not animate then 
-            isLoadingAnimations = false
-            return 
-        end
-        
-        task.wait(0.3)
-        
-        local success, result = pcall(function()
-            if isfile and readfile and isfile("AnimHub_Saved.json") then
-                local fileContent = readfile("AnimHub_Saved.json")
-                local savedData = HttpService:JSONDecode(fileContent)
-                
-                if not savedData or type(savedData) ~= "table" then return end
-                
-                for animType, animId in pairs(savedData) do
-                    task.wait(0.08)
-                    SetAnimation(animType, animId)
-                end
-                
-                task.wait(0.15)
-                RefreshCharacter()
-            end
-        end)
-        
-        isLoadingAnimations = false
-    end)
-end
-
--- ========= ANIMATION GUI =========
-local function OpenAnimationGUI()
-    if animationGuiOpen then return end
-    animationGuiOpen = true
-
-    local AnimationGUI = Instance.new("ScreenGui")
-    AnimationGUI.Name = "AnimationGUI"
-    AnimationGUI.ResetOnSpawn = false
-    AnimationGUI.Parent = player.PlayerGui
-    
-    local MainFrame = Instance.new("Frame")
-    MainFrame.Size = UDim2.new(0, 200, 0, 200)
-    MainFrame.Position = UDim2.new(0.5, -100, 0.5, -100)
-    MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    MainFrame.BorderSizePixel = 0
-    MainFrame.Active = true
-    MainFrame.Draggable = true
-    MainFrame.Parent = AnimationGUI
-    
-    local MainCorner = Instance.new("UICorner")
-    MainCorner.CornerRadius = UDim.new(0, 8)
-    MainCorner.Parent = MainFrame
-    
-    local Header = Instance.new("Frame")
-    Header.Size = UDim2.new(1, 0, 0, 35)
-    Header.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    Header.BorderSizePixel = 0
-    Header.Parent = MainFrame
-    
-    local HeaderCorner = Instance.new("UICorner")
-    HeaderCorner.CornerRadius = UDim.new(0, 8)
-    HeaderCorner.Parent = Header
-    
-    local LoadBtn = Instance.new("TextButton")
-    LoadBtn.Size = UDim2.new(0, 25, 0, 25)
-    LoadBtn.Position = UDim2.new(0, 5, 0.5, -12.5)
-    LoadBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
-    LoadBtn.Text = "📂"
-    LoadBtn.TextColor3 = Color3.new(1, 1, 1)
-    LoadBtn.Font = Enum.Font.GothamBold
-    LoadBtn.TextSize = 14
-    LoadBtn.Parent = Header
-    
-    local LoadCorner = Instance.new("UICorner")
-    LoadCorner.CornerRadius = UDim.new(0, 4)
-    LoadCorner.Parent = LoadBtn
-    
-    local SearchBox = Instance.new("TextBox")
-    SearchBox.Size = UDim2.new(0, 80, 0, 25)
-    SearchBox.Position = UDim2.new(0, 35, 0.5, -12.5)
-    SearchBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    SearchBox.BorderSizePixel = 0
-    SearchBox.Text = ""
-    SearchBox.PlaceholderText = "Search..."
-    SearchBox.TextColor3 = Color3.new(1, 1, 1)
-    SearchBox.Font = Enum.Font.Gotham
-    SearchBox.TextSize = 11
-    SearchBox.TextXAlignment = Enum.TextXAlignment.Left
-    SearchBox.ClearTextOnFocus = false
-    SearchBox.Parent = Header
-    
-    local SearchCorner = Instance.new("UICorner")
-    SearchCorner.CornerRadius = UDim.new(0, 4)
-    SearchCorner.Parent = SearchBox
-    
-    local SearchPadding = Instance.new("UIPadding")
-    SearchPadding.PaddingLeft = UDim.new(0, 8)
-    SearchPadding.Parent = SearchBox
-    
-    local ResetBtn = Instance.new("TextButton")
-    ResetBtn.Size = UDim2.new(0, 25, 0, 25)
-    ResetBtn.Position = UDim2.new(0, 120, 0.5, -12.5)
-    ResetBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 50)
-    ResetBtn.Text = "🔄"
-    ResetBtn.TextColor3 = Color3.new(1, 1, 1)
-    ResetBtn.Font = Enum.Font.GothamBold
-    ResetBtn.TextSize = 14
-    ResetBtn.Parent = Header
-    
-    local ResetCorner = Instance.new("UICorner")
-    ResetCorner.CornerRadius = UDim.new(0, 4)
-    ResetCorner.Parent = ResetBtn
-    
-    local CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.new(0, 25, 0, 25)
-    CloseBtn.Position = UDim2.new(1, -30, 0.5, -12.5)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 80)
-    CloseBtn.Text = "×"
-    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
-    CloseBtn.Font = Enum.Font.GothamBold
-    CloseBtn.TextSize = 16
-    CloseBtn.Parent = Header
-    
-    local CloseCorner = Instance.new("UICorner")
-    CloseCorner.CornerRadius = UDim.new(0, 4)
-    CloseCorner.Parent = CloseBtn
-    
-    local AnimationList = Instance.new("ScrollingFrame")
-    AnimationList.Size = UDim2.new(1, -10, 1, -40)
-    AnimationList.Position = UDim2.new(0, 5, 0, 40)
-    AnimationList.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    AnimationList.BorderSizePixel = 0
-    AnimationList.ScrollBarThickness = 3
-    AnimationList.ScrollBarImageColor3 = Color3.fromRGB(59, 15, 116)
-    AnimationList.CanvasSize = UDim2.new(0, 0, 0, 0)
-    AnimationList.Parent = MainFrame
-    
-    local ListCorner = Instance.new("UICorner")
-    ListCorner.CornerRadius = UDim.new(0, 6)
-    ListCorner.Parent = AnimationList
-    
-    local buttons = {}
-    local yPos = 0
-    
-    local function addButton(name, animType, animId)
-        local item = Instance.new("TextButton")
-        item.Size = UDim2.new(1, -10, 0, 25)
-        item.Position = UDim2.new(0, 5, 0, yPos)
-        item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-        item.BorderSizePixel = 0
-        item.Text = name .. " - " .. animType
-        item.TextColor3 = Color3.new(1, 1, 1)
-        item.Font = Enum.Font.GothamBold
-        item.TextSize = 9
-        item.TextXAlignment = Enum.TextXAlignment.Left
-        item.Parent = AnimationList
-        
-        local itemCorner = Instance.new("UICorner")
-        itemCorner.CornerRadius = UDim.new(0, 4)
-        itemCorner.Parent = item
-        
-        local padding = Instance.new("UIPadding")
-        padding.PaddingLeft = UDim.new(0, 8)
-        padding.Parent = item
-        
-        item.MouseButton1Click:Connect(function()
-            SetAnimation(animType, animId)
-            PlaySound("Success")
-        end)
-        
-        item.MouseEnter:Connect(function()
-            TweenService:Create(item, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            }):Play()
-        end)
-        
-        item.MouseLeave:Connect(function()
-            TweenService:Create(item, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(35, 35, 45)
-            }):Play()
-        end)
-        
-        table.insert(buttons, item)
-        yPos = yPos + 28
-    end
-    
-    for name, ids in pairs(Animations.Idle) do
-        addButton(name, "Idle", ids)
-    end
-    for name, id in pairs(Animations.Walk) do
-        addButton(name, "Walk", id)
-    end
-    for name, id in pairs(Animations.Run) do
-        addButton(name, "Run", id)
-    end
-    for name, id in pairs(Animations.Jump) do
-        addButton(name, "Jump", id)
-    end
-    for name, id in pairs(Animations.Fall) do
-        addButton(name, "Fall", id)
-    end
-    for name, id in pairs(Animations.Climb) do
-        addButton(name, "Climb", id)
-    end
-    
-    AnimationList.CanvasSize = UDim2.new(0, 0, 0, yPos)
-    
-    LoadBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(LoadBtn)
-        LoadSavedAnimations()
-        PlaySound("Success")
-    end)
-    
-    ResetBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(ResetBtn)
-        ResetAnimations()
-        PlaySound("Toggle")
-    end)
-    
-    CloseBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(CloseBtn)
-        AnimationGUI:Destroy()
-        animationGuiOpen = false
-        PlaySound("Click")
-    end)
-    
-    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        local query = SearchBox.Text:lower()
-        local pos = 0
-        for _, btn in ipairs(buttons) do
-            if query == "" or btn.Text:lower():find(query, 1, true) then
-                btn.Visible = true
-                btn.Position = UDim2.new(0, 5, 0, pos)
-                pos = pos + 28
-            else
-                btn.Visible = false
-            end
-        end
-        AnimationList.CanvasSize = UDim2.new(0, 0, 0, pos)
-    end)
-end
-
--- ========= JUMP BUTTON CONTROL =========
+-- ========= JUMP BUTTON CONTROL SYSTEM =========
 local function HideJumpButton()
     pcall(function()
         StarterGui:SetCore("VRLaserPointerMode", 0)
@@ -874,7 +370,7 @@ local function SaveJumpButtonState()
     originalJumpButtonEnabled = true
 end
 
--- ========= HUMANOID STATE MANAGEMENT =========
+-- ========= IMPROVED CLIMBING PAUSE FIX =========
 local function SaveHumanoidState()
     local char = player.Character
     if not char then return end
@@ -919,6 +415,7 @@ local function RestoreHumanoidState()
     end
 end
 
+-- ========= FULL USER CONTROL RESTORATION =========
 local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
@@ -947,7 +444,7 @@ local function RestoreFullUserControl()
     end
 end
 
--- ========= MOVE STATE DETECTION =========
+-- ========= PERFECT JUMP DETECTION =========
 local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
     local state = hum:GetState()
@@ -959,7 +456,7 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= PATH VISUALIZATION =========
+-- ========= PATH VISUALIZATION FUNCTIONS =========
 local function ClearPathVisualization()
     for _, part in pairs(PathVisualization) do
         if part and part.Parent then
@@ -1051,6 +548,28 @@ local function UpdatePauseMarker()
     end
 end
 
+local function VisualizeRecordingPath(recording, name)
+    ClearPathVisualization()
+    
+    if not recording or #recording < 2 then return end
+    
+    local previousPos = Vector3.new(
+        recording[1].Position[1],
+        recording[1].Position[2], 
+        recording[1].Position[3]
+    )
+    
+    for i = 2, #recording, 3 do
+        local frame = recording[i]
+        local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+        
+        if (currentPos - previousPos).Magnitude > 0.5 then
+            CreatePathSegment(previousPos, currentPos)
+            previousPos = currentPos
+        end
+    end
+end
+
 -- ========= OBFUSCATION FUNCTIONS =========
 local function ObfuscateRecordingData(recordingData)
     local obfuscated = {}
@@ -1106,7 +625,7 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
--- ========= MERGE SYSTEM =========
+-- ========= IMPROVED MACRO/MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
         PlaySound("Error")
@@ -1210,7 +729,130 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= GUI CREATION FUNCTIONS =========
+-- ========= GUI SETUP =========
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoWalkByaruL"
+ScreenGui.ResetOnSpawn = false
+if player:FindFirstChild("PlayerGui") then
+    ScreenGui.Parent = player.PlayerGui
+else
+    wait(2)
+    ScreenGui.Parent = player:WaitForChild("PlayerGui")
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.fromOffset(250, 350)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -175)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 32)
+Header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 12)
+HeaderCorner.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "ByaruL"
+Title.TextColor3 = Color3.fromRGB(255,255,255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 12
+Title.TextXAlignment = Enum.TextXAlignment.Center
+Title.Parent = Header
+
+local FrameLabel = Instance.new("TextLabel")
+FrameLabel.Size = UDim2.new(0, 70, 1, 0)
+FrameLabel.Position = UDim2.new(0, 5, 0, 0)
+FrameLabel.BackgroundTransparency = 1
+FrameLabel.Text = "Frame: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(255,255,255)
+FrameLabel.Font = Enum.Font.GothamBold
+FrameLabel.TextSize = 9
+FrameLabel.Parent = Header
+
+local HideButton = Instance.new("TextButton")
+HideButton.Size = UDim2.fromOffset(25, 25)
+HideButton.Position = UDim2.new(1, -60, 0.5, -12)
+HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
+HideButton.Text = "_"
+HideButton.TextColor3 = Color3.new(1, 1, 1)
+HideButton.Font = Enum.Font.GothamBold
+HideButton.TextSize = 14
+HideButton.Parent = Header
+
+local HideCorner = Instance.new("UICorner")
+HideCorner.CornerRadius = UDim.new(0, 6)
+HideCorner.Parent = HideButton
+
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.fromOffset(25, 25)
+CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
+CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.TextSize = 12
+CloseButton.Parent = Header
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+local ResizeButton = Instance.new("TextButton")
+ResizeButton.Size = UDim2.fromOffset(24, 24)
+ResizeButton.Position = UDim2.new(1, -24, 1, -24)
+ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ResizeButton.Text = "↖️"
+ResizeButton.TextColor3 = Color3.new(1, 1, 1)
+ResizeButton.Font = Enum.Font.GothamBold
+ResizeButton.TextSize = 20
+ResizeButton.ZIndex = 2
+ResizeButton.Parent = MainFrame
+
+local ResizeCorner = Instance.new("UICorner")
+ResizeCorner.CornerRadius = UDim.new(0, 8)
+ResizeCorner.Parent = ResizeButton
+
+local Content = Instance.new("ScrollingFrame")
+Content.Size = UDim2.new(1, -10, 1, -42)
+Content.Position = UDim2.new(0, 5, 0, 36)
+Content.BackgroundTransparency = 1
+Content.ScrollBarThickness = 3
+Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+Content.CanvasSize = UDim2.new(0, 0, 0, 800)
+Content.Parent = MainFrame
+
+local MiniButton = Instance.new("TextButton")
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Text = "⚙️"
+MiniButton.TextColor3 = Color3.new(1, 1, 1)
+MiniButton.Font = Enum.Font.GothamBold
+MiniButton.TextSize = 25
+MiniButton.Visible = true
+MiniButton.Active = true
+MiniButton.Draggable = true
+MiniButton.Parent = ScreenGui
+
+local MiniCorner = Instance.new("UICorner")
+MiniCorner.CornerRadius = UDim.new(0, 8)
+MiniCorner.Parent = MiniButton
+
+-- Enhanced Button Creation with Powerful Animations
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -1221,7 +863,7 @@ local function CreateButton(text, x, y, w, h, color, parent)
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = 9
     btn.AutoButtonColor = false
-    btn.Parent = parent
+    btn.Parent = parent or Content
     
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 6)
@@ -1315,167 +957,22 @@ local function CreateToggle(text, x, y, w, h, default)
     return btn, Animate
 end
 
--- ========= MAIN GUI SETUP =========
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoWalkByaruL"
-ScreenGui.ResetOnSpawn = false
-if player:FindFirstChild("PlayerGui") then
-    ScreenGui.Parent = player.PlayerGui
-else
-    wait(2)
-    ScreenGui.Parent = player:WaitForChild("PlayerGui")
-end
+-- ========= UI ELEMENTS =========
+-- Baris 1: Recording
+local RecordBtnBig = CreateButton("RECORDING", 5, 5, 240, 30, Color3.fromRGB(59, 15, 116))
 
--- Main Frame dengan TAB SYSTEM
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 400)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -200)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
+local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
+local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
-local MainCorner = Instance.new("UICorner")
-MainCorner.CornerRadius = UDim.new(0, 12)
-MainCorner.Parent = MainFrame
-
--- Header
-local Header = Instance.new("Frame")
-Header.Size = UDim2.new(1, 0, 0, 32)
-Header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-Header.BorderSizePixel = 0
-Header.Parent = MainFrame
-
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 12)
-HeaderCorner.Parent = Header
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 1, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(255,255,255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 12
-Title.TextXAlignment = Enum.TextXAlignment.Center
-Title.Parent = Header
-
-local FrameLabel = Instance.new("TextLabel")
-FrameLabel.Size = UDim2.new(0, 70, 1, 0)
-FrameLabel.Position = UDim2.new(0, 5, 0, 0)
-FrameLabel.BackgroundTransparency = 1
-FrameLabel.Text = "Frame: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(255,255,255)
-FrameLabel.Font = Enum.Font.GothamBold
-FrameLabel.TextSize = 9
-FrameLabel.Parent = Header
-
-local HideButton = Instance.new("TextButton")
-HideButton.Size = UDim2.fromOffset(25, 25)
-HideButton.Position = UDim2.new(1, -60, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
-HideButton.Text = "_"
-HideButton.TextColor3 = Color3.new(1, 1, 1)
-HideButton.Font = Enum.Font.GothamBold
-HideButton.TextSize = 14
-HideButton.Parent = Header
-
-local HideCorner = Instance.new("UICorner")
-HideCorner.CornerRadius = UDim.new(0, 6)
-HideCorner.Parent = HideButton
-
-local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.fromOffset(25, 25)
-CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
-CloseButton.Text = "X"
-CloseButton.TextColor3 = Color3.new(1, 1, 1)
-CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 12
-CloseButton.Parent = Header
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseButton
-
--- Tab Container
-local TabContainer = Instance.new("Frame")
-TabContainer.Size = UDim2.new(1, 0, 0, 30)
-TabContainer.Position = UDim2.fromOffset(0, 32)
-TabContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-TabContainer.BorderSizePixel = 0
-TabContainer.Parent = MainFrame
-
--- Tab Buttons
-local ControlsTab = CreateButton("CONTROLS", 5, 2, 115, 26, Color3.fromRGB(59, 15, 116), TabContainer)
-local ReplaysTab = CreateButton("REPLAYS", 125, 2, 115, 26, Color3.fromRGB(30, 30, 40), TabContainer)
-
--- Content Area (Full Scrolling Area)
-local ContentArea = Instance.new("ScrollingFrame")
-ContentArea.Size = UDim2.new(1, -10, 1, -72)
-ContentArea.Position = UDim2.fromOffset(5, 67)
-ContentArea.BackgroundTransparency = 1
-ContentArea.ScrollBarThickness = 6
-ContentArea.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-ContentArea.CanvasSize = UDim2.new(0, 0, 0, 0)
-ContentArea.Parent = MainFrame
-
--- Tab 1: Controls Content
-local ControlsContent = Instance.new("Frame")
-ControlsContent.Size = UDim2.new(1, 0, 0, 600)
-ControlsContent.BackgroundTransparency = 1
-ControlsContent.Visible = true
-ControlsContent.Parent = ContentArea
-
--- Tab 2: Replays Content
-local ReplaysContent = Instance.new("Frame")
-ReplaysContent.Size = UDim2.new(1, 0, 0, 800)
-ControlsContent.BackgroundTransparency = 1
-ReplaysContent.Visible = false
-ReplaysContent.Parent = ContentArea
-
--- Mini Button
-local MiniButton = Instance.new("TextButton")
-MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
-MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "⚙️"
-MiniButton.TextColor3 = Color3.new(1, 1, 1)
-MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 25
-MiniButton.Visible = true
-MiniButton.Active = true
-MiniButton.Draggable = true
-MiniButton.Parent = ScreenGui
-
-local MiniCorner = Instance.new("UICorner")
-MiniCorner.CornerRadius = UDim.new(0, 8)
-MiniCorner.Parent = MiniButton
-
--- ========= UI ELEMENTS FOR TAB 1 =========
--- Baris 1: Recording dan Animation Button
-local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116), ControlsContent)
-local AnimationBtnBig = CreateButton("ANIMATIONS", 127, 5, 117, 30, Color3.fromRGB(59, 15, 116), ControlsContent)
-
--- Baris 2: Playback Controls
-local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116), ControlsContent)
-local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116), ControlsContent)
-local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116), ControlsContent)
-
--- Baris 3: Toggles
+-- Toggle layout: Kiri=AutoLoop, Tengah=InfiniteJump, Kanan=ShiftLock
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
-LoopBtn.Parent = ControlsContent
-local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)  
-JumpBtn.Parent = ControlsContent
+local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
-ShiftLockBtn.Parent = ControlsContent
 
--- Baris 4: Auto Respawn
+-- Baris kedua: Auto Respawn
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
-RespawnBtn.Parent = ControlsContent
 
--- Baris 5: File & Speed
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(117, 26)
 FilenameBox.Position = UDim2.fromOffset(0, 129)
@@ -1488,7 +985,7 @@ FilenameBox.Font = Enum.Font.GothamBold
 FilenameBox.TextSize = 11
 FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
 FilenameBox.ClearTextOnFocus = false
-FilenameBox.Parent = ControlsContent
+FilenameBox.Parent = Content
 
 local FilenameCorner = Instance.new("UICorner")
 FilenameCorner.CornerRadius = UDim.new(0, 6)
@@ -1506,58 +1003,33 @@ SpeedBox.Font = Enum.Font.GothamBold
 SpeedBox.TextSize = 11
 SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
 SpeedBox.ClearTextOnFocus = false
-SpeedBox.Parent = ControlsContent
+SpeedBox.Parent = Content
 
 local SpeedCorner = Instance.new("UICorner")
 SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
--- Baris 6: Save/Load
-local SaveFileBtn = CreateButton("SAVE FILE", 0, 160, 117, 26, Color3.fromRGB(59, 15, 116), ControlsContent)
-local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(59, 15, 116), ControlsContent)
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 160, 117, 26, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- Baris 7: Path & Merge
-local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116), ControlsContent)
-local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116), ControlsContent)
+local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- ========= UI ELEMENTS FOR TAB 2 =========
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 1, 0)
-RecordList.Position = UDim2.fromOffset(0, 0)
+RecordList.Size = UDim2.new(1, 0, 1, -222)
+RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 6
+RecordList.ScrollBarThickness = 3
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
-RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
 RecordList.CanvasSize = UDim2.new(0, 0, 0, 0)
-RecordList.Parent = ReplaysContent
+RecordList.Parent = Content
 
 local ListCorner = Instance.new("UICorner")
 ListCorner.CornerRadius = UDim.new(0, 6)
 ListCorner.Parent = RecordList
 
--- ========= TAB SWITCHING FUNCTION =========
-local function SwitchToTab(tabName)
-    if tabName == "CONTROLS" then
-        ControlsContent.Visible = true
-        ReplaysContent.Visible = false
-        ControlsTab.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        ReplaysTab.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        ContentArea.CanvasSize = UDim2.new(0, 0, 0, ControlsContent.Size.Y.Offset)
-        ContentArea.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-    else -- "REPLAYS"
-        ControlsContent.Visible = false
-        ReplaysContent.Visible = true
-        ControlsTab.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        ReplaysTab.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        ContentArea.CanvasSize = UDim2.new(0, 0, 0, ReplaysContent.Size.Y.Offset)
-        ContentArea.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-        UpdateRecordList()
-    end
-end
-
--- ========= SPEED VALIDATION =========
+-- Speed validation function
 local function ValidateSpeed(speedText)
     local speed = tonumber(speedText)
     if not speed then return false, "Invalid number" end
@@ -1575,6 +1047,91 @@ SpeedBox.FocusLost:Connect(function()
     else
         SpeedBox.Text = string.format("%.2f", CurrentSpeed)
         PlaySound("Error")
+    end
+end)
+
+-- ========= RESPONSIVE RESIZE FUNCTIONALITY =========
+local IsResizing = false
+local StartMousePos
+local StartSize
+
+ResizeButton.MouseButton1Down:Connect(function()
+    IsResizing = true
+    StartMousePos = UserInputService:GetMouseLocation()
+    StartSize = MainFrame.Size
+end)
+
+UserInputService.TouchStarted:Connect(function(touch, processed)
+    if processed then return end
+    if touch and ResizeButton:IsDescendantOf(ScreenGui) then
+        local touchPos = Vector2.new(touch.Position.X, touch.Position.Y)
+        local framePos = MainFrame.AbsolutePosition
+        local frameSize = MainFrame.AbsoluteSize
+        
+        if touchPos.X >= framePos.X + frameSize.X - 50 and 
+           touchPos.Y >= framePos.Y + frameSize.Y - 50 then
+            IsResizing = true
+            StartMousePos = touchPos
+            StartSize = MainFrame.Size
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if IsResizing then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local currentMousePos
+            if input.UserInputType == Enum.UserInputType.Touch then
+                currentMousePos = Vector2.new(input.Position.X, input.Position.Y)
+            else
+                currentMousePos = UserInputService:GetMouseLocation()
+            end
+            
+            local delta = currentMousePos - StartMousePos
+            
+            local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 400)
+            
+            MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
+            
+            local widthScale = newWidth / 250
+            
+            RecordBtnBig.Size = UDim2.fromOffset(240 * widthScale, 30)
+            
+            PlayBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            StopBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            PauseBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            
+            StopBtnBig.Position = UDim2.fromOffset(5 + (75 * widthScale) + 5, 40)
+            PauseBtnBig.Position = UDim2.fromOffset(5 + (75 * widthScale) * 2 + 10, 40)
+            
+            LoopBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            JumpBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            ShiftLockBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            
+            JumpBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) + 5, 75)
+            ShiftLockBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) * 2 + 10, 75)
+            
+            RespawnBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
+            
+            FilenameBox.Size = UDim2.fromOffset(117 * widthScale, 26)
+            SpeedBox.Size = UDim2.fromOffset(117 * widthScale, 26)
+            SpeedBox.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 129)
+            
+            SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            LoadFileBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 160)
+            
+            PathToggleBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        IsResizing = false
     end
 end)
 
@@ -1630,7 +1187,7 @@ function UpdateRecordList()
         nameBox.Position = UDim2.new(0, 8, 0, 4)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
-        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
+        nameBox.Text = checkpointNames[name] or "checkpoint"
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
         nameBox.TextSize = 10
@@ -1642,14 +1199,6 @@ function UpdateRecordList()
         local nameBoxCorner = Instance.new("UICorner")
         nameBoxCorner.CornerRadius = UDim.new(0, 3)
         nameBoxCorner.Parent = nameBox
-        
-        nameBox.FocusLost:Connect(function()
-            local newName = nameBox.Text
-            if newName and newName ~= "" then
-                checkpointNames[name] = newName
-                PlaySound("Success")
-            end
-        end)
         
         local infoLabel = Instance.new("TextLabel")
         infoLabel.Size = UDim2.new(1, -130, 0, 16)
@@ -1756,7 +1305,7 @@ function UpdateRecordList()
         yPos = yPos + 43
     end
     
-    RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
+    RecordList.CanvasSize = UDim2.new(0, 0, 0, yPos)
 end
 
 -- ========= JUMP CONTROL FUNCTIONS =========
@@ -1897,7 +1446,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= PLAYBACK SYSTEM =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH VISIBLE SHIFTLOCK =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2032,7 +1581,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM - TANPA HENTI =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2071,6 +1620,7 @@ function StartAutoLoopAll()
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
+                    -- Jika respawn gagal, lanjut ke recording berikutnya
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2082,12 +1632,14 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
+            -- PERBAIKAN: Jika karakter mati, tunggu respawn dan lanjutkan
             if not IsCharacterReady() then
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
+                        -- Timeout, lanjut ke recording berikutnya
                         CurrentLoopIndex = CurrentLoopIndex + 1
                         if CurrentLoopIndex > #RecordingOrder then
                             CurrentLoopIndex = 1
@@ -2117,6 +1669,7 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
+                    -- Karakter mati selama playback, break untuk lanjut ke recording berikutnya
                     break
                 end
                 
@@ -2216,6 +1769,7 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
+                -- Jika playback tidak completed (karakter mati), lanjut ke recording berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2317,7 +1871,7 @@ function PausePlayback()
     end
 end
 
--- ========= SAVE/LOAD SYSTEM =========
+-- ========= FIXED OBFUSCATED JSON SYSTEM =========
 local function SaveToObfuscatedJSON()
     local filename = FilenameBox.Text
     if filename == "" then filename = "MyReplays" end
@@ -2332,9 +1886,7 @@ local function SaveToObfuscatedJSON()
         local saveData = {
             Version = "2.0",
             Obfuscated = true,
-            Checkpoints = {},
-            RecordingOrder = RecordingOrder,
-            CheckpointNames = checkpointNames
+            Checkpoints = {}
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -2374,8 +1926,8 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
+        RecordingOrder = {}
+        checkpointNames = {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2386,9 +1938,8 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
+                    table.insert(RecordingOrder, name)
+                    checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
                 end
             end
         else
@@ -2398,9 +1949,8 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
+                    table.insert(RecordingOrder, name)
+                    checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
                 end
             end
         end
@@ -2414,7 +1964,7 @@ local function LoadFromObfuscatedJSON()
     end
 end
 
--- ========= PATH VISUALIZATION =========
+-- ========= PATH VISUALIZATION FOR ALL RECORDINGS =========
 local function VisualizeAllPaths()
     ClearPathVisualization()
     
@@ -2442,7 +1992,7 @@ local function VisualizeAllPaths()
     end
 end
 
--- ========= BUTTON EVENTS =========
+-- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
 RecordBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(RecordBtnBig)
     if IsRecording then 
@@ -2450,12 +2000,6 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     else 
         StartRecording() 
     end
-end)
-
-AnimationBtnBig.MouseButton1Click:Connect(function()
-    AnimateButtonClick(AnimationBtnBig)
-    OpenAnimationGUI()
-    PlaySound("Toggle")
 end)
 
 PlayBtnBig.MouseButton1Click:Connect(function()
@@ -2569,58 +2113,7 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========= TAB EVENTS =========
-ControlsTab.MouseButton1Click:Connect(function()
-    AnimateButtonClick(ControlsTab)
-    SwitchToTab("CONTROLS")
-end)
-
-ReplaysTab.MouseButton1Click:Connect(function()
-    AnimateButtonClick(ReplaysTab)
-    SwitchToTab("REPLAYS")
-end)
-
--- ========= INITIALIZATION =========
-SwitchToTab("CONTROLS")
-UpdateRecordList()
-
--- Auto-load on start
-task.spawn(function()
-    task.wait(2)
-    pcall(function()
-        local filename = "MyReplays.json"
-        if isfile and readfile and isfile(filename) then
-            LoadFromObfuscatedJSON()
-        end
-    end)
-end)
-
--- Character events
-player.CharacterAdded:Connect(function(character)
-    task.wait(2)
-    if player.Character == character then
-        LoadSavedAnimations()
-    end
-end)
-
-player.CharacterRemoving:Connect(function(character)
-    if character == player.Character then
-        pcall(function()
-            if IsRecording then StopRecording() end
-            if IsPlaying or AutoLoop then StopPlayback() end
-        end)
-    end
-end)
-
--- Auto-load animations
-task.spawn(function()
-    if player.Character then
-        task.wait(2)
-        LoadSavedAnimations()
-    end
-end)
-
--- Hotkeys
+-- ========= HOTKEYS =========
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.F9 then
@@ -2630,7 +2123,33 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F11 then
         MainFrame.Visible = not MainFrame.Visible
         MiniButton.Visible = not MainFrame.Visible
+    elseif input.KeyCode == Enum.KeyCode.F8 then
+        local char = player.Character
+        if char then CompleteCharacterReset(char) end
+    elseif input.KeyCode == Enum.KeyCode.F7 then
+        AutoLoop = not AutoLoop
+        AnimateLoop(AutoLoop)
+        if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
+    elseif input.KeyCode == Enum.KeyCode.F6 then
+        SaveToObfuscatedJSON()
+    elseif input.KeyCode == Enum.KeyCode.F5 then
+        AutoRespawn = not AutoRespawn
+        AnimateRespawn(AutoRespawn)
+    elseif input.KeyCode == Enum.KeyCode.F4 then
+        ShowPaths = not ShowPaths
+        if ShowPaths then
+            VisualizeAllPaths()
+        else
+            ClearPathVisualization()
+        end
+    elseif input.KeyCode == Enum.KeyCode.F3 then
+        ToggleVisibleShiftLock()
+        AnimateShiftLock(ShiftLockEnabled)
+    elseif input.KeyCode == Enum.KeyCode.F2 then
+        ToggleInfiniteJump()
+        AnimateJump(InfiniteJump)
     end
 end)
 
-warn("🎮 AutoWalk ByaruL Tab System Loaded Successfully!")
+-- Initialize the record list
+UpdateRecordList()
