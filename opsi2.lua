@@ -9,9 +9,9 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
-local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.015
+local RECORDING_FPS = 65
+local MAX_FRAMES = 28000
+local MIN_DISTANCE_THRESHOLD = 0.005
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
