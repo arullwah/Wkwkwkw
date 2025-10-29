@@ -740,9 +740,10 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
+-- PERBAIKAN: MainFrame diperbesar untuk scroll yang lebih baik
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 350)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -175)
+MainFrame.Size = UDim2.fromOffset(250, 350) 
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -826,24 +827,27 @@ local ResizeCorner = Instance.new("UICorner")
 ResizeCorner.CornerRadius = UDim.new(0, 8)
 ResizeCorner.Parent = ResizeButton
 
+-- PERBAIKAN: Content frame diperbesar untuk scroll yang lebih baik
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
 Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
-Content.ScrollBarThickness = 3
+Content.ScrollBarThickness = 6 -- Dipertebal scrollbar
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+Content.ScrollingDirection = Enum.ScrollingDirection.Y
+Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
 Content.CanvasSize = UDim2.new(0, 0, 0, 800)
 Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, -30)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "⚙️"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 25
-MiniButton.Visible = true
+MiniButton.Visible = false
 MiniButton.Active = true
 MiniButton.Draggable = true
 MiniButton.Parent = ScreenGui
@@ -958,7 +962,7 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
--- Baris 1: Recording
+-- Baris 1: Recording Button
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 240, 30, Color3.fromRGB(59, 15, 116))
 
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1015,13 +1019,16 @@ local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(
 local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
+-- PERBAIKAN: RecordList diperbesar dan diperbaiki scroll-nya
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 1, -222)
+RecordList.Size = UDim2.new(1, 0, 0, 180) -- Diperbesar tinggi nya
 RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 3
+RecordList.ScrollBarThickness = 6 -- Dipertebal
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
+RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
 RecordList.CanvasSize = UDim2.new(0, 0, 0, 0)
 RecordList.Parent = Content
 
@@ -1090,7 +1097,7 @@ UserInputService.InputChanged:Connect(function(input)
             local delta = currentMousePos - StartMousePos
             
             local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
-            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 400)
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600) -- Diperbesar max height
             
             MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
             
@@ -1125,6 +1132,9 @@ UserInputService.InputChanged:Connect(function(input)
             PathToggleBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
+            
+            -- Update RecordList size when resizing
+            RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
         end
     end
 end)
@@ -1182,12 +1192,13 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
+        -- PERBAIKAN: TextBox untuk custom nama dengan fungsi save yang benar
         local nameBox = Instance.new("TextBox")
         nameBox.Size = UDim2.new(1, -130, 0, 18)
         nameBox.Position = UDim2.new(0, 8, 0, 4)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
-        nameBox.Text = checkpointNames[name] or "checkpoint"
+        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
         nameBox.TextSize = 10
@@ -1199,6 +1210,15 @@ function UpdateRecordList()
         local nameBoxCorner = Instance.new("UICorner")
         nameBoxCorner.CornerRadius = UDim.new(0, 3)
         nameBoxCorner.Parent = nameBox
+        
+        -- PERBAIKAN: Save nama ketika selesai edit
+        nameBox.FocusLost:Connect(function()
+            local newName = nameBox.Text
+            if newName and newName ~= "" then
+                checkpointNames[name] = newName
+                PlaySound("Success")
+            end
+        end)
         
         local infoLabel = Instance.new("TextLabel")
         infoLabel.Size = UDim2.new(1, -130, 0, 16)
@@ -1305,7 +1325,8 @@ function UpdateRecordList()
         yPos = yPos + 43
     end
     
-    RecordList.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    -- PERBAIKAN: CanvasSize diupdate dengan benar untuk scroll yang smooth
+    RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
 -- ========= JUMP CONTROL FUNCTIONS =========
@@ -1886,7 +1907,9 @@ local function SaveToObfuscatedJSON()
         local saveData = {
             Version = "2.0",
             Obfuscated = true,
-            Checkpoints = {}
+            Checkpoints = {},
+            RecordingOrder = RecordingOrder, -- PERBAIKAN: Simpan urutan recording
+            CheckpointNames = checkpointNames -- PERBAIKAN: Simpan custom names
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -1926,8 +1949,8 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = {}
-        checkpointNames = {}
+        RecordingOrder = saveData.RecordingOrder or {} -- PERBAIKAN: Load urutan
+        checkpointNames = saveData.CheckpointNames or {} -- PERBAIKAN: Load custom names
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -1938,8 +1961,10 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    table.insert(RecordingOrder, name)
-                    checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
+                    -- PERBAIKAN: Pastikan nama ada di RecordingOrder jika tidak ada
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
             end
         else
@@ -1949,8 +1974,9 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    table.insert(RecordingOrder, name)
-                    checkpointNames[name] = checkpointData.DisplayName or checkpointData.Name
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
             end
         end
@@ -2151,5 +2177,37 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
+-- ========= INITIAL SETUP =========
 -- Initialize the record list
 UpdateRecordList()
+
+-- Auto-load any saved recordings on script start
+task.spawn(function()
+    task.wait(2)
+    local filename = "MyReplays.json"
+    if isfile and readfile and isfile(filename) then
+        LoadFromObfuscatedJSON()
+    end
+end)
+
+-- Character cleanup on removal
+player.CharacterRemoving:Connect(function()
+    if IsRecording then
+        StopRecording()
+    end
+    if IsPlaying or AutoLoop then
+        StopPlayback()
+    end
+end)
+
+-- ========= FINAL INITIALIZATION =========
+warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
+
+-- Ensure proper cleanup on script termination
+game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
+    if descendant == ScreenGui then
+        CleanupConnections()
+        ClearPathVisualization()
+        ShowJumpButton()
+    end
+end)
