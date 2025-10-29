@@ -11,16 +11,10 @@ wait(1)
 
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
-local MAX_FRAMES = 40000
+local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-
--- ========= SMART PRECISION CONFIG =========
-local SMART_PRECISION_ENABLED = false
-local PRECISION_ANCHOR_TIME = 0.06
-local PRECISION_RELEASE_TIME = 0.12
-local NETWORK_SYNC_DELAY = 0.1
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -367,14 +361,14 @@ local DefaultAnimations = {
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
-    Click = "rbxassetid://4499400560",
-    Toggle = "rbxassetid://7468131335", 
-    RecordStart = "rbxassetid://4499400560",
-    RecordStop = "rbxassetid://4499400560",
-    Play = "rbxassetid://4499400560",
-    Stop = "rbxassetid://4499400560",
-    Error = "rbxassetid://7772283448",
-    Success = "rbxassetid://2865227271"
+    Click = "rbxassetid://9114262381",
+    Toggle = "rbxassetid://9114262381", 
+    RecordStart = "rbxassetid://9114262381",
+    RecordStop = "rbxassetid://9114262381",
+    Play = "rbxassetid://9114262381",
+    Stop = "rbxassetid://9114262381",
+    Error = "rbxassetid://9114262381",
+    Success = "rbxassetid://9114262381"
 }
 
 -- ========= MEMORY MANAGEMENT =========
@@ -607,14 +601,14 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= SMART PRECISION ANIMATION SYSTEM =========
+-- ========= ANIMATION SYSTEM FUNCTIONS =========
 local function StopAllAnims()
     local character = player.Character
     if character then
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-                track:Stop(0.1)
+                track:Stop(0)
             end
         end
     end
@@ -630,201 +624,99 @@ local function RefreshCharacter()
     end
 end
 
--- ========= SMART PRECISION SET ANIMATION =========
 local function SetAnimation(animType, animId)
     local character = player.Character
-    if not character then 
-        warn("[AnimHub] No character for animation!")
-        return 
-    end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then
-        warn("[AnimHub] Humanoid not found!")
-        return
-    end
-    
+    if not character then return end
     local animate = character:FindFirstChild("Animate")
-    if not animate then 
-        warn("[AnimHub] Animate script not found!")
-        return 
-    end
-    
-    -- Validasi input
-    if not animType or not animId then
-        warn("[AnimHub] Invalid animation type or ID!")
-        return
-    end
-    
-    print("[AnimHub] Setting animation with Smart Precision:", animType, animId)
-    
-    -- Tentukan apakah butuh precision berdasarkan animasi
-    local needsPrecision = (
-        animType == "Idle" or 
-        animType == "Jump" or 
-        animType == "Fall" or
-        animType == "Climb"
-    )
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if needsPrecision and hrp and SMART_PRECISION_ENABLED then
-        -- ========= SMART PRECISION MODE =========
-        
-        -- PHASE 1: Brief Precision Lock
+    if not animate then return end
+    local humanoid = character:FindFirstChild("Humanoid")
+    if humanoid then
         humanoid.PlatformStand = true
-        hrp.Anchored = true
-        
-        -- Apply animation
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and not part.Anchored then
+                part.Anchored = true
             end
-        end)
-        
-        -- PHASE 2: Quick Network Release
-        task.wait(PRECISION_ANCHOR_TIME)
-        hrp.Anchored = false
-        
-        -- PHASE 3: Final Network Sync
-        task.wait(PRECISION_RELEASE_TIME)
-        humanoid.PlatformStand = false
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation with precision:", animType)
-        end
-        
-    else
-        -- ========= NATURAL MOVEMENT MODE =========
-        humanoid.PlatformStand = false
-        
-        -- Apply animation tanpa precision
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
-            end
-        end)
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation:", animType)
         end
     end
-    
-    -- Save ke file
+    StopAllAnims()
+    task.wait(0.1)
+    if animType == "Idle" and animate.idle then
+        animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+        animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+        lastAnimations.Idle = animId
+    elseif animType == "Walk" and animate.walk then
+        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Walk = animId
+    elseif animType == "Run" and animate.run then
+        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Run = animId
+    elseif animType == "Jump" and animate.jump then
+        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Jump = animId
+    elseif animType == "Fall" and animate.fall then
+        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Fall = animId
+    elseif animType == "Climb" and animate.climb then
+        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Climb = animId
+    end
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
-    
-    -- Final network sync
-    task.wait(NETWORK_SYNC_DELAY)
     RefreshCharacter()
-    
-    print("[AnimHub] Animation set successfully with Smart Precision!")
+    task.wait(0.1)
+    if humanoid then
+        humanoid.PlatformStand = false
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Anchored then
+                part.Anchored = false
+            end
+        end
+    end
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
 local function ResetAnimations()
     local character = player.Character
     if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
-    
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
+    local humanoid = character:FindFirstChild("Humanoid")
     
-    -- Reset state dulu
-    humanoid.PlatformStand = false
-    
-    -- Stop semua animasi
-    for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-        track:Stop(0.1)
+    if humanoid then
+        humanoid.PlatformStand = true
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and not part.Anchored then
+                part.Anchored = true
+            end
+        end
     end
     
-    task.wait(0.15)
+    StopAllAnims()
+    task.wait(0.1)
     
-    -- Reset ke default R15 animations
-    local success = pcall(function()
-        if animate.idle then
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
-        end
-        if animate.walk then
-            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
-        end
-        if animate.run then
-            animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
-        end
-        if animate.jump then
-            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
-        end
-        if animate.fall then
-            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
-        end
-        if animate.climb then
-            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
-        end
-    end)
+    -- Reset to default R15 animations
+    if animate.idle then
+        animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
+        animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
+    end
+    if animate.walk then
+        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
+    end
+    if animate.run then
+        animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
+    end
+    if animate.jump then
+        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
+    end
+    if animate.fall then
+        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
+    end
+    if animate.climb then
+        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
+    end
     
     -- Clear saved animations
     lastAnimations = {}
@@ -834,107 +726,125 @@ local function ResetAnimations()
         end
     end)
     
-    -- Force network update
+    RefreshCharacter()
     task.wait(0.1)
-    humanoid:ChangeState(Enum.HumanoidStateType.Running)
     
-    print("[AnimHub] Animations reset to default")
+    if humanoid then
+        humanoid.PlatformStand = false
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Anchored then
+                part.Anchored = false
+            end
+        end
+    end
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS =========
+-- ========= ADVANCED LOAD SAVED ANIMATIONS (FIXED) =========
 local function LoadSavedAnimations()
     task.spawn(function()
         local character = player.Character
         if not character then 
-            print("[AnimHub] No character found for animation load!")
+            print("[AnimHub] No character found!")
             return 
         end
         
-        -- Wait for essential components
-        local humanoid = character:WaitForChild("Humanoid", 3)
-        local animate = character:WaitForChild("Animate", 3)
-        
-        if not humanoid or not animate then
-            warn("[AnimHub] Essential components not ready!")
-            return
+        -- Wait for Animate script to fully load
+        local animate = character:WaitForChild("Animate", 10)
+        if not animate then 
+            warn("[AnimHub] Animate script not found!")
+            return 
         end
         
-        -- Reset state sebelum load
-        pcall(function()
-            humanoid.PlatformStand = false
-            humanoid.AutoRotate = true
-        end)
-        
-        -- Cleanup existing animation tracks
-        task.wait(0.2)
-        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-            track:Stop(0.1)
+        -- Wait for humanoid
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        if not humanoid then 
+            warn("[AnimHub] Humanoid not found!")
+            return 
         end
         
-        -- Wait for cleanup to replicate
-        task.wait(0.3)
+        -- Extra wait to ensure all animation children are loaded
+        task.wait(0.5)
         
-        -- Load saved data
+        -- Load saved data dengan error handling yang better
         local success, savedData = pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
-                return HttpService:JSONDecode(fileContent)
+                print("[AnimHub] File content loaded:", fileContent:sub(1, 100) .. "...")
+                
+                local decodedData = HttpService:JSONDecode(fileContent) -- ✅ FIX: JSONDecode bukan JSONEncode
+                
+                if not decodedData or type(decodedData) ~= "table" then
+                    warn("[AnimHub] Invalid save data format!")
+                    return nil
+                end
+                
+                return decodedData
+            else
+                print("[AnimHub] No saved animations file found")
+                return nil
             end
-            return nil
         end)
         
         if not success or not savedData then
-            print("[AnimHub] No valid saved animations found")
+            warn("[AnimHub] Error loading animations: " .. tostring(savedData))
             return
         end
         
-        -- Apply dengan NETWORK DELAYS
+        print("[AnimHub] Successfully loaded saved data:", savedData)
+        
+        -- Apply each animation type dengan verification
         for animType, animId in pairs(savedData) do
-            task.wait(0.1) -- Network delay antara setiap animasi
+            task.wait(0.05) -- Small delay between each animation
             
-            local applySuccess = pcall(function()
-                if animType == "Idle" and animate.idle then
+            if animType == "Idle" and animate:FindFirstChild("idle") then
+                local idle = animate.idle
+                if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
                     if type(animId) == "table" and #animId >= 2 then
-                        animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                        animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    end
-                elseif animType == "Walk" and animate.walk then
-                    if type(animId) == "string" then
-                        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Run" and animate.run then
-                    if type(animId) == "string" then
-                        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Jump" and animate.jump then
-                    if type(animId) == "string" then
-                        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Fall" and animate.fall then
-                    if type(animId) == "string" then
-                        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    end
-                elseif animType == "Climb" and animate.climb then
-                    if type(animId) == "string" then
-                        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                        idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                        idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                        print("[AnimHub] Set Idle animation:", animId[1], animId[2])
                     end
                 end
-            end)
-            
-            if not applySuccess then
-                warn("[AnimHub] Failed to apply:", animType)
+            elseif animType == "Walk" and animate:FindFirstChild("walk") then
+                local walk = animate.walk
+                if walk:FindFirstChild("WalkAnim") and type(animId) == "string" then
+                    walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Walk animation:", animId)
+                end
+            elseif animType == "Run" and animate:FindFirstChild("run") then
+                local run = animate.run
+                if run:FindFirstChild("RunAnim") and type(animId) == "string" then
+                    run.RunAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Run animation:", animId)
+                end
+            elseif animType == "Jump" and animate:FindFirstChild("jump") then
+                local jump = animate.jump
+                if jump:FindFirstChild("JumpAnim") and type(animId) == "string" then
+                    jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Jump animation:", animId)
+                end
+            elseif animType == "Fall" and animate:FindFirstChild("fall") then
+                local fall = animate.fall
+                if fall:FindFirstChild("FallAnim") and type(animId) == "string" then
+                    fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Fall animation:", animId)
+                end
+            elseif animType == "Climb" and animate:FindFirstChild("climb") then
+                local climb = animate.climb
+                if climb:FindFirstChild("ClimbAnim") and type(animId) == "string" then
+                    climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                    print("[AnimHub] Set Climb animation:", animId)
+                end
             end
         end
         
         lastAnimations = savedData
         
-        -- Final network sync
-        task.wait(0.5)
-        pcall(function()
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
-        end)
+        -- Force refresh animations
+        task.wait(0.2)
+        RefreshCharacter()
         
-        print("[AnimHub] Animations loaded with network sync!")
+        print("[AnimHub] All animations loaded successfully!")
     end)
 end
 
@@ -1322,92 +1232,6 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= SMART PRECISION PLAYBACK SYSTEM =========
-local function ApplyFrameWithSmartPrecision(frame)
-    local character = player.Character
-    if not character then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return false end
-    
-    local success = false
-    
-    if SMART_PRECISION_ENABLED then
-        -- ========= SMART PRECISION MODE =========
-        
-        -- PHASE 1: Brief Precision Lock
-        humanoid.PlatformStand = true
-        hrp.Anchored = true
-        
-        -- Apply exact frame data
-        success = pcall(function()
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-            
-            if humanoid then
-                humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                humanoid.AutoRotate = false
-                
-                local moveState = frame.MoveState
-                if moveState == "Climbing" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-                    humanoid.PlatformStand = false
-                    humanoid.AutoRotate = false
-                elseif moveState == "Jumping" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-                else
-                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end
-        end)
-        
-        -- PHASE 2: Quick Network Release
-        task.wait(PRECISION_ANCHOR_TIME)
-        hrp.Anchored = false
-        
-        -- PHASE 3: Final Network Sync
-        task.wait(PRECISION_RELEASE_TIME)
-        humanoid.PlatformStand = false
-        
-        return success
-    else
-        -- ========= NATURAL MOVEMENT MODE =========
-                if humanoid then
-            humanoid.PlatformStand = false
-        end
-        
-        success = pcall(function()
-            if hrp then
-                hrp.CFrame = GetFrameCFrame(frame)
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-            end
-            
-            if humanoid then
-                humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                humanoid.AutoRotate = false
-                
-                local moveState = frame.MoveState
-                if moveState == "Climbing" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-                    humanoid.PlatformStand = false
-                    humanoid.AutoRotate = false
-                elseif moveState == "Jumping" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-                else
-                    humanoid:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end
-        end)
-    end
-    
-    return success
-end
-
 -- ========= PATH VISUALIZATION FUNCTIONS =========
 local function ClearPathVisualization()
     for _, part in pairs(PathVisualization) do
@@ -1719,7 +1543,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextColor3 = Color3.fromRGB(100, 255, 150)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Center
@@ -1730,7 +1554,7 @@ FrameLabel.Size = UDim2.new(0, 70, 1, 0)
 FrameLabel.Position = UDim2.new(0, 5, 0, 0)
 FrameLabel.BackgroundTransparency = 1
 FrameLabel.Text = "Frames: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
@@ -1738,7 +1562,7 @@ FrameLabel.Parent = Header
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(30, 25)
 HideButton.Position = UDim2.new(1, -65, 0.5, -12)
-HideButton.BackgroundColor3 = Color3.fromRGB(155, 152, 181)
+HideButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
@@ -1752,7 +1576,7 @@ HideCorner.Parent = HideButton
 local CloseButton = Instance.new("TextButton")
 CloseButton.Size = UDim2.fromOffset(30, 25)
 CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
-CloseButton.BackgroundColor3 = Color3.fromRGB(233, 83, 83)
+CloseButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
@@ -1766,11 +1590,11 @@ CloseCorner.Parent = CloseButton
 local ResizeButton = Instance.new("TextButton")
 ResizeButton.Size = UDim2.fromOffset(24, 24)
 ResizeButton.Position = UDim2.new(1, -24, 1, -24)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-ResizeButton.Text = "↖️"
+ResizeButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+ResizeButton.Text = "⤢"
 ResizeButton.TextColor3 = Color3.new(1, 1, 1)
 ResizeButton.Font = Enum.Font.GothamBold
-ResizeButton.TextSize = 16
+ResizeButton.TextSize = 14
 ResizeButton.ZIndex = 2
 ResizeButton.Parent = MainFrame
 
@@ -1791,7 +1615,7 @@ local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0.5, -20, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "⚙️"
+MiniButton.Text = "ArL"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 14
@@ -2178,7 +2002,7 @@ function UpdateRecordList()
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 23
+        playBtn.TextSize = 20
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
@@ -2202,7 +2026,7 @@ function UpdateRecordList()
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.new(1, -50, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(233, 83, 83) or Color3.fromRGB(30, 30, 30)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
@@ -2216,11 +2040,11 @@ function UpdateRecordList()
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.new(1, -20, 0, 7)
-        delBtn.BackgroundColor3 = Color3.fromRGB(233, 83, 83)
-        delBtn.Text = "x"
+        delBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        delBtn.Text = "✕"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 22
+        delBtn.TextSize = 20
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
@@ -2401,7 +2225,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH SMART PRECISION =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH VISIBLE SHIFTLOCK =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2499,12 +2323,38 @@ function PlayRecording(name)
             return
         end
 
-        -- Apply frame dengan SMART PRECISION
-        ApplyFrameWithSmartPrecision(frame)
-        
-        if ShiftLockEnabled then
-            ApplyVisibleShiftLock()
-        end
+        pcall(function()
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+            
+            if hum then
+                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                hum.AutoRotate = false
+                
+                local moveState = frame.MoveState
+                if moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    hum.PlatformStand = false
+                    hum.AutoRotate = false
+                elseif moveState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    task.spawn(function()
+                        wait(0.01)
+                        if hum and hum.Parent then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end
+                    end)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end
+            
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
+        end)
     end)
     
     AddConnection(playbackConnection)
@@ -2549,6 +2399,7 @@ function StartAutoLoopAll()
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
+                    -- Jika respawn gagal, lanjut ke recording berikutnya
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2560,12 +2411,14 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
+            -- PERBAIKAN: Jika karakter mati, tunggu respawn dan lanjutkan
             if not IsCharacterReady() then
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
+                        -- Timeout, lanjut ke recording berikutnya
                         CurrentLoopIndex = CurrentLoopIndex + 1
                         if CurrentLoopIndex > #RecordingOrder then
                             CurrentLoopIndex = 1
@@ -2595,6 +2448,7 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
+                    -- Karakter mati selama playback, break untuk lanjut ke recording berikutnya
                     break
                 end
                 
@@ -2643,7 +2497,38 @@ function StartAutoLoopAll()
                     
                     local frame = recording[currentFrame]
                     if frame then
-                        ApplyFrameWithSmartPrecision(frame)
+                        pcall(function()
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                            
+                            if hum then
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = false
+                                
+                                local moveState = frame.MoveState
+                                if moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                    hum.PlatformStand = false
+                                    hum.AutoRotate = false
+                                elseif moveState == "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    task.spawn(function()
+                                        wait(0.01)
+                                        if hum and hum.Parent then
+                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                        end
+                                    end)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                else
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                end
+                            end
+                            
+                            if ShiftLockEnabled then
+                                ApplyVisibleShiftLock()
+                            end
+                        end)
                     end
                     
                     task.wait()
@@ -2663,6 +2548,7 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
+                -- Jika playback tidak completed (karakter mati), lanjut ke recording berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -3014,45 +2900,19 @@ CloseButton.MouseButton1Click:Connect(function()
 end)
 
 -- ========= AUTO-LOAD ANIMATIONS SYSTEM =========
-local characterLoadConnection
-characterLoadConnection = player.CharacterAdded:Connect(function(character)
-    if characterLoadConnection then
-        characterLoadConnection:Disconnect()
-        characterLoadConnection = nil
-    end
+-- This runs independently from GUI state
+player.CharacterAdded:Connect(function(character)
+    -- Wait 2 seconds for character to fully load
+    task.wait(2)
     
-    local humanoid = character:WaitForChild("Humanoid", 5)
-    local animate = character:WaitForChild("Animate", 5)
-    
-    if not humanoid or not animate then
-        warn("[AnimHub] Character components not found!")
-        return
-    end
-    
-    humanoid.PlatformStand = false
-    humanoid.AutoRotate = true
-    
-    task.wait(0.5)
-    
-    task.spawn(function()
+    -- Verify character still exists
+    if player.Character == character then
         LoadSavedAnimations()
-    end)
-    
-    task.wait(1)
-    characterLoadConnection = player.CharacterAdded:Connect(function(newChar)
-    end)
-end)
-
-player.CharacterRemoving:Connect(function(character)
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        for _, track in pairs(humanoid:GetPlayingAnimationTracks()) do
-            track:Stop(0)
-        end
     end
 end)
 
 -- === INITIAL LOAD ON SCRIPT EXECUTION ===
+-- Auto-load animations when script first runs
 task.spawn(function()
     if player.Character then
         task.wait(2)
