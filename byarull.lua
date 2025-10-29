@@ -1,4 +1,3 @@
-byarull v1.0 - FIXED PLAYBACK VERSION
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -16,17 +15,6 @@ local MAX_FRAMES = 60000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-
--- ========= ENHANCED NETWORK SYSTEM =========
-local NETWORK_OWNERSHIP_ENABLED = true
-local OWNERSHIP_TIMEOUT = 3.0
-local SAFE_MODE_FALLBACK = true
-
--- ========= SMART PRECISION CONFIG =========
-local SMART_PRECISION_ENABLED = false  -- Disable untuk sekarang
-local PRECISION_ANCHOR_TIME = 0.06
-local PRECISION_RELEASE_TIME = 0.12
-local NETWORK_SYNC_DELAY = 0.1
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -71,34 +59,18 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
--- ========= ENHANCED NETWORK VARIABLES =========
-local NetworkOwnershipAcquired = false
-local OriginalNetworkOwner = nil
-local OwnershipCheckTimer = 0
-local SafeModeActive = false
-
--- ========= ENHANCED PAUSE/RESUME VARIABLES =========
+-- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
 local currentPlaybackFrame = 1
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
-local prePauseJumpPower = 50
 local prePauseAutoRotate = true
+local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
 local originalJumpButtonEnabled = true
-
--- ========= ENHANCED HUMAN STATE BACKUP =========
-local OriginalHumanoidState = {
-    WalkSpeed = 16,
-    JumpPower = 50,
-    AutoRotate = true,
-    PlatformStand = false,
-    HipHeight = 0,
-    CameraOffset = Vector3.new(0, 0, 0)
-}
 
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
@@ -436,246 +408,6 @@ local function CleanupConnections()
     end
 end
 
--- ========= MISSING FRAME FUNCTIONS - FIXED =========
-local function GetFrameCFrame(frame)
-    if not frame or not frame.Position then 
-        warn("[ERROR] Invalid frame data in GetFrameCFrame")
-        return CFrame.new()
-    end
-    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    if not frame.Velocity then 
-        return Vector3.new(0, 0, 0)
-    end
-    return Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    )
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
-
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
-end
-
--- ========= FIXED NETWORK OWNERSHIP SYSTEM =========
-local function BackupOriginalState()
-    local character = player.Character
-    if not character then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        OriginalHumanoidState.WalkSpeed = humanoid.WalkSpeed
-        OriginalHumanoidState.JumpPower = humanoid.JumpPower
-        OriginalHumanoidState.AutoRotate = humanoid.AutoRotate
-        OriginalHumanoidState.PlatformStand = humanoid.PlatformStand
-        OriginalHumanoidState.HipHeight = humanoid.HipHeight
-    end
-    
-    if hrp then
-        -- Backup network owner jika memungkinkan
-        local success, currentOwner = pcall(function()
-            return hrp:GetNetworkOwner()
-        end)
-        if success then
-            OriginalNetworkOwner = currentOwner
-        end
-    end
-    
-    return true
-end
-
-local function TryAcquireNetworkOwnership()
-    if not NETWORK_OWNERSHIP_ENABLED then
-        return true  -- Skip jika tidak enabled
-    end
-    
-    local character = player.Character
-    if not character then return false end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    -- Backup state original
-    BackupOriginalState()
-    
-    -- Coba set network ownership
-    local success = pcall(function()
-        hrp:SetNetworkOwnership(player)
-    end)
-    
-    if success then
-        task.wait(0.1)
-        -- Verifikasi ownership
-        local verifySuccess, newOwner = pcall(function()
-            local owner = hrp:GetNetworkOwner()
-            return owner == player
-        end)
-        
-        if verifySuccess then
-            NetworkOwnershipAcquired = true
-            SafeModeActive = false
-            return true
-        end
-    end
-    
-    -- Fallback ke safe mode
-    SafeModeActive = true
-    NetworkOwnershipAcquired = false
-    return false
-end
-
-local function ReleaseNetworkOwnership()
-    if not NetworkOwnershipAcquired then return end
-    
-    local character = player.Character
-    if character then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            -- Kembalikan ke original owner atau server
-            pcall(function()
-                if OriginalNetworkOwner then
-                    hrp:SetNetworkOwner(OriginalNetworkOwner)
-                else
-                    hrp:SetNetworkOwner(nil)  -- Kembali ke server
-                end
-            end)
-        end
-    end
-    
-    NetworkOwnershipAcquired = false
-    SafeModeActive = false
-end
-
-local function RestoreOriginalState()
-    local character = player.Character
-    if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        humanoid.WalkSpeed = OriginalHumanoidState.WalkSpeed
-        humanoid.JumpPower = OriginalHumanoidState.JumpPower
-        humanoid.AutoRotate = OriginalHumanoidState.AutoRotate
-        humanoid.PlatformStand = OriginalHumanoidState.PlatformStand
-        humanoid.HipHeight = OriginalHumanoidState.HipHeight
-        
-        -- Reset ke state normal
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    end
-    
-    if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    end
-    
-    -- Restore jump button
-    ShowJumpButton()
-end
-
--- ========= FIXED ADAPTIVE MOVEMENT SYSTEM =========
-local function AdaptiveApplyFrame(frame)
-    local character = player.Character
-    if not character then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not hrp then return false end
-
-    -- Reset semua problematic states
-    humanoid.PlatformStand = false
-    hrp.Anchored = false
-    humanoid.AutoRotate = false  -- Kita kontrol rotation
-
-    local success = false
-    
-    if NetworkOwnershipAcquired and not SafeModeActive then
-        -- METHOD A: Direct application (jika punya ownership)
-        success = pcall(function()
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-            
-            humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            
-            local moveState = frame.MoveState or "Grounded"
-            if moveState == "Climbing" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            elseif moveState == "Jumping" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif moveState == "Falling" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-            else
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    else
-        -- METHOD B: Velocity-based movement (fallback universal)
-        success = pcall(function()
-            local targetCFrame = GetFrameCFrame(frame)
-            local targetVelocity = GetFrameVelocity(frame)
-            local currentPos = hrp.Position
-            local targetPos = targetCFrame.Position
-            
-            -- Calculate direction and distance
-            local direction = (targetPos - currentPos)
-            local distance = direction.Magnitude
-            
-            if distance > 0.5 then  -- Threshold untuk movement
-                local moveDirection = direction.Unit
-                local speed = math.min(distance * 8, GetFrameWalkSpeed(frame) * CurrentSpeed)
-                
-                hrp.AssemblyLinearVelocity = Vector3.new(
-                    moveDirection.X * speed,
-                    targetVelocity.Y,  -- Pertahankan Y velocity asli
-                    moveDirection.Z * speed
-                )
-                
-                -- Smooth rotation towards target
-                local lookDirection = Vector3.new(targetCFrame.LookVector.X, 0, targetCFrame.LookVector.Z)
-                if lookDirection.Magnitude > 0 then
-                    hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + lookDirection)
-                end
-            else
-                -- Apply langsung jika dekat
-                hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = targetVelocity
-            end
-            
-            humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            
-            -- Natural state transitions berdasarkan velocity
-            local currentVel = hrp.AssemblyLinearVelocity
-            if currentVel.Y > 15 then
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif currentVel.Y < -15 then
-                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif frame.MoveState == "Climbing" then
-                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            else
-                humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            end
-        end)
-    end
-    
-    if not success then
-        warn("[Playback] Failed to apply frame")
-    end
-    
-    return success
-end
-
 -- ========= SOUND SYSTEM =========
 local function PlaySound(soundType)
     pcall(function()
@@ -869,7 +601,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= SMART PRECISION ANIMATION SYSTEM =========
+-- ========= NATURAL ANIMATION SYSTEM =========
 local function StopAllAnims()
     local character = player.Character
     if character then
@@ -892,7 +624,7 @@ local function RefreshCharacter()
     end
 end
 
--- ========= SMART PRECISION SET ANIMATION =========
+-- ========= NATURAL SET ANIMATION =========
 local function SetAnimation(animType, animId)
     local character = player.Character
     if not character then 
@@ -918,116 +650,49 @@ local function SetAnimation(animType, animId)
         return
     end
     
-    print("[AnimHub] Setting animation with Smart Precision:", animType, animId)
+    print("[AnimHub] Setting animation:", animType, animId)
     
-    -- Tentukan apakah butuh precision berdasarkan animasi
-    local needsPrecision = (
-        animType == "Idle" or 
-        animType == "Jump" or 
-        animType == "Fall" or
-        animType == "Climb"
-    )
+    -- Natural movement mode tanpa precision
+    humanoid.PlatformStand = false
     
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if needsPrecision and hrp and SMART_PRECISION_ENABLED then
-        -- ========= SMART PRECISION MODE =========
-        
-        -- PHASE 1: Brief Precision Lock
-        humanoid.PlatformStand = true
-        hrp.Anchored = true
-        
-        -- Apply animation
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
+    -- Apply animation natural
+    local applySuccess = pcall(function()
+        if animType == "Idle" and animate.idle then
+            if type(animId) == "table" and #animId >= 2 then
+                animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+                lastAnimations.Idle = animId
             end
-        end)
-        
-        -- PHASE 2: Quick Network Release
-        task.wait(PRECISION_ANCHOR_TIME)
-        hrp.Anchored = false
-        
-        -- PHASE 3: Final Network Sync
-        task.wait(PRECISION_RELEASE_TIME)
-        humanoid.PlatformStand = false
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation with precision:", animType)
-        end
-        
-    else
-        -- ========= NATURAL MOVEMENT MODE =========
-        humanoid.PlatformStand = false
-        
-        -- Apply animation tanpa precision
-        local applySuccess = pcall(function()
-            if animType == "Idle" and animate.idle then
-                if type(animId) == "table" and #animId >= 2 then
-                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                    lastAnimations.Idle = animId
-                end
-            elseif animType == "Walk" and animate.walk then
-                if type(animId) == "string" then
-                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Walk = animId
-                end
-            elseif animType == "Run" and animate.run then
-                if type(animId) == "string" then
-                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Run = animId
-                end
-            elseif animType == "Jump" and animate.jump then
-                if type(animId) == "string" then
-                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Jump = animId
-                end
-            elseif animType == "Fall" and animate.fall then
-                if type(animId) == "string" then
-                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Fall = animId
-                end
-            elseif animType == "Climb" and animate.climb then
-                if type(animId) == "string" then
-                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                    lastAnimations.Climb = animId
-                end
+        elseif animType == "Walk" and animate.walk then
+            if type(animId) == "string" then
+                animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+                lastAnimations.Walk = animId
             end
-        end)
-        
-        if not applySuccess then
-            warn("[AnimHub] Failed to apply animation:", animType)
+        elseif animType == "Run" and animate.run then
+            if type(animId) == "string" then
+                animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
+                lastAnimations.Run = animId
+            end
+        elseif animType == "Jump" and animate.jump then
+            if type(animId) == "string" then
+                animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+                lastAnimations.Jump = animId
+            end
+        elseif animType == "Fall" and animate.fall then
+            if type(animId) == "string" then
+                animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+                lastAnimations.Fall = animId
+            end
+        elseif animType == "Climb" and animate.climb then
+            if type(animId) == "string" then
+                animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+                lastAnimations.Climb = animId
+            end
         end
+    end)
+    
+    if not applySuccess then
+        warn("[AnimHub] Failed to apply animation:", animType)
     end
     
     -- Save ke file
@@ -1037,11 +702,11 @@ local function SetAnimation(animType, animId)
         end
     end)
     
-    -- Final network sync
-    task.wait(NETWORK_SYNC_DELAY)
+    -- Final refresh
+    task.wait(0.1)
     RefreshCharacter()
     
-    print("[AnimHub] Animation set successfully with Smart Precision!")
+    print("[AnimHub] Animation set successfully!")
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
@@ -1150,9 +815,9 @@ local function LoadSavedAnimations()
             return
         end
         
-        -- Apply dengan NETWORK DELAYS
+        -- Apply dengan delay natural
         for animType, animId in pairs(savedData) do
-            task.wait(0.1) -- Network delay antara setiap animasi
+            task.wait(0.1) -- Delay antara setiap animasi
             
             local applySuccess = pcall(function()
                 if animType == "Idle" and animate.idle then
@@ -1190,13 +855,13 @@ local function LoadSavedAnimations()
         
         lastAnimations = savedData
         
-        -- Final network sync
+        -- Final refresh
         task.wait(0.5)
         pcall(function()
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
         end)
         
-        print("[AnimHub] Animations loaded with network sync!")
+        print("[AnimHub] Animations loaded successfully!")
     end)
 end
 
@@ -1548,9 +1213,6 @@ local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
     
-    -- Release network ownership pertama
-    ReleaseNetworkOwnership()
-    
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
@@ -1573,9 +1235,6 @@ local function RestoreFullUserControl()
     if ShiftLockEnabled then
         EnableVisibleShiftLock()
     end
-    
-    -- Restore original state backup
-    RestoreOriginalState()
 end
 
 -- ========= PERFECT JUMP DETECTION =========
@@ -1590,10 +1249,43 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= ENHANCED PLAYBACK SYSTEM =========
-local function ApplyFrameWithSmartPrecision(frame)
-    -- Gunakan adaptive system sebagai ganti smart precision
-    return AdaptiveApplyFrame(frame)
+-- ========= NATURAL MOVEMENT SYSTEM =========
+local function ApplyNaturalFrame(frame)
+    local character = player.Character
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return false end
+
+    -- Reset semua problematic states
+    humanoid.PlatformStand = false
+    humanoid.AutoRotate = false  -- Kita kontrol rotation
+
+    local success = pcall(function()
+        -- Apply position dan rotation natural
+        local targetCFrame = GetFrameCFrame(frame)
+        local targetVelocity = GetFrameVelocity(frame)
+        
+        hrp.CFrame = targetCFrame
+        hrp.AssemblyLinearVelocity = targetVelocity
+        
+        -- Set movement state natural
+        humanoid.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+        
+        local moveState = frame.MoveState
+        if moveState == "Climbing" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
+        elseif moveState == "Jumping" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        elseif moveState == "Falling" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        else
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
+    
+    return success
 end
 
 -- ========= PATH VISUALIZATION FUNCTIONS =========
@@ -1843,6 +1535,30 @@ local function CreateMergedReplay()
     
     UpdateRecordList()
     PlaySound("Success")
+end
+
+-- ========= FRAME DATA FUNCTIONS =========
+local function GetFrameCFrame(frame)
+    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    return CFrame.lookAt(pos, pos + look, up)
+end
+
+local function GetFrameVelocity(frame)
+    return frame.Velocity and Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[3] * VELOCITY_SCALE
+    ) or Vector3.new(0, 0, 0)
+end
+
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
+end
+
+local function GetFrameTimestamp(frame)
+    return frame.Timestamp or 0
 end
 
 -- ========= GUI SETUP =========
@@ -2565,7 +2281,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= FIXED PLAYBACK SYSTEM =========
+-- ========= NATURAL PLAYBACK SYSTEM =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2587,12 +2303,6 @@ function PlayRecording(name)
     playbackStartTime = tick()
     totalPausedDuration = 0
     pauseStartTime = 0
-
-    -- Try acquire network ownership
-    local ownershipSuccess = TryAcquireNetworkOwnership()
-    if not ownershipSuccess then
-        warn("[Playback] Network ownership tidak didapat, menggunakan safe mode")
-    end
 
     SaveHumanoidState()
     DisableJump()
@@ -2670,8 +2380,8 @@ function PlayRecording(name)
             return
         end
 
-        -- Apply frame dengan FIXED adaptive system
-        AdaptiveApplyFrame(frame)
+        -- Apply frame dengan natural system
+        ApplyNaturalFrame(frame)
         
         if ShiftLockEnabled then
             ApplyVisibleShiftLock()
@@ -2759,9 +2469,6 @@ function StartAutoLoopAll()
             local playbackPauseStart = 0
             local currentFrame = 1
             
-            -- Try acquire network ownership untuk loop
-            TryAcquireNetworkOwnership()
-            
             SaveHumanoidState()
             DisableJump()
             
@@ -2818,7 +2525,7 @@ function StartAutoLoopAll()
                     
                     local frame = recording[currentFrame]
                     if frame then
-                        AdaptiveApplyFrame(frame)
+                        ApplyNaturalFrame(frame)
                     end
                     
                     task.wait()
@@ -3274,9 +2981,3 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AnimateJump(InfiniteJump)
     end
 end)
-
-print("=== BYARUL MOVEMENT RECORDER LOADED ===")
-print("Playback System: FIXED & WORKING")
-print("Network Ownership: OPTIMIZED")
-print("Frame Functions: IMPLEMENTED")
-print("Ready to use!")
