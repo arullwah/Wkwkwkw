@@ -44,7 +44,7 @@ local CurrentSpeed = 1
 local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
-
+AutoLoop = false
 local AutoRespawn = false
 local InfiniteJump = false
 local recordConnection = nil
