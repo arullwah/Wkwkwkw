@@ -71,6 +71,11 @@ local prePausePlatformStand = false
 local prePauseSit = false
 local originalJumpButtonEnabled = true
 
+-- ========= PLAYBACK STATE TRACKING () =========
+local lastPlaybackState = nil
+local lastStateChangeTime = 0
+local STATE_CHANGE_COOLDOWN = 0.15  -- 150ms minimum between state changes
+
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
@@ -2184,7 +2189,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH VISIBLE SHIFTLOCK =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH STATE THROTTLING =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2206,6 +2211,8 @@ function PlayRecording(name)
     playbackStartTime = tick()
     totalPausedDuration = 0
     pauseStartTime = 0
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
 
     SaveHumanoidState()
     DisableJump()
@@ -2218,6 +2225,8 @@ function PlayRecording(name)
             playbackConnection:Disconnect()
             RestoreFullUserControl()
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
         
@@ -2247,6 +2256,8 @@ function PlayRecording(name)
             IsPlaying = false
             RestoreFullUserControl()
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
         
@@ -2256,6 +2267,8 @@ function PlayRecording(name)
             IsPlaying = false
             RestoreFullUserControl()
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
 
@@ -2271,6 +2284,8 @@ function PlayRecording(name)
             RestoreFullUserControl()
             PlaySound("Success")
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
 
@@ -2279,6 +2294,8 @@ function PlayRecording(name)
             IsPlaying = false
             RestoreFullUserControl()
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
 
@@ -2291,22 +2308,32 @@ function PlayRecording(name)
                 hum.AutoRotate = false
                 
                 local moveState = frame.MoveState
-                if moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    hum.PlatformStand = false
-                    hum.AutoRotate = false
-                elseif moveState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    task.spawn(function()
-                        wait(0.01)
-                        if hum and hum.Parent then
-                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                local stateTime = tick()
+                
+                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    lastPlaybackState = moveState
+                    lastStateChangeTime = stateTime
+                    
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                        hum.AutoRotate = false
+                        
+                    elseif moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        
+                    elseif moveState == "Falling" then
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        if currentVelocity.Y < -8 then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
                         end
-                    end)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                        
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
                 end
             end
             
@@ -2319,7 +2346,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM - TANPA HENTI =========
+-- ========= FIXED AUTO LOOP SYSTEM WITH STATE THROTTLING =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2334,6 +2361,8 @@ function StartAutoLoopAll()
     
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
@@ -2358,7 +2387,6 @@ function StartAutoLoopAll()
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
-                    -- Jika respawn gagal, lanjut ke recording berikutnya
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2370,14 +2398,12 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
-            -- PERBAIKAN: Jika karakter mati, tunggu respawn dan lanjutkan
             if not IsCharacterReady() then
                 local maxWaitTime = 15
                 local startWait = tick()
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     if tick() - startWait > maxWaitTime then
-                        -- Timeout, lanjut ke recording berikutnya
                         CurrentLoopIndex = CurrentLoopIndex + 1
                         if CurrentLoopIndex > #RecordingOrder then
                             CurrentLoopIndex = 1
@@ -2400,6 +2426,9 @@ function StartAutoLoopAll()
             local playbackPauseStart = 0
             local currentFrame = 1
             
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            
             SaveHumanoidState()
             DisableJump()
             
@@ -2407,7 +2436,6 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
                 if not IsCharacterReady() then
-                    -- Karakter mati selama playback, break untuk lanjut ke recording berikutnya
                     break
                 end
                 
@@ -2465,22 +2493,28 @@ function StartAutoLoopAll()
                                 hum.AutoRotate = false
                                 
                                 local moveState = frame.MoveState
-                                if moveState == "Climbing" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                    hum.PlatformStand = false
-                                    hum.AutoRotate = false
-                                elseif moveState == "Jumping" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    task.spawn(function()
-                                        wait(0.01)
-                                        if hum and hum.Parent then
-                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                local stateTime = tick()
+                                
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                    lastPlaybackState = moveState
+                                    lastStateChangeTime = stateTime
+                                    
+                                    if moveState == "Climbing" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                        hum.PlatformStand = false
+                                        hum.AutoRotate = false
+                                    elseif moveState == "Jumping" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    elseif moveState == "Falling" then
+                                        local currentVelocity = hrp.AssemblyLinearVelocity
+                                        if currentVelocity.Y < -8 then
+                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
                                         end
-                                    end)
-                                elseif moveState == "Falling" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                else
-                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                    elseif moveState == "Swimming" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                    else
+                                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                                    end
                                 end
                             end
                             
@@ -2496,6 +2530,8 @@ function StartAutoLoopAll()
             
             RestoreFullUserControl()
             UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             
             if playbackCompleted then
                 PlaySound("Success")
@@ -2507,7 +2543,6 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
-                -- Jika playback tidak completed (karakter mati), lanjut ke recording berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2520,6 +2555,8 @@ function StartAutoLoopAll()
         IsPaused = false
         RestoreFullUserControl()
         UpdatePauseMarker()
+        lastPlaybackState = nil
+        lastStateChangeTime = 0
     end)
 end
 
@@ -2528,6 +2565,8 @@ function StopAutoLoopAll()
     IsAutoLoopPlaying = false
     IsPlaying = false
     IsPaused = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     
     if loopConnection then
         task.cancel(loopConnection)
@@ -2552,6 +2591,8 @@ function StopPlayback()
     if not IsPlaying then return end
     IsPlaying = false
     IsPaused = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     RestoreFullUserControl()
     UpdatePauseMarker()
     
