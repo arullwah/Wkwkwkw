@@ -9,9 +9,9 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 65
+local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.01
+local MIN_DISTANCE_THRESHOLD = 0.1
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
@@ -47,6 +47,7 @@ local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 
 local AutoRespawn = false
 local InfiniteJump = false
+local AutoLoop = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -71,10 +72,10 @@ local prePausePlatformStand = false
 local prePauseSit = false
 local originalJumpButtonEnabled = true
 
--- ========= PLAYBACK STATE TRACKING () =========
+-- ========= PLAYBACK STATE TRACKING =========
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
-local STATE_CHANGE_COOLDOWN = 0.15  -- 150ms minimum between state changes
+local STATE_CHANGE_COOLDOWN = 0.15
 
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
@@ -93,7 +94,7 @@ local lastAnimations = {}
 local animationGuiOpen = false
 local isLoadingAnimations = false
 
--- ========= ANIMATIONS DATABASE (GAZE SYSTEM) =========
+-- ========= ANIMATIONS DATABASE =========
 local Animations = {
     ["Idle"] = {
         ["2016 Animation (mm2)"] = {"387947158", "387947464"},
@@ -317,71 +318,6 @@ local Animations = {
         ["No Boundaries (Walmart)"] = "18747062535",
         ["Zombie"] = "616157476"
     },
-    ["SwimIdle"] = {
-        ["Astronaut"] = "891663592",
-        ["Adidas Community"] = "109346520324160",
-        ["Bold"] = "16738339817",
-        ["Bubbly"] = "910030921",
-        ["Cartoony"] = "10921079380",
-        ["Catwalk Glam"] = "98854111361360",
-        ["Confident"] = "1070012133",
-        ["CowBoy"] = "1014411816",
-        ["Elder"] = "10921110146",
-        ["Mage"] = "707894699",
-        ["Ninja"] = "656118341",
-        ["NFL"] = "79090109939093",
-        ["Patrol"] = "1151221899",
-        ["Knight"] = "10921125935",
-        ["OldSchool"] = "10921244018",
-        ["Levitation"] = "10921139478",
-        ["Popstar"] = "1212998578",
-        ["Princess"] = "941025398",
-        ["Pirate"] = "750785176",
-        ["R6"] = "12518152696",
-        ["Robot"] = "10921253767",
-        ["Sneaky"] = "1132506407",
-        ["Sports (Adidas)"] = "18537387180",
-        ["Stylish"] = "10921281964",
-        ["Stylized"] = "4708190607",
-        ["SuperHero"] = "10921297391",
-        ["Toy"] = "10921310341",
-        ["Vampire"] = "10921325443",
-        ["Werewolf"] = "10921341319",
-        ["Wicked (Popular)"] = "113199415118199",
-        ["No Boundaries (Walmart)"] = "18747071682"
-    },
-    ["Swim"] = {
-        ["Astronaut"] = "891663592",
-        ["Adidas Community"] = "133308483266208",
-        ["Bubbly"] = "910028158",
-        ["Bold"] = "16738339158",
-        ["Cartoony"] = "10921079380",
-        ["Catwalk Glam"] = "134591743181628",
-        ["CowBoy"] = "1014406523",
-        ["Confident"] = "1070009914",
-        ["Elder"] = "10921108971",
-        ["Knight"] = "10921125160",
-        ["Mage"] = "707876443",
-        ["NFL"] = "132697394189921",
-        ["OldSchool"] = "10921243048",
-        ["PopStar"] = "1212998578",
-        ["Princess"] = "941018893",
-        ["Pirate"] = "750784579",
-        ["Patrol"] = "1151204998",
-        ["R6"] = "12518152696",
-        ["Robot"] = "10921253142",
-        ["Levitation"] = "10921138209",
-        ["Stylish"] = "10921281000",
-        ["SuperHero"] = "10921295495",
-        ["Sneaky"] = "1132500520",
-        ["Sports (Adidas)"] = "18537389531",
-        ["Toy"] = "10921309319",
-        ["Vampire"] = "10921324408",
-        ["Werewolf"] = "10921340419",
-        ["Wicked (Popular)"] = "99384245425157",
-        ["No Boundaries (Walmart)"] = "18747073181",
-        ["Zombie"] = "616165109"
-    },
     ["Climb"] = {
         ["Astronaut"] = "10921032124",
         ["Adidas Community"] = "88763136693023",
@@ -419,7 +355,7 @@ local Animations = {
     }
 }
 
--- ========= DEFAULT ANIMATIONS (R15 Standard) =========
+-- ========= DEFAULT ANIMATIONS =========
 local DefaultAnimations = {
     Idle = {"507766666", "507766951"},
     Walk = "507777826",
@@ -517,7 +453,7 @@ local function AnimateButtonClick(button)
     }):Play()
 end
 
--- ========= AUTO RESPAWN FUNCTION =========
+-- ========= CHARACTER MANAGEMENT =========
 local function ResetCharacter()
     local char = player.Character
     if char then
@@ -543,7 +479,6 @@ local function WaitForRespawn()
     return true
 end
 
--- ========= CHARACTER READY CHECK =========
 local function IsCharacterReady()
     local char = player.Character
     if not char then return false end
@@ -553,7 +488,6 @@ local function IsCharacterReady()
     return true
 end
 
--- ========= ENHANCED CHARACTER RESET =========
 local function CompleteCharacterReset(char)
     if not char or not char:IsDescendantOf(workspace) then return end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
@@ -571,7 +505,7 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= VISIBLE SHIFTLOCK SYSTEM FUNCTIONS =========
+-- ========= VISIBLE SHIFTLOCK SYSTEM =========
 local function ApplyVisibleShiftLock()
     if not ShiftLockEnabled or not player.Character then return end
     
@@ -671,7 +605,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO FREEZE) =========
+-- ========= ANIMATION SYSTEM =========
 local function validateCharacter()
     local character = player.Character
     return character and character:FindFirstChild("Humanoid") and character:FindFirstChild("HumanoidRootPart")
@@ -689,14 +623,12 @@ end
 
 local function SetAnimation(animType, animId)
     if not validateCharacter() then
-        warn("Character not ready for animation!")
         return false
     end
     
     local character = player.Character
     local animate = character:FindFirstChild("Animate")
     if not animate then 
-        warn("Animate script not found!")
         return false
     end
     
@@ -718,18 +650,11 @@ local function SetAnimation(animType, animId)
     elseif animType == "Fall" and animate.fall then
         animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
         lastAnimations.Fall = animId
-    elseif animType == "Swim" and animate.swim then
-        animate.swim.Swim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Swim = animId
-    elseif animType == "SwimIdle" and animate.swimidle then
-        animate.swimidle.SwimIdle.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.SwimIdle = animId
     elseif animType == "Climb" and animate.climb then
         animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
         lastAnimations.Climb = animId
     else
         success = false
-        warn("Animation type not supported: " .. tostring(animType))
     end
     
     if success then
@@ -745,7 +670,6 @@ local function SetAnimation(animType, animId)
     return success
 end
 
--- ========= RESET ANIMATIONS TO DEFAULT =========
 local function ResetAnimations()
     local character = player.Character
     if not character then return end
@@ -794,7 +718,6 @@ local function ResetAnimations()
     PlaySound("Success")
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS (IMPROVED) =========
 local function LoadSavedAnimations()
     if isLoadingAnimations then 
         return false
@@ -821,7 +744,7 @@ local function LoadSavedAnimations()
     return loaded
 end
 
--- ========= ANIMATION GUI 200x200 =========
+-- ========= ANIMATION GUI =========
 local function OpenAnimationGUI()
     if animationGuiOpen then return end
     animationGuiOpen = true
@@ -840,7 +763,6 @@ local function OpenAnimationGUI()
     MainFrame.Draggable = true
     MainFrame.Parent = AnimationGUI
 
-    -- 3D Effect - Shadow/Depth
     local shadow = Instance.new("ImageLabel")
     shadow.Size = UDim2.new(1, 20, 1, 20)
     shadow.Position = UDim2.new(0, -10, 0, -10)
@@ -853,7 +775,6 @@ local function OpenAnimationGUI()
     shadow.ZIndex = 0
     shadow.Parent = MainFrame
 
-    -- Inner Border (3D Effect)
     local innerBorder = Instance.new("Frame")
     innerBorder.Size = UDim2.new(1, -4, 1, -4)
     innerBorder.Position = UDim2.new(0, 2, 0, 2)
@@ -862,7 +783,6 @@ local function OpenAnimationGUI()
     innerBorder.ZIndex = 1
     innerBorder.Parent = MainFrame
 
-    -- Outer Glow
     local outerGlow = Instance.new("Frame")
     outerGlow.Size = UDim2.new(1, 2, 1, 2)
     outerGlow.Position = UDim2.new(0, -1, 0, -1)
@@ -871,7 +791,6 @@ local function OpenAnimationGUI()
     outerGlow.ZIndex = 0
     outerGlow.Parent = MainFrame
     
-    -- Header (Lebar 200, Tinggi 35)
     local Header = Instance.new("Frame")
     Header.Size = UDim2.new(1, 0, 0, 35)
     Header.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -879,7 +798,6 @@ local function OpenAnimationGUI()
     Header.ZIndex = 2
     Header.Parent = innerBorder
     
-    -- Header Border Bottom
     local headerBorder = Instance.new("Frame")
     headerBorder.Size = UDim2.new(1, 0, 0, 1)
     headerBorder.Position = UDim2.new(0, 0, 1, 0)
@@ -888,7 +806,6 @@ local function OpenAnimationGUI()
     headerBorder.ZIndex = 2
     headerBorder.Parent = Header
     
-    -- ❌ Close Button (Paling Kanan)
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Text = "×"
     CloseBtn.Size = UDim2.new(0, 30, 0, 25)
@@ -902,7 +819,6 @@ local function OpenAnimationGUI()
     CloseBtn.ZIndex = 4
     CloseBtn.Parent = Header
 
-    -- Close Button Highlight
     local closeBtnHighlight = Instance.new("Frame")
     closeBtnHighlight.Size = UDim2.new(1, 0, 0, 1)
     closeBtnHighlight.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
@@ -910,7 +826,6 @@ local function OpenAnimationGUI()
     closeBtnHighlight.ZIndex = 5
     closeBtnHighlight.Parent = CloseBtn
     
-    -- 🔍 Search Box (Tengah)
     local SearchBox = Instance.new("TextBox")
     SearchBox.PlaceholderText = "Search animations..."
     SearchBox.Size = UDim2.new(1, -70, 0, 25)
@@ -927,7 +842,6 @@ local function OpenAnimationGUI()
     SearchBox.ZIndex = 3
     SearchBox.Parent = Header
     
-    -- Search Box Inner Shadow
     local searchShadow = Instance.new("Frame")
     searchShadow.Size = UDim2.new(1, 0, 0, 1)
     searchShadow.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
@@ -935,12 +849,10 @@ local function OpenAnimationGUI()
     searchShadow.ZIndex = 3
     searchShadow.Parent = SearchBox
     
-    -- Add left padding to search text
     local searchPadding = Instance.new("UIPadding")
     searchPadding.PaddingLeft = UDim.new(0, 8)
     searchPadding.Parent = SearchBox
     
-    -- Animation List (Compact)
     local AnimationList = Instance.new("ScrollingFrame")
     AnimationList.Size = UDim2.new(1, -10, 1, -45)
     AnimationList.Position = UDim2.new(0, 5, 0, 40)
@@ -952,13 +864,11 @@ local function OpenAnimationGUI()
     AnimationList.ClipsDescendants = true
     AnimationList.Parent = innerBorder
     
-    -- Scroll Inner Border
     local scrollBorder = Instance.new("UIStroke")
     scrollBorder.Color = Color3.fromRGB(30, 30, 30)
     scrollBorder.Thickness = 1
     scrollBorder.Parent = AnimationList
     
-    -- Populate animation list
     local buttons = {}
     local yPos = 0
     
@@ -978,12 +888,10 @@ local function OpenAnimationGUI()
         btn.ZIndex = 3
         btn.Parent = AnimationList
         
-        -- Button Padding
         local btnPadding = Instance.new("UIPadding")
         btnPadding.PaddingLeft = UDim.new(0, 6)
         btnPadding.Parent = btn
         
-        -- Button Highlight
         local btnHighlight = Instance.new("Frame")
         btnHighlight.Size = UDim2.new(1, 0, 0, 1)
         btnHighlight.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
@@ -997,18 +905,7 @@ local function OpenAnimationGUI()
                 btn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
                 task.wait(0.2)
                 btn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-                
-                if game.StarterGui then
-                    pcall(function()
-                        game.StarterGui:SetCore("SendNotification", {
-                            Title = animType,
-                            Text = name,
-                            Duration = 2
-                        })
-                    end)
-                end
-            else
-                warn("❌ Failed to apply animation: " .. name)
+                PlaySound("Success")
             end
         end)
         
@@ -1016,7 +913,6 @@ local function OpenAnimationGUI()
         yPos = yPos + 28
     end
     
-    -- Populate all animations
     for name, ids in pairs(Animations.Idle) do
         addButton(name, "Idle", ids)
     end
@@ -1032,20 +928,12 @@ local function OpenAnimationGUI()
     for name, id in pairs(Animations.Fall) do
         addButton(name, "Fall", id)
     end
-    for name, id in pairs(Animations.SwimIdle) do
-        addButton(name, "SwimIdle", id)
-    end
-    for name, id in pairs(Animations.Swim) do
-        addButton(name, "Swim", id)
-    end
     for name, id in pairs(Animations.Climb) do
         addButton(name, "Climb", id)
     end
     
-    -- Update canvas size
     AnimationList.CanvasSize = UDim2.new(0, 0, 0, yPos)
     
-    -- Button functionality
     CloseBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(CloseBtn)
         AnimationGUI:Destroy()
@@ -1053,7 +941,6 @@ local function OpenAnimationGUI()
         PlaySound("Click")
     end)
     
-    -- Search functionality
     SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = SearchBox.Text:lower()
         local pos = 0
@@ -1069,7 +956,6 @@ local function OpenAnimationGUI()
         AnimationList.CanvasSize = UDim2.new(0, 0, 0, pos)
     end)
     
-    -- Draggable functionality
     local dragging, dragInput, dragStart, startPos
     Header.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1099,7 +985,7 @@ local function OpenAnimationGUI()
     end)
 end
 
--- ========= JUMP BUTTON CONTROL SYSTEM =========
+-- ========= JUMP BUTTON CONTROL =========
 local function HideJumpButton()
     pcall(function()
         StarterGui:SetCore("VRLaserPointerMode", 0)
@@ -1144,7 +1030,7 @@ local function SaveJumpButtonState()
     originalJumpButtonEnabled = true
 end
 
--- ========= IMPROVED CLIMBING PAUSE FIX =========
+-- ========= PLAYBACK CONTROL =========
 local function SaveHumanoidState()
     local char = player.Character
     if not char then return end
@@ -1189,7 +1075,6 @@ local function RestoreHumanoidState()
     end
 end
 
--- ========= FULL USER CONTROL RESTORATION =========
 local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
@@ -1218,7 +1103,6 @@ local function RestoreFullUserControl()
     end
 end
 
--- ========= PERFECT JUMP DETECTION =========
 local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
     local state = hum:GetState()
@@ -1230,7 +1114,7 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= PATH VISUALIZATION FUNCTIONS =========
+-- ========= PATH VISUALIZATION =========
 local function ClearPathVisualization()
     for _, part in pairs(PathVisualization) do
         if part and part.Parent then
@@ -1399,7 +1283,7 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
--- ========= IMPROVED MACRO/MERGE SYSTEM =========
+-- ========= MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
         PlaySound("Error")
@@ -1514,7 +1398,6 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- PERBAIKAN: MainFrame diperbesar untuk scroll yang lebih baik
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(250, 350) 
 MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
@@ -1601,12 +1484,11 @@ local ResizeCorner = Instance.new("UICorner")
 ResizeCorner.CornerRadius = UDim.new(0, 8)
 ResizeCorner.Parent = ResizeButton
 
--- PERBAIKAN: Content frame diperbesar untuk scroll yang lebih baik
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
 Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
-Content.ScrollBarThickness = 6 -- Dipertebal scrollbar
+Content.ScrollBarThickness = 6
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 Content.ScrollingDirection = Enum.ScrollingDirection.Y
 Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1630,7 +1512,6 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- Enhanced Button Creation with Powerful Animations
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -1736,7 +1617,6 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
--- Baris 1: Recording dan Animation Button bersebelahan
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 local AnimationBtnBig = CreateButton("ANIMATIONS", 127, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 
@@ -1744,12 +1624,10 @@ local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 11
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
--- Toggle layout: Kiri=AutoLoop, Tengah=InfiniteJump, Kanan=ShiftLock
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
 
--- Baris kedua: Auto Respawn
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
@@ -1794,13 +1672,12 @@ local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(
 local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- PERBAIKAN: RecordList diperbesar dan diperbaiki scroll-nya
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 180) -- Diperbesar tinggi nya
+RecordList.Size = UDim2.new(1, 0, 0, 180)
 RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 6 -- Dipertebal
+RecordList.ScrollBarThickness = 6
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
 RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1811,7 +1688,7 @@ local ListCorner = Instance.new("UICorner")
 ListCorner.CornerRadius = UDim.new(0, 6)
 ListCorner.Parent = RecordList
 
--- Speed validation function
+-- ========= SPEED VALIDATION =========
 local function ValidateSpeed(speedText)
     local speed = tonumber(speedText)
     if not speed then return false, "Invalid number" end
@@ -1832,7 +1709,7 @@ SpeedBox.FocusLost:Connect(function()
     end
 end)
 
--- ========= RESPONSIVE RESIZE FUNCTIONALITY =========
+-- ========= RESIZE FUNCTIONALITY =========
 local IsResizing = false
 local StartMousePos
 local StartSize
@@ -1872,7 +1749,7 @@ UserInputService.InputChanged:Connect(function(input)
             local delta = currentMousePos - StartMousePos
             
             local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
-            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600) -- Diperbesar max height
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600)
             
             MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
             
@@ -1910,7 +1787,6 @@ UserInputService.InputChanged:Connect(function(input)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
             
-            -- Update RecordList size when resizing
             RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
         end
     end
@@ -1922,7 +1798,7 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- ========= REORDER FUNCTIONS =========
+-- ========= RECORD LIST FUNCTIONS =========
 local function MoveRecordingUp(name)
     local currentIndex = table.find(RecordingOrder, name)
     if currentIndex and currentIndex > 1 then
@@ -1941,14 +1817,12 @@ local function MoveRecordingDown(name)
     end
 end
 
--- ========= FORMAT DURATION FUNCTION =========
 local function FormatDuration(seconds)
     local minutes = math.floor(seconds / 60)
     local remainingSeconds = math.floor(seconds % 60)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= UPDATE RECORD LIST =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -1969,7 +1843,6 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
-        -- PERBAIKAN: TextBox untuk custom nama dengan fungsi save yang benar
         local nameBox = Instance.new("TextBox")
         nameBox.Size = UDim2.new(1, -130, 0, 18)
         nameBox.Position = UDim2.new(0, 8, 0, 4)
@@ -1988,7 +1861,6 @@ function UpdateRecordList()
         nameBoxCorner.CornerRadius = UDim.new(0, 3)
         nameBoxCorner.Parent = nameBox
         
-        -- PERBAIKAN: Save nama ketika selesai edit
         nameBox.FocusLost:Connect(function()
             local newName = nameBox.Text
             if newName and newName ~= "" then
@@ -2102,11 +1974,10 @@ function UpdateRecordList()
         yPos = yPos + 43
     end
     
-    -- PERBAIKAN: CanvasSize diupdate dengan benar untuk scroll yang smooth
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
--- ========= JUMP CONTROL FUNCTIONS =========
+-- ========= JUMP CONTROL =========
 local function DisableJump()
     local char = player.Character
     if char then
@@ -2128,7 +1999,7 @@ local function EnableJump()
     end
 end
 
--- ========= OPTIMIZED RECORDING SYSTEM =========
+-- ========= RECORDING SYSTEM =========
 local lastFrameTime = 0
 local frameInterval = 1 / RECORDING_FPS
 
@@ -2137,7 +2008,6 @@ local function ShouldRecordFrame()
     return (currentTime - lastFrameTime) >= frameInterval
 end
 
--- ========= AUTOMATIC SAVE SYSTEM =========
 local function AutoSaveRecording()
     if #CurrentRecording.Frames == 0 then
         PlaySound("Error")
@@ -2244,7 +2114,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH STATE THROTTLING =========
+-- ========= PLAYBACK SYSTEM =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2401,7 +2271,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM - NON-STOP WITH PROPER RESPAWN HANDLING =========
+-- ========= AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2421,18 +2291,14 @@ function StartAutoLoopAll()
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            -- ✅ CHECK: Jika Auto Loop dimatikan, stop
             if not AutoLoop or not IsAutoLoopPlaying then
-                warn("🛑 Auto Loop manually stopped")
                 break
             end
             
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
-            -- ✅ SKIP jika recording tidak valid
             if not recording or #recording == 0 then
-                warn("⚠️ Recording empty: " .. tostring(recordingName))
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2441,42 +2307,31 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- ✅ AUTO RESPAWN: HANYA jika di awal loop cycle DAN toggle auto respawn aktif
             if CurrentLoopIndex == 1 and AutoRespawn then
-                warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
                 local success = WaitForRespawn()
                 if not success then
-                    warn("⚠️ Respawn timeout, retrying...")
                     task.wait(2)
                     continue
                 end
                 task.wait(1.5)
             end
             
-            -- ✅ WAIT FOR CHARACTER READY (dengan timeout yang reasonable)
             if not IsCharacterReady() then
-                warn("⏳ Character not ready, waiting...")
                 local waitAttempts = 0
-                local maxWaitAttempts = 60 -- 30 detik (0.5s per attempt)
+                local maxWaitAttempts = 60
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     waitAttempts = waitAttempts + 1
                     
                     if waitAttempts >= maxWaitAttempts then
-                        warn("⚠️ Character not ready after 30s")
-                        
-                        -- ✅ HANYA force respawn jika Auto Respawn aktif
                         if AutoRespawn then
-                            warn("🔄 Force respawn (Auto Respawn ON)")
                             ResetCharacter()
                             WaitForRespawn()
                             task.wait(1.5)
                             break
                         else
-                            -- ✅ Jika Auto Respawn OFF, tunggu manual respawn
-                            warn("⏸️ Waiting for manual respawn (Auto Respawn OFF)...")
-                            waitAttempts = 0 -- Reset counter
+                            waitAttempts = 0
                         end
                     end
                     
@@ -2489,16 +2344,13 @@ function StartAutoLoopAll()
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            warn("▶️ Playing: " .. (checkpointNames[recordingName] or recordingName))
-            
-            -- ✅ PLAYBACK VARIABLES
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
             local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
-            local maxDeathRetries = 999999 -- Infinite retries
+            local maxDeathRetries = 999999
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2507,27 +2359,19 @@ function StartAutoLoopAll()
             DisableJump()
             HideJumpButton()
             
-            -- ✅ PLAYBACK LOOP WITH DEATH HANDLING
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
-                -- ✅ DEATH DETECTION
                 if not IsCharacterReady() then
-                    warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
                     deathRetryCount = deathRetryCount + 1
                     
-                    -- ✅ DECISION BASED ON AUTO RESPAWN TOGGLE
                     if AutoRespawn then
-                        -- ✅ AUTO RESPAWN: Langsung respawn dan retry
-                        warn("🔄 Auto Respawn ON - Respawning...")
                         ResetCharacter()
                         local success = WaitForRespawn()
                         
                         if success then
-                            warn("✅ Respawned! Restarting recording...")
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            -- ✅ RESET playback untuk retry recording ini
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2539,26 +2383,20 @@ function StartAutoLoopAll()
                             DisableJump()
                             HideJumpButton()
                             
-                            continue -- Retry recording dari awal
+                            continue
                         else
-                            warn("⚠️ Respawn failed, retrying...")
                             task.wait(2)
                             continue
                         end
                     else
-                        -- ✅ AUTO RESPAWN OFF: Tunggu manual respawn
-                        warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
-                        
                         local manualRespawnWait = 0
-                        local maxManualWait = 120 -- 60 detik (0.5s per check)
+                        local maxManualWait = 120
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 1
                             
                             if manualRespawnWait >= maxManualWait then
-                                warn("⚠️ No manual respawn after 60s, pausing loop...")
-                                warn("💡 Enable Auto Respawn or respawn manually to continue")
-                                manualRespawnWait = 0 -- Reset dan tunggu terus
+                                manualRespawnWait = 0
                             end
                             
                             task.wait(0.5)
@@ -2566,11 +2404,9 @@ function StartAutoLoopAll()
                         
                         if not AutoLoop or not IsAutoLoopPlaying then break end
                         
-                        warn("✅ Manual respawn detected! Restarting recording...")
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        -- ✅ RESET playback untuk retry recording ini
                         currentFrame = 1
                         playbackStart = tick()
                         playbackPausedTime = 0
@@ -2582,11 +2418,10 @@ function StartAutoLoopAll()
                         DisableJump()
                         HideJumpButton()
                         
-                        continue -- Retry recording dari awal
+                        continue
                     end
                 end
                 
-                -- ✅ PAUSE HANDLING
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2609,7 +2444,6 @@ function StartAutoLoopAll()
                     
                     local char = player.Character
                     if not char or not char:FindFirstChild("HumanoidRootPart") then
-                        warn("⚠️ Character/HRP missing!")
                         task.wait(0.5)
                         break
                     end
@@ -2617,7 +2451,6 @@ function StartAutoLoopAll()
                     local hum = char:FindFirstChildOfClass("Humanoid")
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     if not hum or not hrp then
-                        warn("⚠️ Humanoid/HRP missing!")
                         task.wait(0.5)
                         break
                     end
@@ -2685,34 +2518,24 @@ function StartAutoLoopAll()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
-            -- ✅ DECISION: Move to next recording HANYA jika completed
             if playbackCompleted then
-                warn("✅ Recording completed!")
                 PlaySound("Success")
                 
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
-                    warn("🔄 Loop cycle completed, restarting...")
                     CurrentLoopIndex = 1
                 end
                 
                 task.wait(0.5)
             else
-                -- ✅ Playback tidak completed - check kenapa
                 if not AutoLoop or not IsAutoLoopPlaying then
-                    warn("🛑 Loop stopped manually")
                     break
                 else
-                    -- ✅ Character issue - retry sama recording
-                    warn("⚠️ Playback incomplete, retrying same recording...")
                     task.wait(1)
-                    -- CurrentLoopIndex TIDAK DIUBAH
                 end
             end
         end
         
-        -- ✅ CLEANUP
-        warn("🛑 Auto Loop stopped")
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
@@ -2812,7 +2635,7 @@ function PausePlayback()
     end
 end
 
--- ========= FIXED OBFUSCATED JSON SYSTEM =========
+-- ========= SAVE/LOAD SYSTEM =========
 local function SaveToObfuscatedJSON()
     local filename = FilenameBox.Text
     if filename == "" then filename = "MyReplays" end
@@ -2828,8 +2651,8 @@ local function SaveToObfuscatedJSON()
             Version = "2.0",
             Obfuscated = true,
             Checkpoints = {},
-            RecordingOrder = RecordingOrder, -- PERBAIKAN: Simpan urutan recording
-            CheckpointNames = checkpointNames -- PERBAIKAN: Simpan custom names
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -2869,8 +2692,8 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {} -- PERBAIKAN: Load urutan
-        checkpointNames = saveData.CheckpointNames or {} -- PERBAIKAN: Load custom names
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2881,7 +2704,6 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    -- PERBAIKAN: Pastikan nama ada di RecordingOrder jika tidak ada
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -2910,7 +2732,7 @@ local function LoadFromObfuscatedJSON()
     end
 end
 
--- ========= PATH VISUALIZATION FOR ALL RECORDINGS =========
+-- ========= PATH VISUALIZATION =========
 local function VisualizeAllPaths()
     ClearPathVisualization()
     
@@ -2938,7 +2760,7 @@ local function VisualizeAllPaths()
     end
 end
 
--- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
+-- ========= BUTTON EVENTS =========
 RecordBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(RecordBtnBig)
     if IsRecording then 
@@ -2948,7 +2770,6 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     end
 end)
 
--- ANIMATION GUI BUTTON
 AnimationBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(AnimationBtnBig)
     OpenAnimationGUI()
@@ -3066,34 +2887,12 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========= AUTO-LOAD ANIMATIONS SYSTEM (MANUAL ONLY AFTER FIRST USE) =========
+-- ========= ANIMATION AUTO-LOAD =========
 player.CharacterAdded:Connect(function(character)
     task.wait(2)
     
-    -- ✅ HANYA load jika user SUDAH PERNAH pilih animasi sebelumnya
     if player.Character == character and next(lastAnimations) then
         LoadSavedAnimations()
-    end
-end)
-
--- === INITIAL LOAD ON SCRIPT EXECUTION (MANUAL FIRST TIME) ===
--- Only auto-load if user has previously saved animations
-task.spawn(function()
-    if player.Character then
-        task.wait(2)
-        
-        -- ✅ Cek apakah ada saved animations
-        pcall(function()
-            if isfile and readfile and isfile("AnimHub_Saved.json") then
-                local fileContent = readfile("AnimHub_Saved.json")
-                local savedData = HttpService:JSONDecode(fileContent)
-                
-                -- ✅ HANYA load jika file ada DAN tidak kosong
-                if savedData and next(savedData) then
-                    LoadSavedAnimations()
-                end
-            end
-        end)
     end
 end)
 
@@ -3136,10 +2935,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ========= INITIAL SETUP =========
--- Initialize the record list
 UpdateRecordList()
 
--- Auto-load any saved recordings on script start
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
@@ -3148,7 +2945,6 @@ task.spawn(function()
     end
 end)
 
--- Character cleanup on removal
 player.CharacterRemoving:Connect(function()
     if IsRecording then
         StopRecording()
@@ -3158,10 +2954,6 @@ player.CharacterRemoving:Connect(function()
     end
 end)
 
--- ========= FINAL INITIALIZATION =========
-warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
-
--- Ensure proper cleanup on script termination
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
         CleanupConnections()
