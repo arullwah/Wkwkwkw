@@ -11,7 +11,7 @@ wait(1)
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.01
+local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
@@ -2225,7 +2225,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= IMPROVED UPDATE RECORD LIST WITH TOUCH SELECTION =========
+-- ========= FIXED UPDATE RECORD LIST FUNCTION =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -2352,7 +2352,15 @@ function UpdateRecordList()
         -- EVENT HANDLERS
         
         -- TOUCH SELECTION SYSTEM: Klik di mana saja pada item untuk select/deselect
-        item.MouseButton1Click:Connect(function()
+        local selectButton = Instance.new("TextButton")
+        selectButton.Size = UDim2.new(1, 0, 1, 0)
+        selectButton.Position = UDim2.new(0, 0, 0, 0)
+        selectButton.BackgroundTransparency = 1
+        selectButton.Text = ""
+        selectButton.ZIndex = 10
+        selectButton.Parent = item
+        
+        selectButton.MouseButton1Click:Connect(function()
             SelectReplay(name, item)
             UpdateRecordList()
         end)
