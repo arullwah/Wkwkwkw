@@ -2260,7 +2260,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM - NEVER AUTO OFF =========
+-- ========= AUTO LOOP SYSTEM PATEN - NEVER AUTO OFF =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2275,282 +2275,155 @@ function StartAutoLoopAll()
     
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            if not AutoLoop or not IsAutoLoopPlaying then
-                break
-            end
+            if not AutoLoop or not IsAutoLoopPlaying then break end
             
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
+                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
                 task.wait(1)
                 continue
             end
             
-            -- AUTO RESPAWN: Only at start of loop cycle
-            if CurrentLoopIndex == 1 and AutoRespawn then
-                ResetCharacter()
-                local success = WaitForRespawn()
+            -- ✅ PLAY RECORDING SAMPAI SELESAI (TANPA BREAK KECUALI USER STOP)
+            local success = false
+            local retryCount = 0
+            local maxRetries = 1000  -- Hampir infinite
+            
+            while not success and retryCount < maxRetries and AutoLoop and IsAutoLoopPlaying do
+                success = PlaySingleRecording(recordingName)
                 if not success then
-                    task.wait(2)
-                    continue
-                end
-                task.wait(1.5)
-            end
-            
-            -- WAIT FOR CHARACTER READY
-            if not IsCharacterReady() then
-                local waitAttempts = 0
-                local maxWaitAttempts = 60
-                
-                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                    waitAttempts = waitAttempts + 1
-                    
-                    if waitAttempts >= maxWaitAttempts then
-                        if AutoRespawn then
-                            ResetCharacter()
-                            WaitForRespawn()
-                            task.wait(1.5)
-                            break
-                        else
-                            waitAttempts = 0
-                        end
-                    end
-                    
-                    task.wait(0.5)
-                end
-                
-                if not AutoLoop or not IsAutoLoopPlaying then break end
-                task.wait(1.0)
-            end
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            -- PLAYBACK VARIABLES
-            local playbackCompleted = false
-            local playbackStart = tick()
-            local playbackPausedTime = 0
-            local playbackPauseStart = 0
-            local currentFrame = 1
-            local deathRetryCount = 0
-            local maxDeathRetries = 999999
-            
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            
-            SaveHumanoidState()
-            DisableJump()
-            HideJumpButton()
-            
-            if AnimationCompatibilityMode then
-                PreserveCharacterJoints()
-                task.wait(0.1)
-            end
-            
-            -- PLAYBACK LOOP WITH INFINITE RETRY
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
-                
-                -- DEATH DETECTION WITH INFINITE RETRY
-                if not IsCharacterReady() then
-                    deathRetryCount = deathRetryCount + 1
-                    
-                    if AutoRespawn then
-                        ResetCharacter()
-                        local success = WaitForRespawn()
-                        
-                        if success then
-                            RestoreFullUserControl()
-                            task.wait(1.5)
-                            
-                            -- RESET playback untuk retry recording ini
-                            currentFrame = 1
-                            playbackStart = tick()
-                            playbackPausedTime = 0
-                            playbackPauseStart = 0
-                            lastPlaybackState = nil
-                            lastStateChangeTime = 0
-                            
-                            SaveHumanoidState()
-                            DisableJump()
-                            HideJumpButton()
-                            
-                            if AnimationCompatibilityMode then
-                                PreserveCharacterJoints()
-                                task.wait(0.1)
-                            end
-                            
-                            continue
-                        else
-                            task.wait(2)
-                            continue
-                        end
-                    else
-                        -- AUTO RESPAWN OFF: Tunggu manual respawn
-                        local manualRespawnWait = 0
-                        local maxManualWait = 120
-                        
-                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                            manualRespawnWait = manualRespawnWait + 1
-                            
-                            if manualRespawnWait >= maxManualWait then
-                                manualRespawnWait = 0
-                            end
-                            
-                            task.wait(0.5)
-                        end
-                        
-                        if not AutoLoop or not IsAutoLoopPlaying then break end
-                        
-                        RestoreFullUserControl()
-                        task.wait(1.5)
-                        
-                        -- RESET playback untuk retry recording ini
-                        currentFrame = 1
-                        playbackStart = tick()
-                        playbackPausedTime = 0
-                        playbackPauseStart = 0
-                        lastPlaybackState = nil
-                        lastStateChangeTime = 0
-                        
-                        SaveHumanoidState()
-                        DisableJump()
-                        HideJumpButton()
-                        
-                        if AnimationCompatibilityMode then
-                            PreserveCharacterJoints()
-                            task.wait(0.1)
-                        end
-                        
-                        continue
-                    end
-                end
-                
-                -- PAUSE HANDLING
-                if IsPaused then
-                    if playbackPauseStart == 0 then
-                        playbackPauseStart = tick()
-                        RestoreHumanoidState()
-                        ShowJumpButton()
-                        if ShiftLockEnabled then
-                            ApplyVisibleShiftLock()
-                        end
-                        UpdatePauseMarker()
-                    end
-                    task.wait(0.1)
-                else
-                    if playbackPauseStart > 0 then
-                        playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
-                        playbackPauseStart = 0
-                        DisableJump()
-                        HideJumpButton()
-                        UpdatePauseMarker()
-                    end
-                    
-                    local char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
-                    
-                    while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                        currentFrame = currentFrame + 1
-                    end
-                    
-                    if currentFrame >= #recording then
-                        playbackCompleted = true
-                        break
-                    end
-                    
-                    local frame = recording[currentFrame]
-                    if frame then
-                        pcall(function()
-                            ApplyFrameWithCompatibility(frame, hrp, hum)
-                            
-                            if hum then
-                                local moveState = frame.MoveState
-                                local stateTime = tick()
-                                
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        local currentVelocity = hrp.AssemblyLinearVelocity
-                                        if currentVelocity.Y < -8 then
-                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                        end
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
-                            
-                            if ShiftLockEnabled then
-                                ApplyVisibleShiftLock()
-                            end
-                        end)
-                    end
-                    
-                    task.wait()
+                    retryCount = retryCount + 1
+                    task.wait(2)  -- Tunggu sebentar sebelum retry
                 end
             end
             
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            
-            -- HANYA LANJUT KE NEXT JIKA PLAYBACK COMPLETED
-            if playbackCompleted then
+            if success then
+                -- ✅ BERHASIL SELESAI -> LANJUT KE NEXT
                 PlaySound("Success")
-                
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-                
+                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
                 task.wait(0.5)
             else
-                -- Playback tidak completed - TIDAK LANJUT KE NEXT
+                -- ❌ GAGAL SETELAH BANYAK RETRY -> LANJUT KE NEXT JUGA
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
                 task.wait(1)
             end
         end
         
-        -- CLEANUP
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
-        UpdatePauseMarker()
-        lastPlaybackState = nil
-        lastStateChangeTime = 0
     end)
+end
+
+-- ✅ FUNCTION PLAY SINGLE RECORDING DENGAN RETRY INTERNAL
+function PlaySingleRecording(recordingName)
+    local recording = RecordedMovements[recordingName]
+    if not recording then return false end
+    
+    local currentFrame = 1
+    local playbackStart = tick()
+    
+    -- ✅ WAIT FOR CHARACTER READY
+    if not IsCharacterReady() then
+        if AutoRespawn then
+            ResetCharacter()
+            local success = WaitForRespawn()
+            if not success then return false end
+            task.wait(1.5)
+        else
+            -- Tunggu manual respawn
+            local waitStart = tick()
+            while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                if tick() - waitStart > 30 then return false end
+                task.wait(0.5)
+            end
+            if not IsCharacterReady() then return false end
+        end
+    end
+    
+    SaveHumanoidState()
+    DisableJump()
+    HideJumpButton()
+    
+    if AnimationCompatibilityMode then
+        PreserveCharacterJoints()
+        task.wait(0.1)
+    end
+    
+    -- ✅ SIMPLE PLAYBACK LOOP
+    while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
+        -- ✅ CEK KARAKTER HIDUP SETIAP FRAME
+        if not IsCharacterReady() then
+            return false  -- Karakter mati, return false untuk retry
+        end
+        
+        -- ✅ PAUSE HANDLING
+        if IsPaused then
+            task.wait(0.1)
+            continue
+        end
+        
+        -- ✅ APPLY FRAME
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local hrp = char.HumanoidRootPart
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local frame = recording[currentFrame]
+            
+            if frame then
+                pcall(function()
+                    ApplyFrameWithCompatibility(frame, hrp, hum)
+                    
+                    if hum then
+                        local moveState = frame.MoveState
+                        if moveState == "Climbing" then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            hum.AutoRotate = false
+                        elseif moveState == "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        elseif moveState == "Falling" then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        elseif moveState == "Swimming" then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        else
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                        end
+                    end
+                    
+                    if ShiftLockEnabled then
+                        ApplyVisibleShiftLock()
+                    end
+                end)
+            end
+        end
+        
+        -- ✅ PROGRESS FRAME
+        local currentTime = tick()
+        local effectiveTime = (currentTime - playbackStart) * CurrentSpeed
+        
+        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+            currentFrame = currentFrame + 1
+        end
+        
+        if currentFrame >= #recording then
+            RestoreFullUserControl()
+            return true  -- ✅ SELESAI
+        end
+        
+        task.wait()
+    end
+    
+    RestoreFullUserControl()
+    return false
 end
 
 function StopAutoLoopAll()
@@ -2558,8 +2431,6 @@ function StopAutoLoopAll()
     IsAutoLoopPlaying = false
     IsPlaying = false
     IsPaused = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     if loopConnection then
         task.cancel(loopConnection)
@@ -2584,8 +2455,6 @@ function StopPlayback()
     if not IsPlaying then return end
     IsPlaying = false
     IsPaused = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     RestoreFullUserControl()
     UpdatePauseMarker()
     
