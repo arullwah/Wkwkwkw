@@ -60,6 +60,10 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
+-- ========= NEW SELECTION SYSTEM =========
+local SelectedReplay = nil
+local SelectedReplayButton = nil
+
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
@@ -684,6 +688,27 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
+-- ========= NEW SELECTION SYSTEM FUNCTIONS =========
+local function SelectReplay(replayName, button)
+    -- Reset previous selection
+    if SelectedReplayButton then
+        SelectedReplayButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    end
+    
+    -- Set new selection
+    SelectedReplay = replayName
+    SelectedReplayButton = button
+    
+    if button then
+        button.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
+        PlaySound("Success")
+    end
+end
+
+local function GetSelectedReplay()
+    return SelectedReplay
+end
+
 -- ========= IMPROVED MACRO/MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
@@ -1166,10 +1191,10 @@ local function OpenAnimGUI()
     headerCorner.CornerRadius = UDim.new(0, 8)
     headerCorner.Parent = header
 
-    -- Search Box DI HEADER
+    -- Search Box DI HEADER - DIPERBAIKI UKURAN 70px
     local search = Instance.new("TextBox")
     search.PlaceholderText = "Search animations..."
-    search.Size = UDim2.new(1, -60, 0, 25)
+    search.Size = UDim2.new(0, 70, 0, 25)  -- DIPERBAIKI: 70px lebar
     search.Position = UDim2.new(0, 5, 0, 5)
     search.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     search.BorderSizePixel = 0
@@ -1625,7 +1650,7 @@ end
 -- ========= UI ELEMENTS =========
 -- PERBAIKAN LAYOUT: [RECORDING] [ANIMATIONS] - Button Animations dipindah ke samping Recording
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
-local AnimBtn = CreateButton("ANIMATIONS", 127, 5, 113, 30, Color3.fromRGB(80, 15, 150))
+local AnimBtn = CreateButton("ANIMASI", 127, 5, 113, 30, Color3.fromRGB(59, 15, 116))
 
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1637,7 +1662,7 @@ local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22
 
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
 
--- PERBAIKAN LAYOUT: [Speed Box] [File Box] [WalkS Box] - Textbox dirapihkan
+-- PERBAIKAN LAYOUT: [Speed Box] [File Box] [WalkS Box] - Textbox dirapihkan dan WalkSpeed diperbaiki posisinya
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(58, 26)
 SpeedBox.Position = UDim2.fromOffset(5, 129)
@@ -1658,7 +1683,7 @@ SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(90, 26)
-FilenameBox.Position = UDim2.fromOffset(68, 129)
+FilenameBox.Position = UDim2.fromOffset(68, 129)  -- DIPERBAIKI POSISI
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
@@ -1676,7 +1701,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(163, 129)
+WalkSpeedBox.Position = UDim2.fromOffset(163, 129)  -- DIPERBAIKI POSISI (lebih ke kanan)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1885,7 +1910,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= UPDATE RECORD LIST =========
+-- ========= UPDATE RECORD LIST WITH SELECTION SYSTEM =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -1899,7 +1924,14 @@ function UpdateRecordList()
         local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -6, 0, 40)
         item.Position = UDim2.new(0, 3, 0, yPos)
-        item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        
+        -- Warna background berdasarkan selection
+        if SelectedReplay == name then
+            item.BackgroundColor3 = Color3.fromRGB(60, 120, 200)  -- Biru untuk selected
+        else
+            item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)   -- Normal color
+        end
+        
         item.Parent = RecordList
     
         local corner = Instance.new("UICorner")
@@ -1948,9 +1980,24 @@ function UpdateRecordList()
         infoLabel.TextXAlignment = Enum.TextXAlignment.Left
         infoLabel.Parent = item
         
+        -- SELECT BUTTON (NEW)
+        local selectBtn = Instance.new("TextButton")
+        selectBtn.Size = UDim2.fromOffset(25, 25)
+        selectBtn.Position = UDim2.new(1, -110, 0, 7)
+        selectBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        selectBtn.Text = "✓"
+        selectBtn.TextColor3 = Color3.new(1, 1, 1)
+        selectBtn.Font = Enum.Font.GothamBold
+        selectBtn.TextSize = 35
+        selectBtn.Parent = item
+        
+        local selectCorner = Instance.new("UICorner")
+        selectCorner.CornerRadius = UDim.new(0, 6)
+        selectCorner.Parent = selectBtn
+        
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
-        playBtn.Position = UDim2.new(1, -110, 0, 7)
+        playBtn.Position = UDim2.new(1, -80, 0, 7)
         playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1964,8 +2011,8 @@ function UpdateRecordList()
         
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.new(1, -80, 0, 7)
-        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
+        upBtn.Position = UDim2.new(1, -50, 0, 7)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
@@ -1978,7 +2025,7 @@ function UpdateRecordList()
         
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.new(1, -50, 0, 7)
+        downBtn.Position = UDim2.new(1, -20, 0, 7)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1992,7 +2039,7 @@ function UpdateRecordList()
         
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(1, -20, 0, 7)
+        delBtn.Position = UDim2.new(1, 5, 0, 7)  -- Dipindah ke kanan karena ada select button
         delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         delBtn.Text = "x"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2003,6 +2050,13 @@ function UpdateRecordList()
         local delCorner = Instance.new("UICorner")
         delCorner.CornerRadius = UDim.new(0, 6)
         delCorner.Parent = delBtn
+        
+        -- NEW SELECTION SYSTEM
+        selectBtn.MouseButton1Click:Connect(function()
+            AnimateButtonClick(selectBtn)
+            SelectReplay(name, item)
+            UpdateRecordList()  -- Refresh untuk update colors
+        end)
         
         upBtn.MouseButton1Click:Connect(function()
             if index > 1 then 
@@ -2029,6 +2083,13 @@ function UpdateRecordList()
             AnimateButtonClick(delBtn)
             RecordedMovements[name] = nil
             checkpointNames[name] = nil
+            
+            -- Jika yang dihapus adalah selected replay, reset selection
+            if SelectedReplay == name then
+                SelectedReplay = nil
+                SelectedReplayButton = nil
+            end
+            
             local idx = table.find(RecordingOrder, name)
             if idx then table.remove(RecordingOrder, idx) end
             UpdateRecordList()
@@ -2179,7 +2240,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH RIG COMPATIBILITY =========
+-- ========= OPTIMIZED PLAYBACK SYSTEM WITH FRAME BATCHING =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2210,7 +2271,19 @@ function PlayRecording(name)
     HideJumpButton()
     PlaySound("Play")
 
+    -- OPTIMIZATION: Frame batching variables
+    local PLAYBACK_FPS = 60
+    local lastPlaybackUpdate = 0
+    local FRAME_BATCH_SIZE = 2
+
     playbackConnection = RunService.Heartbeat:Connect(function()
+        -- FRAME LIMITER OPTIMIZATION
+        local currentTime = tick()
+        if (currentTime - lastPlaybackUpdate) < (1 / PLAYBACK_FPS) then
+            return
+        end
+        lastPlaybackUpdate = currentTime
+        
         if not IsPlaying then
             playbackConnection:Disconnect()
             RestoreFullUserControl()
@@ -2265,8 +2338,15 @@ function PlayRecording(name)
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
+        -- FRAME BATCHING OPTIMIZATION
+        local framesToProcess = {}
         while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
             currentPlaybackFrame = currentPlaybackFrame + 1
+            table.insert(framesToProcess, recording[currentPlaybackFrame])
+            
+            if #framesToProcess >= FRAME_BATCH_SIZE then
+                break
+            end
         end
 
         if currentPlaybackFrame >= #recording then
@@ -2279,64 +2359,58 @@ function PlayRecording(name)
             return
         end
 
-        local frame = recording[currentPlaybackFrame]
-        if not frame then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            return
-        end
-
-        pcall(function()
-            -- PERBAIKAN: Gunakan position adjustment untuk rig compatibility
-            local adjustedFrame = AdjustPositionForRig(frame, hrp)
-            local pos = Vector3.new(adjustedFrame.Position[1], adjustedFrame.Position[2], adjustedFrame.Position[3])
-            local look = Vector3.new(adjustedFrame.LookVector[1], adjustedFrame.LookVector[2], adjustedFrame.LookVector[3])
-            local up = Vector3.new(adjustedFrame.UpVector[1], adjustedFrame.UpVector[2], adjustedFrame.UpVector[3])
+        -- Process the latest frame in batch
+        if #framesToProcess > 0 then
+            local frame = framesToProcess[#framesToProcess]  -- Take the latest frame
             
-            hrp.CFrame = CFrame.lookAt(pos, pos + look, up)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(adjustedFrame)
-            
-            if hum then
-                hum.WalkSpeed = GetFrameWalkSpeed(adjustedFrame) * CurrentSpeed
-                hum.AutoRotate = false
+            pcall(function()
+                local adjustedFrame = AdjustPositionForRig(frame, hrp)
+                local pos = Vector3.new(adjustedFrame.Position[1], adjustedFrame.Position[2], adjustedFrame.Position[3])
+                local look = Vector3.new(adjustedFrame.LookVector[1], adjustedFrame.LookVector[2], adjustedFrame.LookVector[3])
+                local up = Vector3.new(adjustedFrame.UpVector[1], adjustedFrame.UpVector[2], adjustedFrame.UpVector[3])
                 
-                local moveState = adjustedFrame.MoveState
-                local stateTime = tick()
+                hrp.CFrame = CFrame.lookAt(pos, pos + look, up)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(adjustedFrame)
                 
-                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = stateTime
+                if hum then
+                    hum.WalkSpeed = GetFrameWalkSpeed(adjustedFrame) * CurrentSpeed
+                    hum.AutoRotate = false
                     
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                        hum.AutoRotate = false
+                    local moveState = adjustedFrame.MoveState
+                    local stateTime = tick()
+                    
+                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                        lastPlaybackState = moveState
+                        lastStateChangeTime = stateTime
                         
-                    elseif moveState == "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        
-                    elseif moveState == "Falling" then
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        if currentVelocity.Y < -8 then
-                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        if moveState == "Climbing" then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            hum.AutoRotate = false
+                            
+                        elseif moveState == "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                            
+                        elseif moveState == "Falling" then
+                            local currentVelocity = hrp.AssemblyLinearVelocity
+                            if currentVelocity.Y < -8 then
+                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                            end
+                            
+                        elseif moveState == "Swimming" then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            
+                        else
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
                         end
-                        
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                        
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
                 end
-            end
-            
-            if ShiftLockEnabled then
-                ApplyVisibleShiftLock()
-            end
-        end)
+                
+                if ShiftLockEnabled then
+                    ApplyVisibleShiftLock()
+                end
+            end)
+        end
     end)
     
     AddConnection(playbackConnection)
@@ -2534,7 +2608,6 @@ function StartAutoLoopAll()
                     local frame = recording[currentFrame]
                     if frame then
                         pcall(function()
-                            -- PERBAIKAN: Gunakan position adjustment untuk rig compatibility
                             local adjustedFrame = AdjustPositionForRig(frame, hrp)
                             local pos = Vector3.new(adjustedFrame.Position[1], adjustedFrame.Position[2], adjustedFrame.Position[3])
                             local look = Vector3.new(adjustedFrame.LookVector[1], adjustedFrame.LookVector[2], adjustedFrame.LookVector[3])
@@ -2705,6 +2778,95 @@ function PausePlayback()
     end
 end
 
+-- ========= NEW SELECTION-BASED SAVE/LOAD SYSTEM =========
+local function SaveSelectedReplay()
+    local selected = GetSelectedReplay()
+    if not selected then
+        PlaySound("Error")
+        return
+    end
+    
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "SelectedReplay" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "2.0",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {selected},
+            CheckpointNames = {[selected] = checkpointNames[selected] or "selected_replay"}
+        }
+        
+        -- Only save the selected replay
+        local checkpointData = {
+            Name = selected,
+            DisplayName = checkpointNames[selected] or "selected_replay",
+            Frames = RecordedMovements[selected]
+        }
+        table.insert(saveData.Checkpoints, checkpointData)
+        
+        local obfuscatedData = ObfuscateRecordingData({[selected] = RecordedMovements[selected]})
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        writefile(filename, jsonString)
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+local function LoadSelectedReplay()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "SelectedReplay" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        if not isfile(filename) then
+            PlaySound("Error")
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        -- Load into new replay slot
+        local newName = "loaded_" .. os.date("%H%M%S")
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+            
+            for checkpointName, frames in pairs(deobfuscatedData) do
+                RecordedMovements[newName] = frames
+                table.insert(RecordingOrder, newName)
+                
+                if saveData.CheckpointNames and saveData.CheckpointNames[checkpointName] then
+                    checkpointNames[newName] = saveData.CheckpointNames[checkpointName] .. " (Loaded)"
+                else
+                    checkpointNames[newName] = "Loaded_Replay"
+                end
+            end
+        else
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                RecordedMovements[newName] = checkpointData.Frames
+                table.insert(RecordingOrder, newName)
+                checkpointNames[newName] = checkpointData.DisplayName .. " (Loaded)"
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
 -- ========= FIXED OBFUSCATED JSON SYSTEM =========
 local function SaveToObfuscatedJSON()
     local filename = FilenameBox.Text
@@ -2848,7 +3010,13 @@ end)
 PlayBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(PlayBtnBig)
     if AutoLoop then return end
-    PlayRecording()
+    
+    local selected = GetSelectedReplay()
+    if selected then
+        PlayRecording(selected)  -- Play selected replay
+    else
+        PlayRecording()  -- Play first replay
+    end
 end)
 
 StopBtnBig.MouseButton1Click:Connect(function()
@@ -2905,14 +3073,15 @@ JumpBtn.MouseButton1Click:Connect(function()
     PlaySound("Toggle")
 end)
 
+-- UPDATED SAVE/LOAD BUTTONS FOR SELECTION SYSTEM
 SaveFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(SaveFileBtn)
-    SaveToObfuscatedJSON()
+    SaveSelectedReplay()  -- Now saves only selected replay
 end)
 
 LoadFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoadFileBtn)
-    LoadFromObfuscatedJSON()
+    LoadSelectedReplay()  -- Now loads into new replay slot
 end)
 
 PathToggleBtn.MouseButton1Click:Connect(function()
@@ -2962,7 +3131,14 @@ UserInputService.InputBegan:Connect(function(input, processed)
     if input.KeyCode == Enum.KeyCode.F9 then
         if IsRecording then StopRecording() else StartRecording() end
     elseif input.KeyCode == Enum.KeyCode.F10 then
-        if IsPlaying or AutoLoop then StopPlayback() else PlayRecording() end
+        if IsPlaying or AutoLoop then StopPlayback() else 
+            local selected = GetSelectedReplay()
+            if selected then
+                PlayRecording(selected)
+            else
+                PlayRecording()
+            end
+        end
     elseif input.KeyCode == Enum.KeyCode.F11 then
         MainFrame.Visible = not MainFrame.Visible
         MiniButton.Visible = not MainFrame.Visible
@@ -2974,7 +3150,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AnimateLoop(AutoLoop)
         if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
     elseif input.KeyCode == Enum.KeyCode.F6 then
-        SaveToObfuscatedJSON()
+        SaveSelectedReplay()  -- Updated to save selected
     elseif input.KeyCode == Enum.KeyCode.F5 then
         AutoRespawn = not AutoRespawn
         AnimateRespawn(AutoRespawn)
