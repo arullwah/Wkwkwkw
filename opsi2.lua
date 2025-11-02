@@ -9,9 +9,9 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 65
+local RECORDING_FPS = 55
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.1
+local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
@@ -690,18 +690,28 @@ end
 
 -- ========= NEW SELECTION SYSTEM FUNCTIONS =========
 local function SelectReplay(replayName, button)
-    -- Reset previous selection
-    if SelectedReplayButton then
-        SelectedReplayButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    end
-    
-    -- Set new selection
-    SelectedReplay = replayName
-    SelectedReplayButton = button
-    
-    if button then
-        button.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-        PlaySound("Success")
+    -- Jika klik replay yang sama, batalkan selection
+    if SelectedReplay == replayName then
+        SelectedReplay = nil
+        SelectedReplayButton = nil
+        if button then
+            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        end
+        PlaySound("Toggle")
+    else
+        -- Reset previous selection
+        if SelectedReplayButton then
+            SelectedReplayButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        end
+        
+        -- Set new selection
+        SelectedReplay = replayName
+        SelectedReplayButton = button
+        
+        if button then
+            button.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
+            PlaySound("Success")
+        end
     end
 end
 
@@ -1650,7 +1660,7 @@ end
 -- ========= UI ELEMENTS =========
 -- PERBAIKAN LAYOUT: [RECORDING] [ANIMATIONS] - Button Animations dipindah ke samping Recording
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
-local AnimBtn = CreateButton("ANIMASI", 127, 5, 113, 30, Color3.fromRGB(59, 15, 116))
+local AnimBtn = CreateButton("ANIMATIONS", 127, 5, 113, 30, Color3.fromRGB(80, 15, 150))
 
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1701,7 +1711,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(163, 129)  -- DIPERBAIKI POSISI (lebih ke kanan)
+WalkSpeedBox.Position = UDim2.fromOffset(163, 129)  -- DIPERBAIKI POSISI (sejajar dengan ujung Load File)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1910,7 +1920,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= UPDATE RECORD LIST WITH SELECTION SYSTEM =========
+-- ========= UPDATE RECORD LIST WITH NEW LAYOUT =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -1938,17 +1948,71 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
+        -- CLICK TO SELECT SYSTEM - User bisa klik area mana saja untuk select
+        item.MouseButton1Click:Connect(function()
+            SelectReplay(name, item)
+            UpdateRecordList()
+        end)
+        
+        -- Info Label (Duration & Frames) - POSISI KIRI
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(0, 70, 1, 0)
+        infoLabel.Position = UDim2.new(0, 5, 0, 0)
+        infoLabel.BackgroundTransparency = 1
+        if #rec > 0 then
+            local totalSeconds = rec[#rec].Timestamp
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. "f"
+        else
+            infoLabel.Text = "0:00 • 0f"
+        end
+        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 8
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
+        
+        -- Play Button - POSISI: Setelah info label
+        local playBtn = Instance.new("TextButton")
+        playBtn.Size = UDim2.fromOffset(25, 25)
+        playBtn.Position = UDim2.new(0, 75, 0.5, -12)
+        playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        playBtn.Text = "▶"
+        playBtn.TextColor3 = Color3.new(1, 1, 1)
+        playBtn.Font = Enum.Font.GothamBold
+        playBtn.TextSize = 35
+        playBtn.Parent = item
+        
+        local playCorner = Instance.new("UICorner")
+        playCorner.CornerRadius = UDim.new(0, 6)
+        playCorner.Parent = playBtn
+        
+        -- Delete Button - POSISI: Setelah play button
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(25, 25)
+        delBtn.Position = UDim2.new(0, 105, 0.5, -12)
+        delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        delBtn.Text = "x"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 30
+        delBtn.Parent = item
+        
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 6)
+        delCorner.Parent = delBtn
+        
+        -- Name TextBox - POSISI TENGAH (setelah delete button)
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(1, -130, 0, 18)
-        nameBox.Position = UDim2.new(0, 8, 0, 4)
+        nameBox.Size = UDim2.new(0, 70, 0, 20)
+        nameBox.Position = UDim2.new(0, 135, 0.5, -10)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
         nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
-        nameBox.TextSize = 10
-        nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.PlaceholderText = "Enter name..."
+        nameBox.TextSize = 9
+        nameBox.TextXAlignment = Enum.TextXAlignment.Center
+        nameBox.PlaceholderText = "Name..."
         nameBox.ClearTextOnFocus = false
         nameBox.Parent = item
         
@@ -1964,55 +2028,11 @@ function UpdateRecordList()
             end
         end)
         
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(1, -130, 0, 16)
-        infoLabel.Position = UDim2.new(0, 8, 0, 22)
-        infoLabel.BackgroundTransparency = 1
-        if #rec > 0 then
-            local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
-        else
-            infoLabel.Text = "0:00 • 0 frames"
-        end
-        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        infoLabel.Font = Enum.Font.GothamBold
-        infoLabel.TextSize = 8
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-        infoLabel.Parent = item
-        
-        -- SELECT BUTTON (NEW)
-        local selectBtn = Instance.new("TextButton")
-        selectBtn.Size = UDim2.fromOffset(25, 25)
-        selectBtn.Position = UDim2.new(1, -110, 0, 7)
-        selectBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        selectBtn.Text = "✓"
-        selectBtn.TextColor3 = Color3.new(1, 1, 1)
-        selectBtn.Font = Enum.Font.GothamBold
-        selectBtn.TextSize = 35
-        selectBtn.Parent = item
-        
-        local selectCorner = Instance.new("UICorner")
-        selectCorner.CornerRadius = UDim.new(0, 6)
-        selectCorner.Parent = selectBtn
-        
-        local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.fromOffset(25, 25)
-        playBtn.Position = UDim2.new(1, -80, 0, 7)
-        playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        playBtn.Text = "▶"
-        playBtn.TextColor3 = Color3.new(1, 1, 1)
-        playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 35
-        playBtn.Parent = item
-        
-        local playCorner = Instance.new("UICorner")
-        playCorner.CornerRadius = UDim.new(0, 6)
-        playCorner.Parent = playBtn
-        
+        -- Up Button - POSISI: Setelah name box
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.new(1, -50, 0, 7)
-        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(59, 15, 116) or Color3.fromRGB(30, 30, 30)
+        upBtn.Position = UDim2.new(0, 210, 0.5, -12)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
@@ -2023,9 +2043,10 @@ function UpdateRecordList()
         upCorner.CornerRadius = UDim.new(0, 6)
         upCorner.Parent = upBtn
         
+        -- Down Button - POSISI: Setelah up button  
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.new(1, -20, 0, 7)
+        downBtn.Position = UDim2.new(0, 240, 0.5, -12)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2037,27 +2058,7 @@ function UpdateRecordList()
         downCorner.CornerRadius = UDim.new(0, 6)
         downCorner.Parent = downBtn
         
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(1, 5, 0, 7)  -- Dipindah ke kanan karena ada select button
-        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        delBtn.Text = "x"
-        delBtn.TextColor3 = Color3.new(1, 1, 1)
-        delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 30
-        delBtn.Parent = item
-        
-        local delCorner = Instance.new("UICorner")
-        delCorner.CornerRadius = UDim.new(0, 6)
-        delCorner.Parent = delBtn
-        
-        -- NEW SELECTION SYSTEM
-        selectBtn.MouseButton1Click:Connect(function()
-            AnimateButtonClick(selectBtn)
-            SelectReplay(name, item)
-            UpdateRecordList()  -- Refresh untuk update colors
-        end)
-        
+        -- Button events
         upBtn.MouseButton1Click:Connect(function()
             if index > 1 then 
                 AnimateButtonClick(upBtn)
@@ -2416,7 +2417,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= PERFECTED AUTO LOOP SYSTEM =========
+-- ========= IMPROVED AUTO LOOP SYSTEM WITH SELECTION SUPPORT =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2429,7 +2430,18 @@ function StartAutoLoopAll()
     
     PlaySound("Play")
     
-    CurrentLoopIndex = 1
+    -- JIKA ADA REPLAY YANG DIPILIH, MULAI DARI REPLAY TERSEBUT
+    if SelectedReplay then
+        local selectedIndex = table.find(RecordingOrder, SelectedReplay)
+        if selectedIndex then
+            CurrentLoopIndex = selectedIndex
+        else
+            CurrentLoopIndex = 1
+        end
+    else
+        CurrentLoopIndex = 1  -- JIKA TIDAK ADA YANG DIPILIH, MULAI DARI AWAL
+    end
+    
     IsAutoLoopPlaying = true
     lastPlaybackState = nil
     lastStateChangeTime = 0
@@ -2446,7 +2458,7 @@ function StartAutoLoopAll()
             if not recording or #recording == 0 then
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
+                    CurrentLoopIndex = 1  -- KEMBALI KE REPLAY 1 SETELAH SELESAI
                 end
                 task.wait(1)
                 continue
@@ -2664,9 +2676,10 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
+                -- LANJUT KE REPLAY BERIKUTNYA, SETELAH SELESAI KEMBALI KE REPLAY 1
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
+                    CurrentLoopIndex = 1  -- KEMBALI KE REPLAY 1 SETELAH SELESAI SEMUA
                 end
                 
                 task.wait(0.5)
@@ -2778,7 +2791,7 @@ function PausePlayback()
     end
 end
 
--- ========= NEW SELECTION-BASED SAVE/LOAD SYSTEM =========
+-- ========= SELECTION-BASED SAVE SYSTEM =========
 local function SaveSelectedReplay()
     local selected = GetSelectedReplay()
     if not selected then
