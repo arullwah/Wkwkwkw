@@ -1156,7 +1156,7 @@ local function OpenAnimGUI()
 
     -- HEADER
     local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 30)
+    header.Size = UDim2.new(1, 0, 0, 35)
     header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
     header.BorderSizePixel = 0
     header.ZIndex = 2
@@ -1166,24 +1166,35 @@ local function OpenAnimGUI()
     headerCorner.CornerRadius = UDim.new(0, 8)
     headerCorner.Parent = header
 
-    -- Title
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(0, 120, 1, 0)
-    title.Position = UDim2.new(0, 10, 0, 0)
-    title.BackgroundTransparency = 1
-    title.Text = "ANIMATIONS"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 12
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.ZIndex = 3
-    title.Parent = header
+    -- Search Box DI HEADER
+    local search = Instance.new("TextBox")
+    search.PlaceholderText = "Search animations..."
+    search.Size = UDim2.new(1, -60, 0, 25)
+    search.Position = UDim2.new(0, 5, 0, 5)
+    search.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    search.BorderSizePixel = 0
+    search.TextColor3 = Color3.fromRGB(255, 255, 255)
+    search.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 10
+    search.ClearTextOnFocus = false
+    search.TextXAlignment = Enum.TextXAlignment.Left
+    search.ZIndex = 3
+    search.Parent = header
+
+    local searchCorner = Instance.new("UICorner")
+    searchCorner.CornerRadius = UDim.new(0, 6)
+    searchCorner.Parent = search
+
+    local searchPadding = Instance.new("UIPadding")
+    searchPadding.PaddingLeft = UDim.new(0, 8)
+    searchPadding.Parent = search
 
     -- Close Button
     local close = Instance.new("TextButton")
     close.Text = "X"
     close.Size = UDim2.new(0, 25, 0, 25)
-    close.Position = UDim2.new(1, -30, 0.5, -12.5)
+    close.Position = UDim2.new(1, -30, 0, 5)
     close.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
     close.TextColor3 = Color3.new(1, 1, 1)
     close.Font = Enum.Font.GothamBold
@@ -1200,34 +1211,10 @@ local function OpenAnimGUI()
         animGuiOpen = false
     end)
 
-    -- Search Box
-    local search = Instance.new("TextBox")
-    search.PlaceholderText = "Search animations..."
-    search.Size = UDim2.new(1, -20, 0, 25)
-    search.Position = UDim2.new(0, 10, 0, 35)
-    search.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    search.BorderSizePixel = 0
-    search.TextColor3 = Color3.fromRGB(255, 255, 255)
-    search.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-    search.Font = Enum.Font.Gotham
-    search.TextSize = 10
-    search.ClearTextOnFocus = false
-    search.TextXAlignment = Enum.TextXAlignment.Left
-    search.ZIndex = 2
-    search.Parent = main
-
-    local searchCorner = Instance.new("UICorner")
-    searchCorner.CornerRadius = UDim.new(0, 6)
-    searchCorner.Parent = search
-
-    local searchPadding = Instance.new("UIPadding")
-    searchPadding.PaddingLeft = UDim.new(0, 8)
-    searchPadding.Parent = search
-
     -- SCROLLABLE LIST
     local scroll = Instance.new("ScrollingFrame")
-    scroll.Size = UDim2.new(1, -10, 1, -75)
-    scroll.Position = UDim2.new(0, 5, 0, 65)
+    scroll.Size = UDim2.new(1, -10, 1, -45)
+    scroll.Position = UDim2.new(0, 5, 0, 40)
     scroll.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
     scroll.BorderSizePixel = 0
     scroll.ScrollBarThickness = 6
@@ -1321,45 +1308,84 @@ local function OpenAnimGUI()
         yPos = yPos + 28
     end
 
-    -- Populate buttons from database
-    for name, ids in pairs(Animations.Idle) do
-        addButton(name, "Idle", ids)
-    end
-    for name, id in pairs(Animations.Walk) do
-        addButton(name, "Walk", id)
-    end
-    for name, id in pairs(Animations.Run) do
-        addButton(name, "Run", id)
-    end
-    for name, id in pairs(Animations.Jump) do
-        addButton(name, "Jump", id)
-    end
-    for name, id in pairs(Animations.Fall) do
-        addButton(name, "Fall", id)
-    end
-    for name, id in pairs(Animations.SwimIdle) do
-        addButton(name, "SwimIdle", id)
-    end
-    for name, id in pairs(Animations.Swim) do
-        addButton(name, "Swim", id)
-    end
-    for name, id in pairs(Animations.Climb) do
-        addButton(name, "Climb", id)
+    -- PERBAIKAN: Pastikan semua animasi terisi dengan benar
+    local function PopulateAnimations()
+        -- Clear existing buttons
+        for _, btn in ipairs(buttons) do
+            btn:Destroy()
+        end
+        buttons = {}
+        yPos = 0
+        
+        -- Populate buttons from database dengan error handling
+        if Animations.Idle then
+            for name, ids in pairs(Animations.Idle) do
+                if name and ids then
+                    addButton(name, "Idle", ids)
+                end
+            end
+        end
+        
+        if Animations.Walk then
+            for name, id in pairs(Animations.Walk) do
+                if name and id then
+                    addButton(name, "Walk", id)
+                end
+            end
+        end
+        
+        if Animations.Run then
+            for name, id in pairs(Animations.Run) do
+                if name and id then
+                    addButton(name, "Run", id)
+                end
+            end
+        end
+        
+        if Animations.Jump then
+            for name, id in pairs(Animations.Jump) do
+                if name and id then
+                    addButton(name, "Jump", id)
+                end
+            end
+        end
+        
+        if Animations.Fall then
+            for name, id in pairs(Animations.Fall) do
+                if name and id then
+                    addButton(name, "Fall", id)
+                end
+            end
+        end
+        
+        if Animations.Climb then
+            for name, id in pairs(Animations.Climb) do
+                if name and id then
+                    addButton(name, "Climb", id)
+                end
+            end
+        end
+        
+        scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
     end
 
-    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    -- Panggil fungsi populate
+    PopulateAnimations()
 
-    -- Search Filter
+    -- Search Filter dengan error handling
     search:GetPropertyChangedSignal("Text"):Connect(function()
         local query = search.Text:lower()
         local pos = 0
+        
         for _, btn in ipairs(buttons) do
-            if query == "" or btn.Text:lower():find(query, 1, true) then
-                btn.Visible = true
-                btn.Position = UDim2.new(0, 5, 0, pos)
-                pos = pos + 28
-            else
-                btn.Visible = false
+            if btn and btn.Text then
+                if query == "" or btn.Text:lower():find(query, 1, true) then
+                    btn.Visible = true
+                    btn.Position = UDim2.new(0, 5, 0, pos)
+                    pos = pos + 28
+                else
+                    btn.Visible = false
+                end
             end
         end
         scroll.CanvasSize = UDim2.new(0, 0, 0, pos)
