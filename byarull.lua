@@ -2260,11 +2260,9 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= AUTO LOOP SYSTEM FIXED - WITH AUTO RESET & RESPAWN =========
+-- ========= AUTO LOOP SYSTEM FIXED - WITH AUTO -- ========= SUPER SIMPLE AUTO LOOP - NEVER DIE =========
 function StartAutoLoopAll()
-    if not AutoLoop then 
-        return 
-    end
+    if not AutoLoop then return end
     
     if #RecordingOrder == 0 then
         AutoLoop = false
@@ -2279,67 +2277,84 @@ function StartAutoLoopAll()
     IsAutoLoopPlaying = true
     
     loopConnection = task.spawn(function()
-        while AutoLoop and IsAutoLoopPlaying do
+        while AutoLoop do  -- ⬅️ HANYA CEK AutoLoop, TIDAK ADA IsAutoLoopPlaying
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then 
-                    CurrentLoopIndex = 1
-                end
+                CurrentLoopIndex = CurrentLoopIndex % #RecordingOrder + 1
                 task.wait(1)
                 continue
             end
             
-            -- ✅ PLAY RECORDING SAMPAI BERHASIL
-            local success = false
-            local retryCount = 0
-            local maxRetries = 100
+            -- ✅ SIMPLE PLAYBACK - TANPA RETRY COMPLEX
+            local currentFrame = 1
+            local playbackStart = tick()
+            local completed = false
             
-            while not success and retryCount < maxRetries and AutoLoop and IsAutoLoopPlaying do
-                success = PlaySingleRecording(recordingName)
-                
-                if not success then
-                    retryCount = retryCount + 1
-                    task.wait(2)
-                end
-            end
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            if success then
-                PlaySound("Success")
-                
-                -- ✅ CEK APAKAH INI RECORDING TERAKHIR
-                if CurrentLoopIndex >= #RecordingOrder then
-                    -- ✅ INI RECORDING TERAKHIR - RESET & RESPAWN UNTUK LOOP BARU
+            while AutoLoop and currentFrame <= #recording do
+                -- ✅ JIKA KARAKTER MATI - RESTART SAJA
+                if not IsCharacterReady() then
                     if AutoRespawn then
                         ResetCharacter()
-                        local respawnSuccess = WaitForRespawn()
-                        if respawnSuccess then
-                            task.wait(1.5)
+                        WaitForRespawn()
+                        task.wait(2)
+                    else
+                        while not IsCharacterReady() and AutoLoop do
+                            task.wait(0.5)
                         end
                     end
-                    CurrentLoopIndex = 1  -- KEMBALI KE AWAL
-                else
-                    -- ✅ MASIH ADA RECORDING SELANJUTNYA
-                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    currentFrame = 1
+                    playbackStart = tick()
                 end
                 
-                task.wait(0.5)
-            else
-                -- ❌ GAGAL SETELAH BANYAK RETRY - LANJUT KE NEXT
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then 
-                    CurrentLoopIndex = 1
+                -- ✅ PLAYBACK NORMAL
+                local char = player.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    local hrp = char.HumanoidRootPart
+                    local frame = recording[currentFrame]
+                    
+                    if frame then
+                        pcall(function()
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                        end)
+                    end
                 end
-                task.wait(1)
+                
+                -- ✅ PROGRESS FRAME
+                local currentTime = tick()
+                local effectiveTime = (currentTime - playbackStart) * CurrentSpeed
+                
+                while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                    currentFrame = currentFrame + 1
+                end
+                
+                if currentFrame >= #recording then
+                    completed = true
+                    break
+                end
+                
+                task.wait()
             end
+            
+            if completed then
+                PlaySound("Success")
+            end
+            
+            -- ✅ SELALU LANJUT KE NEXT RECORDING
+            CurrentLoopIndex = CurrentLoopIndex % #RecordingOrder + 1
+            
+            -- ✅ JIKA INI RECORDING TERAKHIR & AUTO RESPAWN NYALA
+            if CurrentLoopIndex == 1 and AutoRespawn then
+                ResetCharacter()
+                WaitForRespawn()
+                task.wait(1.5)
+            end
+            
+            task.wait(0.5)
         end
         
-        IsAutoLoopPlaying = false
-        IsPaused = false
         RestoreFullUserControl()
     end)
 end
@@ -2452,10 +2467,7 @@ function PlaySingleRecording(recordingName)
 end
 
 function StopAutoLoopAll()
-    AutoLoop = false
-    IsAutoLoopPlaying = false
-    IsPlaying = false
-    IsPaused = false
+    AutoLoop = false  -- ⬅️ INI SATU-SATUNYA CARA MATIIN AUTO LOOP
     
     if loopConnection then
         task.cancel(loopConnection)
@@ -2463,7 +2475,6 @@ function StopAutoLoopAll()
     end
     
     RestoreFullUserControl()
-    UpdatePauseMarker()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -2964,7 +2975,7 @@ player.CharacterRemoving:Connect(function()
     end
 end)
 
-warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
+warn("AutoWalk ByaruL System Loaded Successfully!")
 
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
