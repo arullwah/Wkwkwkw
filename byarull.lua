@@ -2260,7 +2260,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM - NEVER AUTO OFF =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2296,7 +2296,7 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- ✅ AUTO RESPAWN: Only at start of loop cycle
+            -- AUTO RESPAWN: Only at start of loop cycle
             if CurrentLoopIndex == 1 and AutoRespawn then
                 ResetCharacter()
                 local success = WaitForRespawn()
@@ -2307,38 +2307,42 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
--- ✅ FIX: JANGAN BREAK, TAPI RETRY
-if not IsCharacterReady() then
-    if AutoRespawn then
-        ResetCharacter()
-        local success = WaitForRespawn()
-        if success then
-            task.wait(1.5)
-            currentFrame = 1  -- RESTART DARI AWAL
-            playbackStart = tick()
-            continue  -- LANJUTKAN RECORDING YANG SAMA
-        end
-    else
-        -- Tunggu manual respawn
-        local waitStart = tick()
-        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-            if tick() - waitStart > 30 then break end
-            task.wait(0.5)
-        end
-        if IsCharacterReady() then
-            currentFrame = 1  -- RESTART DARI AWAL
-            playbackStart = tick()
-            continue
-        end
-    end
-end
+            -- WAIT FOR CHARACTER READY
+            if not IsCharacterReady() then
+                local waitAttempts = 0
+                local maxWaitAttempts = 60
+                
+                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                    waitAttempts = waitAttempts + 1
+                    
+                    if waitAttempts >= maxWaitAttempts then
+                        if AutoRespawn then
+                            ResetCharacter()
+                            WaitForRespawn()
+                            task.wait(1.5)
+                            break
+                        else
+                            waitAttempts = 0
+                        end
+                    end
+                    
+                    task.wait(0.5)
+                end
+                
+                if not AutoLoop or not IsAutoLoopPlaying then break end
+                task.wait(1.0)
+            end
             
-            -- ✅ PLAYBACK VARIABLES
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            -- PLAYBACK VARIABLES
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
             local playbackPauseStart = 0
             local currentFrame = 1
+            local deathRetryCount = 0
+            local maxDeathRetries = 999999
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2352,12 +2356,13 @@ end
                 task.wait(0.1)
             end
             
-            -- ✅ PLAYBACK LOOP DENGAN RETRY SYSTEM
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
+            -- PLAYBACK LOOP WITH INFINITE RETRY
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
-                -- ✅ DEATH DETECTION DENGAN RETRY SAME RECORDING
+                -- DEATH DETECTION WITH INFINITE RETRY
                 if not IsCharacterReady() then
-                    -- ❗ KARAKTER MATI - RESTART RECORDING YANG SAMA
+                    deathRetryCount = deathRetryCount + 1
+                    
                     if AutoRespawn then
                         ResetCharacter()
                         local success = WaitForRespawn()
@@ -2366,7 +2371,7 @@ end
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            -- ✅ RESET PLAYBACK UNTUK RETRY RECORDING INI
+                            -- RESET playback untuk retry recording ini
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2383,13 +2388,13 @@ end
                                 task.wait(0.1)
                             end
                             
-                            continue  -- ⬅️ RETRY RECORDING YANG SAMA
+                            continue
                         else
                             task.wait(2)
                             continue
                         end
                     else
-                        -- ✅ AUTO RESPAWN OFF: TUNGGU MANUAL RESPAWN
+                        -- AUTO RESPAWN OFF: Tunggu manual respawn
                         local manualRespawnWait = 0
                         local maxManualWait = 120
                         
@@ -2408,7 +2413,7 @@ end
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        -- ✅ RESET PLAYBACK UNTUK RETRY RECORDING INI
+                        -- RESET playback untuk retry recording ini
                         currentFrame = 1
                         playbackStart = tick()
                         playbackPausedTime = 0
@@ -2425,11 +2430,11 @@ end
                             task.wait(0.1)
                         end
                         
-                        continue  -- ⬅️ RETRY RECORDING YANG SAMA
+                        continue
                     end
                 end
                 
-                -- ✅ PAUSE HANDLING
+                -- PAUSE HANDLING
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2522,7 +2527,7 @@ end
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
-            -- ✅ HANYA LANJUT KE NEXT JIKA PLAYBACK COMPLETED
+            -- HANYA LANJUT KE NEXT JIKA PLAYBACK COMPLETED
             if playbackCompleted then
                 PlaySound("Success")
                 
@@ -2533,13 +2538,12 @@ end
                 
                 task.wait(0.5)
             else
-                -- ❌ Playback tidak completed - TIDAK LANJUT KE NEXT, tetap di recording yang sama
+                -- Playback tidak completed - TIDAK LANJUT KE NEXT
                 task.wait(1)
-                -- ⬅️ CurrentLoopIndex TIDAK DIUBAH, jadi akan retry recording yang sama
             end
         end
         
-        -- ✅ CLEANUP
+        -- CLEANUP
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
@@ -3066,7 +3070,7 @@ player.CharacterRemoving:Connect(function()
     end
 end)
 
-warn(" ByaruL Loaded Successfully!")
+warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
 
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
