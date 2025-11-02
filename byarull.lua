@@ -2260,16 +2260,24 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= AUTO LOOP SYSTEM PATEN - NEVER AUTO OFF =========
+-- ========= AUTO LOOP SYSTEM WITH DEBUG - NEVER AUTO OFF =========
 function StartAutoLoopAll()
-    if not AutoLoop then return end
+    if not AutoLoop then 
+        print("❌ AUTO LOOP: Start cancelled - AutoLoop = false")
+        return 
+    end
+    
+    print("🚀 AUTO LOOP: Starting Auto Loop System...")
     
     if #RecordingOrder == 0 then
+        print("❌ AUTO LOOP: No recordings found")
         AutoLoop = false
         AnimateLoop(false)
         PlaySound("Error")
         return
     end
+    
+    print("✅ AUTO LOOP: " .. #RecordingOrder .. " recordings loaded")
     
     PlaySound("Play")
     
@@ -2277,77 +2285,154 @@ function StartAutoLoopAll()
     IsAutoLoopPlaying = true
     
     loopConnection = task.spawn(function()
+        print("🔄 AUTO LOOP: Main loop started")
+        
         while AutoLoop and IsAutoLoopPlaying do
-            if not AutoLoop or not IsAutoLoopPlaying then break end
+            print("🎯 AUTO LOOP: Starting recording " .. CurrentLoopIndex .. "/" .. #RecordingOrder)
+            
+            if not AutoLoop then
+                print("🛑 AUTO LOOP: AutoLoop turned OFF in main loop")
+                break
+            end
+            
+            if not IsAutoLoopPlaying then
+                print("🛑 AUTO LOOP: IsAutoLoopPlaying turned OFF in main loop")
+                break
+            end
             
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
+                print("⚠️ AUTO LOOP: Empty recording, moving to next")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
+                if CurrentLoopIndex > #RecordingOrder then 
+                    CurrentLoopIndex = 1
+                    print("🔁 AUTO LOOP: Loop cycle reset to recording 1")
+                end
                 task.wait(1)
                 continue
             end
             
-            -- ✅ PLAY RECORDING SAMPAI SELESAI (TANPA BREAK KECUALI USER STOP)
+            print("▶️ AUTO LOOP: Playing recording '" .. recordingName .. "' (" .. #recording .. " frames)")
+            
+            -- ✅ PLAY RECORDING WITH DEBUG
             local success = false
             local retryCount = 0
-            local maxRetries = 1000  -- Hampir infinite
+            local maxRetries = 1000
             
             while not success and retryCount < maxRetries and AutoLoop and IsAutoLoopPlaying do
+                print("🔄 AUTO LOOP: Attempt " .. (retryCount + 1) .. " to play recording")
                 success = PlaySingleRecording(recordingName)
+                
                 if not success then
                     retryCount = retryCount + 1
-                    task.wait(2)  -- Tunggu sebentar sebelum retry
+                    print("❌ AUTO LOOP: Playback failed, retry " .. retryCount)
+                    
+                    if not AutoLoop then
+                        print("🛑 AUTO LOOP: AutoLoop turned OFF during retry")
+                        break
+                    end
+                    
+                    if not IsAutoLoopPlaying then
+                        print("🛑 AUTO LOOP: IsAutoLoopPlaying turned OFF during retry")
+                        break
+                    end
+                    
+                    task.wait(2)
+                else
+                    print("✅ AUTO LOOP: Playback completed successfully")
                 end
             end
             
+            if not AutoLoop then
+                print("🛑 AUTO LOOP: AutoLoop turned OFF after playback attempts")
+                break
+            end
+            
+            if not IsAutoLoopPlaying then
+                print("🛑 AUTO LOOP: IsAutoLoopPlaying turned OFF after playback attempts")
+                break
+            end
+            
             if success then
-                -- ✅ BERHASIL SELESAI -> LANJUT KE NEXT
+                print("🎉 AUTO LOOP: Moving to next recording")
                 PlaySound("Success")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
+                if CurrentLoopIndex > #RecordingOrder then 
+                    CurrentLoopIndex = 1
+                    print("🔁 AUTO LOOP: Loop cycle completed, restarting from recording 1")
+                end
                 task.wait(0.5)
             else
-                -- ❌ GAGAL SETELAH BANYAK RETRY -> LANJUT KE NEXT JUGA
+                print("💥 AUTO LOOP: Max retries reached, moving to next recording")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then CurrentLoopIndex = 1 end
+                if CurrentLoopIndex > #RecordingOrder then 
+                    CurrentLoopIndex = 1
+                    print("🔁 AUTO LOOP: Loop cycle reset after failure")
+                end
                 task.wait(1)
             end
         end
         
+        print("🛑 AUTO LOOP: Main loop ended")
         IsAutoLoopPlaying = false
         IsPaused = false
         RestoreFullUserControl()
+        print("✅ AUTO LOOP: Full control restored")
     end)
+    
+    print("✅ AUTO LOOP: System started successfully")
 end
 
--- ✅ FUNCTION PLAY SINGLE RECORDING DENGAN RETRY INTERNAL
+-- ✅ FUNCTION PLAY SINGLE RECORDING WITH FULL AUTO RESPAWN
 function PlaySingleRecording(recordingName)
     local recording = RecordedMovements[recordingName]
-    if not recording then return false end
+    if not recording then 
+        print("❌ PLAYBACK: Recording not found - " .. tostring(recordingName))
+        return false 
+    end
+    
+    print("🎮 PLAYBACK: Starting playback - " .. #recording .. " frames")
     
     local currentFrame = 1
     local playbackStart = tick()
     
-    -- ✅ WAIT FOR CHARACTER READY
+    -- ✅ WAIT FOR CHARACTER READY WITH AUTO RESPAWN
     if not IsCharacterReady() then
+        print("💀 PLAYBACK: Character not ready - AutoRespawn: " .. tostring(AutoRespawn))
+        
         if AutoRespawn then
+            print("🔄 PLAYBACK: Auto Respawn activating...")
             ResetCharacter()
             local success = WaitForRespawn()
-            if not success then return false end
-            task.wait(1.5)
+            if success then
+                print("✅ PLAYBACK: Auto Respawn successful")
+                task.wait(1.5)
+            else
+                print("❌ PLAYBACK: Auto Respawn failed")
+                task.wait(2)
+                return false
+            end
         else
-            -- Tunggu manual respawn
+            print("⏳ PLAYBACK: Waiting for manual respawn...")
             local waitStart = tick()
             while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                if tick() - waitStart > 30 then return false end
+                if tick() - waitStart > 30 then 
+                    print("⏰ PLAYBACK: Manual respawn timeout")
+                    return false 
+                end
                 task.wait(0.5)
             end
-            if not IsCharacterReady() then return false end
+            if not IsCharacterReady() then 
+                print("❌ PLAYBACK: Character still not ready after wait")
+                return false 
+            end
+            print("✅ PLAYBACK: Manual respawn detected")
         end
     end
+    
+    print("✅ PLAYBACK: Character ready, starting playback")
     
     SaveHumanoidState()
     DisableJump()
@@ -2358,11 +2443,13 @@ function PlaySingleRecording(recordingName)
         task.wait(0.1)
     end
     
-    -- ✅ SIMPLE PLAYBACK LOOP
+    -- ✅ PLAYBACK LOOP WITH DEATH DETECTION
     while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
-        -- ✅ CEK KARAKTER HIDUP SETIAP FRAME
+        -- ✅ CHECK CHARACTER STATUS EVERY FRAME
         if not IsCharacterReady() then
-            return false  -- Karakter mati, return false untuk retry
+            print("💀 PLAYBACK: Character died during playback - Frame " .. currentFrame)
+            RestoreFullUserControl()
+            return false  -- Return false untuk trigger retry
         end
         
         -- ✅ PAUSE HANDLING
@@ -2404,6 +2491,10 @@ function PlaySingleRecording(recordingName)
                     end
                 end)
             end
+        else
+            print("❌ PLAYBACK: Character/HRP missing during playback")
+            RestoreFullUserControl()
+            return false
         end
         
         -- ✅ PROGRESS FRAME
@@ -2415,24 +2506,28 @@ function PlaySingleRecording(recordingName)
         end
         
         if currentFrame >= #recording then
+            print("✅ PLAYBACK: Playback completed - " .. #recording .. " frames played")
             RestoreFullUserControl()
-            return true  -- ✅ SELESAI
+            return true
         end
         
         task.wait()
     end
     
+    print("🛑 PLAYBACK: Playback interrupted - AutoLoop: " .. tostring(AutoLoop) .. ", IsAutoLoopPlaying: " .. tostring(IsAutoLoopPlaying))
     RestoreFullUserControl()
     return false
 end
 
 function StopAutoLoopAll()
+    print("🛑 STOP AUTO LOOP: Manual stop called")
     AutoLoop = false
     IsAutoLoopPlaying = false
     IsPlaying = false
     IsPaused = false
     
     if loopConnection then
+        print("🛑 STOP AUTO LOOP: Cancelling loop connection")
         task.cancel(loopConnection)
         loopConnection = nil
     end
@@ -2441,32 +2536,48 @@ function StopAutoLoopAll()
     UpdatePauseMarker()
     
     local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    if char then 
+        CompleteCharacterReset(char)
+        print("✅ STOP AUTO LOOP: Character reset complete")
+    end
     
     PlaySound("Stop")
+    print("🛑 STOP AUTO LOOP: System fully stopped")
 end
 
 function StopPlayback()
+    print("🛑 STOP PLAYBACK: Called")
+    
     if AutoLoop then
+        print("🛑 STOP PLAYBACK: Stopping Auto Loop")
         StopAutoLoopAll()
         AnimateLoop(false)
     end
     
-    if not IsPlaying then return end
+    if not IsPlaying then 
+        print("🛑 STOP PLAYBACK: Not playing, returning")
+        return 
+    end
+    
     IsPlaying = false
     IsPaused = false
     RestoreFullUserControl()
     UpdatePauseMarker()
     
     local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    if char then 
+        CompleteCharacterReset(char)
+        print("✅ STOP PLAYBACK: Character reset complete")
+    end
     
     PlaySound("Stop")
+    print("🛑 STOP PLAYBACK: Playback stopped")
 end
 
 function PausePlayback()
     if AutoLoop and IsAutoLoopPlaying then
         IsPaused = not IsPaused
+        print("⏸️ PAUSE: Auto Loop paused = " .. tostring(IsPaused))
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
@@ -2489,6 +2600,7 @@ function PausePlayback()
         end
     elseif IsPlaying then
         IsPaused = not IsPaused
+        print("⏸️ PAUSE: Playback paused = " .. tostring(IsPaused))
         
         if IsPaused then
             PauseBtnBig.Text = "RESUME"
@@ -2509,6 +2621,8 @@ function PausePlayback()
             UpdatePauseMarker()
             PlaySound("Click")
         end
+    else
+        print("⏸️ PAUSE: No active playback to pause")
     end
 end
 
