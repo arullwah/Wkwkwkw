@@ -736,6 +736,351 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
+-- ========= ANIMATIONS SYSTEM =========
+local Animations = {
+    ["Idle"] = {
+        -- Database idle akan diisi manual
+    },
+    ["Walk"] = {
+        -- Database walk akan diisi manual  
+    },
+    ["Run"] = {
+        -- Database run akan diisi manual
+    },
+    ["Jump"] = {
+        -- Database jump akan diisi manual
+    },
+    ["Fall"] = {
+        -- Database fall akan diisi manual
+    },
+    ["Climb"] = {
+        -- Database climb akan diisi manual
+    },
+    ["SwimIdle"] = {
+        -- Database swim idle akan diisi manual
+    },
+    ["Swim"] = {
+        -- Database swim akan diisi manual
+    }
+}
+
+local lastAnimations = {}
+local animGuiOpen = false
+
+local function SetAnimation(animType, animId)
+    local character = player.Character
+    if not character or not character:FindFirstChild("Humanoid") then
+        return false
+    end
+    
+    local animate = character:FindFirstChild("Animate")
+    if not animate then 
+        return false
+    end
+    
+    local success = true
+    
+    if animType == "Idle" and animate.idle then
+        animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+        animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+        lastAnimations.Idle = animId
+    elseif animType == "Walk" and animate.walk then
+        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Walk = animId
+    elseif animType == "Run" and animate.run then
+        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Run = animId
+    elseif animType == "Jump" and animate.jump then
+        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Jump = animId
+    elseif animType == "Fall" and animate.fall then
+        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Fall = animId
+    elseif animType == "Swim" and animate.swim then
+        animate.swim.Swim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Swim = animId
+    elseif animType == "SwimIdle" and animate.swimidle then
+        animate.swimidle.SwimIdle.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.SwimIdle = animId
+    elseif animType == "Climb" and animate.climb then
+        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
+        lastAnimations.Climb = animId
+    else
+        success = false
+    end
+    
+    if success then
+        pcall(function()
+            if writefile and readfile and isfile then
+                writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
+            end
+        end)
+    end
+    
+    return success
+end
+
+local function LoadSavedAnimations()
+    if not player.Character or not player.Character:FindFirstChild("Humanoid") then
+        return false
+    end
+    
+    local loaded = false
+    pcall(function()
+        if isfile and readfile and isfile("AnimHub_Saved.json") then
+            local savedData = readfile("AnimHub_Saved.json")
+            lastAnimations = HttpService:JSONDecode(savedData)
+            
+            for animType, animId in pairs(lastAnimations) do
+                SetAnimation(animType, animId)
+                loaded = true
+            end
+        end
+    end)
+    
+    return loaded
+end
+
+local function OpenAnimGUI()
+    if animGuiOpen then return end
+    
+    if not player.Character or not player.Character:FindFirstChild("Humanoid") then
+        return
+    end
+    
+    animGuiOpen = true
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "AnimationsGUI"
+    sg.ResetOnSpawn = false
+    sg.Parent = player.PlayerGui
+
+    -- MAIN FRAME - 220x220
+    local main = Instance.new("Frame")
+    main.Size = UDim2.new(0, 220, 0, 220)
+    main.Position = UDim2.new(0.5, -110, 0.5, -110)
+    main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.ZIndex = 1
+    main.Parent = sg
+
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 8)
+    mainCorner.Parent = main
+
+    -- HEADER
+    local header = Instance.new("Frame")
+    header.Size = UDim2.new(1, 0, 0, 30)
+    header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    header.BorderSizePixel = 0
+    header.ZIndex = 2
+    header.Parent = main
+
+    local headerCorner = Instance.new("UICorner")
+    headerCorner.CornerRadius = UDim.new(0, 8)
+    headerCorner.Parent = header
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(0, 120, 1, 0)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "ANIMATIONS"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 3
+    title.Parent = header
+
+    -- Close Button
+    local close = Instance.new("TextButton")
+    close.Text = "X"
+    close.Size = UDim2.new(0, 25, 0, 25)
+    close.Position = UDim2.new(1, -30, 0.5, -12.5)
+    close.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
+    close.TextColor3 = Color3.new(1, 1, 1)
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 12
+    close.ZIndex = 3
+    close.Parent = header
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.Parent = close
+
+    close.MouseButton1Click:Connect(function()
+        sg:Destroy()
+        animGuiOpen = false
+    end)
+
+    -- Search Box
+    local search = Instance.new("TextBox")
+    search.PlaceholderText = "Search animations..."
+    search.Size = UDim2.new(1, -20, 0, 25)
+    search.Position = UDim2.new(0, 10, 0, 35)
+    search.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    search.BorderSizePixel = 0
+    search.TextColor3 = Color3.fromRGB(255, 255, 255)
+    search.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 10
+    search.ClearTextOnFocus = false
+    search.TextXAlignment = Enum.TextXAlignment.Left
+    search.ZIndex = 2
+    search.Parent = main
+
+    local searchCorner = Instance.new("UICorner")
+    searchCorner.CornerRadius = UDim.new(0, 6)
+    searchCorner.Parent = search
+
+    local searchPadding = Instance.new("UIPadding")
+    searchPadding.PaddingLeft = UDim.new(0, 8)
+    searchPadding.Parent = search
+
+    -- SCROLLABLE LIST
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, -10, 1, -75)
+    scroll.Position = UDim2.new(0, 5, 0, 65)
+    scroll.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 6
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+    scroll.ZIndex = 2
+    scroll.ClipsDescendants = true
+    scroll.Parent = main
+
+    local scrollCorner = Instance.new("UICorner")
+    scrollCorner.CornerRadius = UDim.new(0, 6)
+    scrollCorner.Parent = scroll
+
+    -- Draggable Logic
+    local dragging, dragInput, dragStart, startPos
+    
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = main.Position
+        end
+    end)
+    
+    header.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    header.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    -- Create Animation Buttons
+    local buttons = {}
+    local yPos = 0
+
+    local function addButton(name, animType, animId)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Text = name .. " - " .. animType
+        btn.Size = UDim2.new(1, -10, 0, 24)
+        btn.Position = UDim2.new(0, 5, 0, yPos)
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        btn.BorderSizePixel = 0
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 9
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.ZIndex = 3
+        btn.Parent = scroll
+
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 4)
+        btnCorner.Parent = btn
+
+        local btnPadding = Instance.new("UIPadding")
+        btnPadding.PaddingLeft = UDim.new(0, 8)
+        btnPadding.Parent = btn
+        
+        btn.MouseButton1Click:Connect(function()
+            local success = SetAnimation(animType, animId)
+            if success then
+                AnimateButtonClick(btn)
+            end
+        end)
+
+        -- Hover effects
+        btn.MouseEnter:Connect(function()
+            if btn.BackgroundColor3 ~= Color3.fromRGB(60, 120, 200) then
+                btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            end
+        end)
+
+        btn.MouseLeave:Connect(function()
+            if btn.BackgroundColor3 ~= Color3.fromRGB(60, 120, 200) then
+                btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            end
+        end)
+        
+        table.insert(buttons, btn)
+        yPos = yPos + 28
+    end
+
+    -- Populate buttons from database
+    for name, ids in pairs(Animations.Idle) do
+        addButton(name, "Idle", ids)
+    end
+    for name, id in pairs(Animations.Walk) do
+        addButton(name, "Walk", id)
+    end
+    for name, id in pairs(Animations.Run) do
+        addButton(name, "Run", id)
+    end
+    for name, id in pairs(Animations.Jump) do
+        addButton(name, "Jump", id)
+    end
+    for name, id in pairs(Animations.Fall) do
+        addButton(name, "Fall", id)
+    end
+    for name, id in pairs(Animations.SwimIdle) do
+        addButton(name, "SwimIdle", id)
+    end
+    for name, id in pairs(Animations.Swim) do
+        addButton(name, "Swim", id)
+    end
+    for name, id in pairs(Animations.Climb) do
+        addButton(name, "Climb", id)
+    end
+
+    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+
+    -- Search Filter
+    search:GetPropertyChangedSignal("Text"):Connect(function()
+        local query = search.Text:lower()
+        local pos = 0
+        for _, btn in ipairs(buttons) do
+            if query == "" or btn.Text:lower():find(query, 1, true) then
+                btn.Visible = true
+                btn.Position = UDim2.new(0, 5, 0, pos)
+                pos = pos + 28
+            else
+                btn.Visible = false
+            end
+        end
+        scroll.CanvasSize = UDim2.new(0, 0, 0, pos)
+    end)
+end
+
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -972,6 +1317,9 @@ local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 11
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
+-- PERBAIKAN: Tambah button CLEAR di samping RECORDING
+local ClearRecordingsBtn = CreateButton("CLEAR ALL", 127, 5, 113, 30, Color3.fromRGB(163, 10, 10))
+
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
@@ -998,7 +1346,7 @@ SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(124, 26)
+FilenameBox.Size = UDim2.fromOffset(58, 26)
 FilenameBox.Position = UDim2.fromOffset(63, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
@@ -1017,7 +1365,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(192, 129)
+WalkSpeedBox.Position = UDim2.fromOffset(126, 129)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1041,10 +1389,13 @@ local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(
 local PathToggleBtn = CreateButton("SHOW RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
+-- PERBAIKAN: Tambah button ANIMATIONS
+local AnimBtn = CreateButton("ANIMATIONS", 0, 222, 240, 26, Color3.fromRGB(80, 15, 150))
+
 -- Record List
 local RecordList = Instance.new("ScrollingFrame")
 RecordList.Size = UDim2.new(1, 0, 0, 180)
-RecordList.Position = UDim2.fromOffset(0, 222)
+RecordList.Position = UDim2.fromOffset(0, 253)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
 RecordList.ScrollBarThickness = 6
@@ -1152,6 +1503,9 @@ UserInputService.InputChanged:Connect(function(input)
             local widthScale = newWidth / 250
             
             RecordBtnBig.Size = UDim2.fromOffset(117 * widthScale, 30)
+            ClearRecordingsBtn.Size = UDim2.fromOffset(113 * widthScale, 30)
+            ClearRecordingsBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 5)
+            
             PlayBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
             StopBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
             PauseBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
@@ -1173,7 +1527,7 @@ UserInputService.InputChanged:Connect(function(input)
             WalkSpeedBox.Size = UDim2.fromOffset(58 * widthScale, 26)
             
             FilenameBox.Position = UDim2.fromOffset(5 + (58 * widthScale) + 5, 129)
-            WalkSpeedBox.Position = UDim2.fromOffset(5 + (58 * widthScale) + 5 + (124 * widthScale ) + 5, 129)
+            WalkSpeedBox.Position = UDim2.fromOffset(5 + (58 * widthScale) * 2 + 10, 129)
             
             SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
@@ -1183,7 +1537,10 @@ UserInputService.InputChanged:Connect(function(input)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
             
+            AnimBtn.Size = UDim2.fromOffset(240 * widthScale, 26)
+            
             RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
+            RecordList.Position = UDim2.fromOffset(0, 253 * (newHeight / 450))
         end
     end
 end)
@@ -2162,6 +2519,17 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     end
 end)
 
+-- PERBAIKAN: Tambah fungsi CLEAR ALL
+ClearRecordingsBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(ClearRecordingsBtn)
+    RecordedMovements = {}
+    RecordingOrder = {}
+    checkpointNames = {}
+    UpdateRecordList()
+    ClearPathVisualization()
+    PlaySound("Success")
+end)
+
 PlayBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(PlayBtnBig)
     if AutoLoop then return end
@@ -2249,6 +2617,12 @@ MergeBtn.MouseButton1Click:Connect(function()
     CreateMergedReplay()
 end)
 
+-- PERBAIKAN: Tambah button ANIMATIONS
+AnimBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(AnimBtn)
+    OpenAnimGUI()
+end)
+
 HideButton.MouseButton1Click:Connect(function()
     AnimateButtonClick(HideButton)
     MainFrame.Visible = false
@@ -2308,6 +2682,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F2 then
         ToggleInfiniteJump()
         AnimateJump(InfiniteJump)
+    elseif input.KeyCode == Enum.KeyCode.F12 then
+        OpenAnimGUI()
     end
 end)
 
@@ -2320,6 +2696,11 @@ task.spawn(function()
     if isfile and readfile and isfile(filename) then
         LoadFromObfuscatedJSON()
     end
+end)
+
+player.CharacterAdded:Connect(function(character)
+    task.wait(2)
+    LoadSavedAnimations()
 end)
 
 player.CharacterRemoving:Connect(function()
