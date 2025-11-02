@@ -998,7 +998,7 @@ SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(58, 26)
+FilenameBox.Size = UDim2.fromOffset(124, 26)
 FilenameBox.Position = UDim2.fromOffset(63, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
@@ -1017,7 +1017,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(126, 129)
+WalkSpeedBox.Position = UDim2.fromOffset(192, 129)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1173,7 +1173,7 @@ UserInputService.InputChanged:Connect(function(input)
             WalkSpeedBox.Size = UDim2.fromOffset(58 * widthScale, 26)
             
             FilenameBox.Position = UDim2.fromOffset(5 + (58 * widthScale) + 5, 129)
-            WalkSpeedBox.Position = UDim2.fromOffset(5 + (58 * widthScale) * 2 + 10, 129)
+            WalkSpeedBox.Position = UDim2.fromOffset(5 + (58 * widthScale) + 5 + (124 * widthScale ) + 5, 129)
             
             SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
