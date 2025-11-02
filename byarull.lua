@@ -2307,33 +2307,31 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
-            -- ✅ WAIT FOR CHARACTER READY
-            if not IsCharacterReady() then
-                local waitAttempts = 0
-                local maxWaitAttempts = 60
-                
-                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                    waitAttempts = waitAttempts + 1
-                    
-                    if waitAttempts >= maxWaitAttempts then
-                        if AutoRespawn then
-                            ResetCharacter()
-                            WaitForRespawn()
-                            task.wait(1.5)
-                            break
-                        else
-                            waitAttempts = 0
-                        end
-                    end
-                    
-                    task.wait(0.5)
-                end
-                
-                if not AutoLoop or not IsAutoLoopPlaying then break end
-                task.wait(1.0)
-            end
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
+-- ✅ FIX: JANGAN BREAK, TAPI RETRY
+if not IsCharacterReady() then
+    if AutoRespawn then
+        ResetCharacter()
+        local success = WaitForRespawn()
+        if success then
+            task.wait(1.5)
+            currentFrame = 1  -- RESTART DARI AWAL
+            playbackStart = tick()
+            continue  -- LANJUTKAN RECORDING YANG SAMA
+        end
+    else
+        -- Tunggu manual respawn
+        local waitStart = tick()
+        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+            if tick() - waitStart > 30 then break end
+            task.wait(0.5)
+        end
+        if IsCharacterReady() then
+            currentFrame = 1  -- RESTART DARI AWAL
+            playbackStart = tick()
+            continue
+        end
+    end
+end
             
             -- ✅ PLAYBACK VARIABLES
             local playbackCompleted = false
@@ -3068,7 +3066,7 @@ player.CharacterRemoving:Connect(function()
     end
 end)
 
-warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
+warn(" ByaruL Loaded Successfully!")
 
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
