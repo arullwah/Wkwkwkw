@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -9,11 +10,17 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 65
+local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.1
+local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
+
+-- ========= RIG TYPE CONFIGURATION =========
+local R6_VELOCITY_MULTIPLIER = 0.85
+local R15_VELOCITY_MULTIPLIER = 1.0
+local R6_JUMP_POWER = 50
+local R15_JUMP_POWER = 50
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -23,7 +30,8 @@ local FIELD_MAPPING = {
     Velocity = "22",
     MoveState = "33",
     WalkSpeed = "44",
-    Timestamp = "66"
+    Timestamp = "66",
+    RigType = "77"
 }
 
 local REVERSE_MAPPING = {
@@ -33,7 +41,8 @@ local REVERSE_MAPPING = {
     ["22"] = "Velocity",
     ["33"] = "MoveState",
     ["44"] = "WalkSpeed",
-    ["66"] = "Timestamp"
+    ["66"] = "Timestamp",
+    ["77"] = "RigType"
 }
 
 -- ========= VARIABLES =========
@@ -45,6 +54,7 @@ local CurrentWalkSpeed = 16
 local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
+local SelectedReplays = {} -- NEW: Track selected replays for saving
 
 local AutoRespawn = false
 local InfiniteJump = false
@@ -59,10 +69,6 @@ local checkpointNames = {}
 local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
-
--- ========= NEW SELECTION SYSTEM =========
-local SelectedReplay = nil
-local SelectedReplayButton = nil
 
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
@@ -131,6 +137,52 @@ local function CleanupConnections()
     end
 end
 
+-- ========= RIG TYPE DETECTION SYSTEM =========
+local CurrentRigType = "R15"
+
+local function GetRigType(character)
+    character = character or player.Character
+    if not character then return "R15" end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return "R15" end
+    
+    return humanoid.RigType.Name -- "R6" or "R15"
+end
+
+local function GetRigVelocityMultiplier(rigType)
+    rigType = rigType or GetRigType()
+    return rigType == "R6" and R6_VELOCITY_MULTIPLIER or R15_VELOCITY_MULTIPLIER
+end
+
+local function GetDefaultJumpPower(rigType)
+    rigType = rigType or GetRigType()
+    return rigType == "R6" and R6_JUMP_POWER or R15_JUMP_POWER
+end
+
+local function GetRecordingRigType(recording)
+    if not recording or #recording == 0 then return "R15" end
+    return recording[1].RigType or "R15"
+end
+
+local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
+    if recordedRig == currentRig then
+        return 1.0
+    end
+    
+    -- R6 recording played on R15
+    if recordedRig == "R6" and currentRig == "R15" then
+        return R15_VELOCITY_MULTIPLIER / R6_VELOCITY_MULTIPLIER -- ~1.176
+    end
+    
+    -- R15 recording played on R6
+    if recordedRig == "R15" and currentRig == "R6" then
+        return R6_VELOCITY_MULTIPLIER / R15_VELOCITY_MULTIPLIER -- ~0.85
+    end
+    
+    return 1.0
+end
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -182,79 +234,6 @@ local function AnimateButtonClick(button)
     }):Play()
 end
 
--- ========= IMPROVED RIG COMPATIBILITY SYSTEM =========
-local function GetRigType()
-    local char = player.Character
-    if not char then return "Unknown" end
-    
-    -- Improved rig detection
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        if humanoid.RigType == Enum.HumanoidRigType.R6 then
-            return "R6"
-        elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
-            return "R15"
-        end
-    end
-    
-    -- Fallback detection
-    local bodyParts = {
-        "UpperTorso", "LowerTorso", -- R15
-        "Torso" -- R6
-    }
-    
-    for _, partName in ipairs(bodyParts) do
-        if char:FindFirstChild(partName) then
-            if partName == "Torso" then return "R6" end
-            if partName == "UpperTorso" then return "R15" end
-        end
-    end
-    
-    return "Unknown"
-end
-
-local function IsR15()
-    return GetRigType() == "R15"
-end
-
-local function IsR6()
-    return GetRigType() == "R6"
-end
-
--- ========= IMPROVED AUTO HEIGHT ADJUSTMENT SYSTEM =========
-local function AdjustPositionForRig(frameData, currentHRP)
-    if not frameData or not frameData.RigType then return frameData end
-    
-    local currentRig = GetRigType()
-    if currentRig == "Unknown" then return frameData end
-    
-    -- Jika rig type sama, tidak perlu adjustment
-    if frameData.RigType == currentRig then return frameData end
-    
-    local adjustedPosition = {frameData.Position[1], frameData.Position[2], frameData.Position[3]}
-    
-    -- Improved height adjustment based on actual rig differences
-    if frameData.RigType == "R6" and currentRig == "R15" then
-        -- R6 -> R15: Naikkan posisi lebih banyak karena R15 lebih tinggi
-        adjustedPosition[2] = adjustedPosition[2] + 2.0  -- Increased from 1.5 to 2.0
-    elseif frameData.RigType == "R15" and currentRig == "R6" then
-        -- R15 -> R6: Turunkan posisi lebih banyak
-        adjustedPosition[2] = adjustedPosition[2] - 2.0  -- Increased from 1.5 to 2.0
-    end
-    
-    return {
-        Position = adjustedPosition,
-        LookVector = frameData.LookVector,
-        UpVector = frameData.UpVector,
-        Velocity = frameData.Velocity,
-        MoveState = frameData.MoveState,
-        WalkSpeed = frameData.WalkSpeed,
-        Timestamp = frameData.Timestamp,
-        RigType = frameData.RigType,
-        AdjustedForRig = true
-    }
-end
-
 -- ========= AUTO RESPAWN FUNCTION =========
 local function ResetCharacter()
     local char = player.Character
@@ -301,7 +280,7 @@ local function CompleteCharacterReset(char)
         humanoid.PlatformStand = false
         humanoid.AutoRotate = true
         humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = prePauseJumpPower or 50
+        humanoid.JumpPower = GetDefaultJumpPower()
         humanoid.Sit = false
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
@@ -510,7 +489,7 @@ local function RestoreFullUserControl()
     if humanoid then
         humanoid.AutoRotate = true
         humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = prePauseJumpPower or 50
+        humanoid.JumpPower = GetDefaultJumpPower()
         humanoid.PlatformStand = false
         humanoid.Sit = false
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
@@ -709,195 +688,6 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
--- ========= IMPROVED SELECTION SYSTEM =========
-local function SelectReplay(replayName, button)
-    -- Jika klik yang sama, deselect
-    if SelectedReplay == replayName then
-        SelectedReplay = nil
-        SelectedReplayButton = nil
-        if button then
-            button.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        end
-        PlaySound("Toggle")
-    else
-        -- Reset previous selection
-        if SelectedReplayButton then
-            SelectedReplayButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        end
-        
-        -- Set new selection
-        SelectedReplay = replayName
-        SelectedReplayButton = button
-        
-        if button then
-            button.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
-            PlaySound("Success")
-        end
-    end
-end
-
-local function GetSelectedReplay()
-    return SelectedReplay
-end
-
--- ========= FIXED AUTO LOOP SYSTEM =========
-local function StartAutoLoopAll()
-    if not AutoLoop then return end
-    
-    if #RecordingOrder == 0 then
-        AutoLoop = false
-        AnimateLoop(false)
-        PlaySound("Error")
-        return
-    end
-    
-    -- Jika ada replay yang dipilih, mulai dari replay tersebut
-    if SelectedReplay then
-        local selectedIndex = table.find(RecordingOrder, SelectedReplay)
-        if selectedIndex then
-            CurrentLoopIndex = selectedIndex
-        else
-            CurrentLoopIndex = 1
-        end
-    else
-        CurrentLoopIndex = 1
-    end
-    
-    PlaySound("Play")
-    
-    IsAutoLoopPlaying = true
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
-    
-    loopConnection = RunService.Heartbeat:Connect(function()
-        if not AutoLoop or not IsAutoLoopPlaying then
-            loopConnection:Disconnect()
-            RestoreFullUserControl()
-            return
-        end
-        
-        if IsPaused then
-            if LoopPauseStartTime == 0 then
-                LoopPauseStartTime = tick()
-                RestoreHumanoidState()
-                ShowJumpButton()
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if LoopPauseStartTime > 0 then
-                LoopTotalPausedDuration = LoopTotalPausedDuration + (tick() - LoopPauseStartTime)
-                LoopPauseStartTime = 0
-                DisableJump()
-                HideJumpButton()
-                UpdatePauseMarker()
-            end
-        end
-        
-        if CurrentLoopIndex > #RecordingOrder then
-            CurrentLoopIndex = 1
-        end
-        
-        local recordingName = RecordingOrder[CurrentLoopIndex]
-        local recording = RecordedMovements[recordingName]
-        
-        if not recording or #recording == 0 then
-            CurrentLoopIndex = CurrentLoopIndex + 1
-            return
-        end
-        
-        if not IsCharacterReady() then
-            if AutoRespawn then
-                ResetCharacter()
-                WaitForRespawn()
-            end
-            return
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            return
-        end
-        
-        local playbackCompleted = false
-        local currentFrame = 1
-        local playbackStart = tick()
-        
-        while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            if IsPaused then break end
-            
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then break end
-            
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then break end
-            
-            local currentTime = tick()
-            local effectiveTime = (currentTime - playbackStart - LoopTotalPausedDuration) * CurrentSpeed
-            
-            while currentFrame < #recording and recording[currentFrame + 1].Timestamp <= effectiveTime do
-                currentFrame = currentFrame + 1
-            end
-            
-            if currentFrame >= #recording then
-                playbackCompleted = true
-                break
-            end
-            
-            local frame = recording[currentFrame]
-            if frame then
-                pcall(function()
-                    local adjustedFrame = AdjustPositionForRig(frame, hrp)
-                    local pos = Vector3.new(adjustedFrame.Position[1], adjustedFrame.Position[2], adjustedFrame.Position[3])
-                    local look = Vector3.new(adjustedFrame.LookVector[1], adjustedFrame.LookVector[2], adjustedFrame.LookVector[3])
-                    local up = Vector3.new(adjustedFrame.UpVector[1], adjustedFrame.UpVector[2], adjustedFrame.UpVector[3])
-                    
-                    hrp.CFrame = CFrame.lookAt(pos, pos + look, up)
-                    hrp.AssemblyLinearVelocity = GetFrameVelocity(adjustedFrame)
-                    
-                    if hum then
-                        hum.WalkSpeed = GetFrameWalkSpeed(adjustedFrame) * CurrentSpeed
-                        hum.AutoRotate = false
-                    end
-                end)
-            end
-            
-            task.wait()
-        end
-        
-        if playbackCompleted then
-            CurrentLoopIndex = CurrentLoopIndex + 1
-            if CurrentLoopIndex > #RecordingOrder then
-                CurrentLoopIndex = 1
-            end
-            PlaySound("Success")
-            task.wait(0.5)
-        end
-    end)
-    
-    AddConnection(loopConnection)
-end
-
-function StopAutoLoopAll()
-    AutoLoop = false
-    IsAutoLoopPlaying = false
-    IsPaused = false
-    
-    if loopConnection then
-        loopConnection:Disconnect()
-        loopConnection = nil
-    end
-    
-    RestoreFullUserControl()
-    UpdatePauseMarker()
-    PlaySound("Stop")
-end
-
 -- ========= IMPROVED MACRO/MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
@@ -923,7 +713,8 @@ local function CreateMergedReplay()
                 Velocity = {0, 0, 0},
                 MoveState = "Grounded",
                 WalkSpeed = firstFrame.WalkSpeed,
-                Timestamp = lastFrame.Timestamp + 0.05
+                Timestamp = lastFrame.Timestamp + 0.05,
+                RigType = firstFrame.RigType or GetRigType()
             }
             table.insert(mergedFrames, transitionFrame)
             totalTimeOffset = totalTimeOffset + 0.05
@@ -937,7 +728,8 @@ local function CreateMergedReplay()
                 Velocity = {frame.Velocity[1], frame.Velocity[2], frame.Velocity[3]},
                 MoveState = frame.MoveState,
                 WalkSpeed = frame.WalkSpeed,
-                Timestamp = frame.Timestamp + totalTimeOffset
+                Timestamp = frame.Timestamp + totalTimeOffset,
+                RigType = frame.RigType or GetRigType()
             }
             table.insert(mergedFrames, newFrame)
         end
@@ -955,7 +747,7 @@ local function CreateMergedReplay()
         
         if lastSignificantFrame then
             local pos1 = Vector3.new(lastSignificantFrame.Position[1], lastSignificantFrame.Position[2], lastSignificantFrame.Position[3])
-            local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[2])
+            local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
             local distance = (pos1 - pos2).Magnitude
             
             if distance < 0.1 and frame.MoveState == lastSignificantFrame.MoveState then
@@ -973,12 +765,13 @@ local function CreateMergedReplay()
     RecordedMovements[mergedName] = optimizedFrames
     table.insert(RecordingOrder, mergedName)
     checkpointNames[mergedName] = "MERGED ALL"
+    SelectedReplays[mergedName] = false
     
     UpdateRecordList()
     PlaySound("Success")
 end
 
--- ========= FRAME DATA FUNCTIONS =========
+-- ========= FRAME DATA FUNCTIONS WITH RIG COMPATIBILITY =========
 local function GetFrameCFrame(frame)
     local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
@@ -986,11 +779,16 @@ local function GetFrameCFrame(frame)
     return CFrame.lookAt(pos, pos + look, up)
 end
 
-local function GetFrameVelocity(frame)
+local function GetFrameVelocity(frame, recordedRig, currentRig)
+    recordedRig = recordedRig or frame.RigType or "R15"
+    currentRig = currentRig or GetRigType()
+    
+    local compatMultiplier = CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
+    
     return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
+        frame.Velocity[1] * VELOCITY_SCALE * compatMultiplier,
+        frame.Velocity[2] * VELOCITY_Y_SCALE * compatMultiplier,
+        frame.Velocity[3] * VELOCITY_SCALE * compatMultiplier
     ) or Vector3.new(0, 0, 0)
 end
 
@@ -1000,479 +798,6 @@ end
 
 local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
-end
-
--- ========= FIXED ANIMATIONS SYSTEM =========
-local Animations = {
-    ["Walk"] = {
-        ["Gojo"] = "95643163365384",
-        ["Geto"] = "85811471336028",
-        ["Astronaut"] = "891667138",
-        ["(UGC) Zombie"] = "113603435314095",
-        ["Adidas Community"] = "122150855457006",
-        ["Bold"] = "16738340646",
-        ["Bubbly"] = "910034870",
-        ["(UGC) Smooth"] = "76630051272791",
-        ["Cartoony"] = "742640026",
-        ["Confident"] = "1070017263",
-        ["Cowboy"] = "1014421541",
-        ["(UGC) Retro"] = "107806791584829",
-        ["(UGC) Retro Zombie"] = "140703855480494",
-        ["Catwalk Glam"] = "109168724482748",
-        ["Drooling Zombie"] = "3489174223",
-        ["Elder"] = "10921111375",
-        ["Ghost"] = "616013216",
-        ["Knight"] = "10921127095",
-        ["Levitation"] = "616013216",
-        ["Mage"] = "707897309",
-        ["Ninja"] = "656121766",
-        ["NFL"] = "110358958299415",
-        ["OldSchool"] = "10921244891",
-        ["Patrol"] = "1151231493",
-        ["Pirate"] = "750785693",
-        ["Default Retarget"] = "115825677624788",
-        ["Popstar"] = "1212980338",
-        ["Princess"] = "941028902",
-        ["R6"] = "12518152696",
-        ["R15 Reanimated"] = "4211223236",
-        ["2016 Animation (mm2)"] = "387947975",
-        ["Robot"] = "616095330",
-        ["Sneaky"] = "1132510133",
-        ["Sports (Adidas)"] = "18537392113",
-        ["Stylish"] = "616146177",
-        ["Stylized Female"] = "4708193840",
-        ["Superhero"] = "10921298616",
-        ["Toy"] = "10921306285",
-        ["Udzal"] = "3303162967",
-        ["Vampire"] = "1083473930",
-        ["Werewolf"] = "1083178339",
-        ["Wicked (Popular)"] = "92072849924640",
-        ["No Boundaries (Walmart)"] = "18747074203",
-        ["Zombie"] = "616168032"
-    },
-    ["Run"] = {
-        ["2016 Animation (mm2)"] = "387947975",
-        ["(UGC) Soccer"] = "116881956670910",
-        ["Adidas Community"] = "82598234841035",
-        ["Astronaut"] = "10921039308",
-        ["Bold"] = "16738337225",
-        ["Bubbly"] = "10921057244",
-        ["Cartoony"] = "10921076136",
-        ["(UGC) Dog"] = "130072963359721",
-        ["Confident"] = "1070001516",
-        ["(UGC) Pride"] = "116462200642360",
-        ["(UGC) Retro"] = "107806791584829",
-        ["(UGC) Retro Zombie"] = "140703855480494",
-        ["Cowboy"] = "1014401683",
-        ["Catwalk Glam"] = "81024476153754",
-        ["Drooling Zombie"] = "3489173414",
-        ["Elder"] = "10921104374",
-        ["Ghost"] = "616013216",
-        ["Heavy Run (Udzal / Borock)"] = "3236836670",
-        ["Knight"] = "10921121197",
-        ["Levitation"] = "616010382",
-        ["Mage"] = "10921148209",
-        ["MrToilet"] = "4417979645",
-        ["Ninja"] = "656118852",
-        ["NFL"] = "117333533048078",
-        ["OldSchool"] = "10921240218",
-        ["Patrol"] = "1150967949",
-        ["Pirate"] = "750783738",
-        ["Default Retarget"] = "102294264237491",
-        ["Popstar"] = "1212980348",
-        ["Princess"] = "941015281",
-        ["R6"] = "12518152696",
-        ["R15 Reanimated"] = "4211220381",
-        ["Robot"] = "10921250460",
-        ["Sneaky"] = "1132494274",
-        ["Sports (Adidas)"] = "18537384940",
-        ["Stylish"] = "10921276116",
-        ["Stylized Female"] = "4708192705",
-        ["Superhero"] = "10921291831",
-        ["Toy"] = "10921306285",
-        ["Vampire"] = "10921320299",
-        ["Werewolf"] = "10921336997",
-        ["Wicked (Popular)"] = "72301599441680",
-        ["No Boundaries (Walmart)"] = "18747070484",
-        ["Zombie"] = "616163682"
-    },
-    ["Jump"] = {
-        ["Astronaut"] = "891627522",
-        ["Adidas Community"] = "75290611992385",
-        ["Bold"] = "16738336650",
-        ["Bubbly"] = "910016857",
-        ["Cartoony"] = "742637942",
-        ["Catwalk Glam"] = "116936326516985",
-        ["Confident"] = "1069984524",
-        ["Cowboy"] = "1014394726",
-        ["Elder"] = "10921107367",
-        ["Ghost"] = "616008936",
-        ["Knight"] = "910016857",
-        ["Levitation"] = "616008936",
-        ["Mage"] = "10921149743",
-        ["Ninja"] = "656117878",
-        ["NFL"] = "119846112151352",
-        ["OldSchool"] = "10921242013",
-        ["Patrol"] = "1148811837",
-        ["Pirate"] = "750782230",
-        ["(UGC) Retro"] = "139390570947836",
-        ["Default Retarget"] = "117150377950987",
-        ["Popstar"] = "1212954642",
-        ["Princess"] = "941008832",
-        ["Robot"] = "616090535",
-        ["R15 Reanimated"] = "4211219390",
-        ["R6"] = "12520880485",
-        ["Sneaky"] = "1132489853",
-        ["Sports (Adidas)"] = "18537380791",
-        ["Stylish"] = "616139451",
-        ["Stylized Female"] = "4708188025",
-        ["Superhero"] = "10921294559",
-        ["Toy"] = "10921308158",
-        ["Vampire"] = "1083455352",
-        ["Werewolf"] = "1083218792",
-        ["Wicked (Popular)"] = "104325245285198",
-        ["No Boundaries (Walmart)"] = "18747069148",
-        ["Zombie"] = "616161997"
-    },
-    ["Fall"] = {
-        ["Astronaut"] = "891617961",
-        ["Adidas Community"] = "98600215928904",
-        ["Bold"] = "16738333171",
-        ["Bubbly"] = "910001910",
-        ["Cartoony"] = "742637151",
-        ["Catwalk Glam"] = "92294537340807",
-        ["Confident"] = "1069973677",
-        ["Cowboy"] = "1014384571",
-        ["Elder"] = "10921105765",
-        ["Knight"] = "10921122579",
-        ["Levitation"] = "616005863",
-        ["Mage"] = "707829716",
-        ["Ninja"] = "656115606",
-        ["NFL"] = "129773241321032",
-        ["OldSchool"] = "10921241244",
-        ["Patrol"] = "1148863382",
-        ["Popstar"] = "1212900995",
-        ["Princess"] = "941000007",
-        ["Robot"] = "616087089",
-        ["R15 Reanimated"] = "4211216152",
-        ["R6"] = "12520972571",
-        ["Sneaky"] = "1132469004",
-        ["Sports (Adidas)"] = "18537367238",
-        ["Stylish"] = "616134815",
-        ["Stylized Female"] = "4708186162",
-        ["Superhero"] = "10921293373",
-        ["Toy"] = "782846423",
-        ["Vampire"] = "1083443587",
-        ["Werewolf"] = "1083189019",
-        ["Wicked (Popular)"] = "121152442762481",
-        ["No Boundaries (Walmart)"] = "18747062535",
-        ["Zombie"] = "616157476"
-    },
-    ["Climb"] = {
-        ["Astronaut"] = "10921032124",
-        ["Adidas Community"] = "88763136693023",
-        ["Bold"] = "16738332169",
-        ["Cartoony"] = "742636889",
-        ["Catwalk Glam"] = "119377220967554",
-        ["Confident"] = "1069946257",
-        ["CowBoy"] = "1014380606",
-        ["Elder"] = "845392038",
-        ["Ghost"] = "616003713",
-        ["Knight"] = "10921125160",
-        ["Levitation"] = "10921132092",
-        ["Mage"] = "707826056",
-        ["Ninja"] = "656114359",
-        ["(UGC) Retro"] = "121075390792786",
-        ["NFL"] = "134630013742019",
-        ["OldSchool"] = "10921229866",
-        ["Patrol"] = "1148811837",
-        ["Popstar"] = "1213044953",
-        ["Princess"] = "940996062",
-        ["R6"] = "12520982150",
-        ["Reanimated R15"] = "4211214992",
-        ["Robot"] = "616086039",
-        ["Sneaky"] = "1132461372",
-        ["Sports (Adidas)"] = "18537363391",
-        ["Stylish"] = "10921271391",
-        ["Stylized Female"] = "4708184253",
-        ["SuperHero"] = "10921286911",
-        ["Toy"] = "10921300839",
-        ["Vampire"] = "1083439238",
-        ["WereWolf"] = "10921329322",
-        ["Wicked (Popular)"] = "131326830509784",
-        ["No Boundaries (Walmart)"] = "18747060903",
-        ["Zombie"] = "616156119"
-    }
-}
-
-local lastAnimations = {}
-local animGuiOpen = false
-
-local function SetAnimation(animType, animId)
-    local character = player.Character
-    if not character or not character:FindFirstChild("Humanoid") then
-        return false
-    end
-    
-    local animate = character:FindFirstChild("Animate")
-    if not animate then 
-        return false
-    end
-    
-    local success = true
-    
-    -- HANYA SET ANIMASI YANG TIDAK MEMPENGARUHI IDLE (WALK, RUN, JUMP, FALL, CLIMB)
-    if animType == "Walk" and animate.walk then
-        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Walk = animId
-    elseif animType == "Run" and animate.run then
-        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Run = animId
-    elseif animType == "Jump" and animate.jump then
-        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Jump = animId
-    elseif animType == "Fall" and animate.fall then
-        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Fall = animId
-    elseif animType == "Climb" and animate.climb then
-        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Climb = animId
-    else
-        success = false
-    end
-    
-    if success then
-        pcall(function()
-            if writefile and readfile and isfile then
-                writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
-            end
-        end)
-    end
-    
-    return success
-end
-
-local function LoadSavedAnimations()
-    if not player.Character or not player.Character:FindFirstChild("Humanoid") then
-        return false
-    end
-    
-    local loaded = false
-    pcall(function()
-        if isfile and readfile and isfile("AnimHub_Saved.json") then
-            local savedData = readfile("AnimHub_Saved.json")
-            lastAnimations = HttpService:JSONDecode(savedData)
-            
-            for animType, animId in pairs(lastAnimations) do
-                SetAnimation(animType, animId)
-                loaded = true
-            end
-        end
-    end)
-    
-    return loaded
-end
-
-local function OpenAnimGUI()
-    if animGuiOpen then return end
-    
-    if not player.Character or not player.Character:FindFirstChild("Humanoid") then
-        return
-    end
-    
-    animGuiOpen = true
-
-    local sg = Instance.new("ScreenGui")
-    sg.Name = "AnimationsGUI"
-    sg.ResetOnSpawn = false
-    sg.Parent = player.PlayerGui
-
-    -- MAIN FRAME - 220x220
-    local main = Instance.new("Frame")
-    main.Size = UDim2.new(0, 220, 0, 220)
-    main.Position = UDim2.new(0.5, -110, 0.5, -110)
-    main.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-    main.BorderSizePixel = 0
-    main.Active = true
-    main.ZIndex = 1
-    main.Parent = sg
-
-    local mainCorner = Instance.new("UICorner")
-    mainCorner.CornerRadius = UDim.new(0, 8)
-    mainCorner.Parent = main
-
-    -- HEADER
-    local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 35)
-    header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-    header.BorderSizePixel = 0
-    header.ZIndex = 2
-    header.Parent = main
-
-    local headerCorner = Instance.new("UICorner")
-    headerCorner.CornerRadius = UDim.new(0, 8)
-    headerCorner.Parent = header
-
-    -- Search Box
-    local search = Instance.new("TextBox")
-    search.PlaceholderText = "Search animations..."
-    search.Size = UDim2.new(0, 70, 0, 25)
-    search.Position = UDim2.new(0, 5, 0, 5)
-    search.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    search.BorderSizePixel = 0
-    search.TextColor3 = Color3.fromRGB(255, 255, 255)
-    search.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
-    search.Font = Enum.Font.Gotham
-    search.TextSize = 10
-    search.ClearTextOnFocus = false
-    search.TextXAlignment = Enum.TextXAlignment.Left
-    search.ZIndex = 3
-    search.Parent = header
-
-    local searchCorner = Instance.new("UICorner")
-    searchCorner.CornerRadius = UDim.new(0, 6)
-    searchCorner.Parent = search
-
-    local searchPadding = Instance.new("UIPadding")
-    searchPadding.PaddingLeft = UDim.new(0, 8)
-    searchPadding.Parent = search
-
-    -- Close Button
-    local close = Instance.new("TextButton")
-    close.Text = "X"
-    close.Size = UDim2.new(0, 25, 0, 25)
-    close.Position = UDim2.new(1, -30, 0, 5)
-    close.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
-    close.TextColor3 = Color3.new(1, 1, 1)
-    close.Font = Enum.Font.GothamBold
-    close.TextSize = 12
-    close.ZIndex = 3
-    close.Parent = header
-
-    local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 6)
-    closeCorner.Parent = close
-
-    close.MouseButton1Click:Connect(function()
-        sg:Destroy()
-        animGuiOpen = false
-    end)
-
-    -- SCROLLABLE LIST
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.Size = UDim2.new(1, -10, 1, -45)
-    scroll.Position = UDim2.new(0, 5, 0, 40)
-    scroll.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
-    scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 6
-    scroll.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-    scroll.ZIndex = 2
-    scroll.ClipsDescendants = true
-    scroll.Parent = main
-
-    local scrollCorner = Instance.new("UICorner")
-    scrollCorner.CornerRadius = UDim.new(0, 6)
-    scrollCorner.Parent = scroll
-
-    -- Create Animation Buttons (HANYA YANG TIDAK BIKIN KAKU)
-    local buttons = {}
-    local yPos = 0
-
-    local function addButton(name, animType, animId)
-        local btn = Instance.new("TextButton")
-        btn.Name = name
-        btn.Text = name .. " - " .. animType
-        btn.Size = UDim2.new(1, -10, 0, 24)
-        btn.Position = UDim2.new(0, 5, 0, yPos)
-        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-        btn.BorderSizePixel = 0
-        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 9
-        btn.TextXAlignment = Enum.TextXAlignment.Left
-        btn.ZIndex = 3
-        btn.Parent = scroll
-
-        local btnCorner = Instance.new("UICorner")
-        btnCorner.CornerRadius = UDim.new(0, 4)
-        btnCorner.Parent = btn
-
-        local btnPadding = Instance.new("UIPadding")
-        btnPadding.PaddingLeft = UDim.new(0, 8)
-        btnPadding.Parent = btn
-        
-        btn.MouseButton1Click:Connect(function()
-            local success = SetAnimation(animType, animId)
-            if success then
-                AnimateButtonClick(btn)
-            end
-        end)
-
-        table.insert(buttons, btn)
-        yPos = yPos + 28
-    end
-
-    -- HANYA LOAD ANIMASI YANG AMAN
-    if Animations.Walk then
-        for name, id in pairs(Animations.Walk) do
-            if name and id then
-                addButton(name, "Walk", id)
-            end
-        end
-    end
-    
-    if Animations.Run then
-        for name, id in pairs(Animations.Run) do
-            if name and id then
-                addButton(name, "Run", id)
-            end
-        end
-    end
-    
-    if Animations.Jump then
-        for name, id in pairs(Animations.Jump) do
-            if name and id then
-                addButton(name, "Jump", id)
-            end
-        end
-    end
-    
-    if Animations.Fall then
-        for name, id in pairs(Animations.Fall) do
-            if name and id then
-                addButton(name, "Fall", id)
-            end
-        end
-    end
-    
-    if Animations.Climb then
-        for name, id in pairs(Animations.Climb) do
-            if name and id then
-                addButton(name, "Climb", id)
-            end
-        end
-    end
-    
-    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
-
-    -- Search Filter
-    search:GetPropertyChangedSignal("Text"):Connect(function()
-        local query = search.Text:lower()
-        local pos = 0
-        
-        for _, btn in ipairs(buttons) do
-            if btn and btn.Text then
-                if query == "" or btn.Text:lower():find(query, 1, true) then
-                    btn.Visible = true
-                    btn.Position = UDim2.new(0, 5, 0, pos)
-                    pos = pos + 28
-                else
-                    btn.Visible = false
-                end
-            end
-        end
-        scroll.CanvasSize = UDim2.new(0, 0, 0, pos)
-    end)
 end
 
 -- ========= GUI SETUP =========
@@ -1557,6 +882,21 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
 
+local ResizeButton = Instance.new("TextButton")
+ResizeButton.Size = UDim2.fromOffset(24, 24)
+ResizeButton.Position = UDim2.new(1, -24, 1, -24)
+ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ResizeButton.Text = "↖️"
+ResizeButton.TextColor3 = Color3.new(1, 1, 1)
+ResizeButton.Font = Enum.Font.GothamBold
+ResizeButton.TextSize = 20
+ResizeButton.ZIndex = 2
+ResizeButton.Parent = MainFrame
+
+local ResizeCorner = Instance.new("UICorner")
+ResizeCorner.CornerRadius = UDim.new(0, 8)
+ResizeCorner.Parent = ResizeButton
+
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
 Content.Position = UDim2.new(0, 5, 0, 36)
@@ -1568,7 +908,24 @@ Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
 Content.CanvasSize = UDim2.new(0, 0, 0, 800)
 Content.Parent = MainFrame
 
--- Enhanced Button Creation
+local MiniButton = Instance.new("TextButton")
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, -30)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Text = "⚙️"
+MiniButton.TextColor3 = Color3.new(1, 1, 1)
+MiniButton.Font = Enum.Font.GothamBold
+MiniButton.TextSize = 25
+MiniButton.Visible = false
+MiniButton.Active = true
+MiniButton.Draggable = true
+MiniButton.Parent = ScreenGui
+
+local MiniCorner = Instance.new("UICorner")
+MiniCorner.CornerRadius = UDim.new(0, 8)
+MiniCorner.Parent = MiniButton
+
+-- Enhanced Button Creation with Powerful Animations
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -1585,6 +942,12 @@ local function CreateButton(text, x, y, w, h, color, parent)
     corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = btn
     
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(0,0,0)
+    stroke.Thickness = 1.0
+    stroke.Transparency = 0.0
+    stroke.Parent = btn
+    
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = Color3.new(
@@ -1593,11 +956,17 @@ local function CreateButton(text, x, y, w, h, color, parent)
                 math.min(color.B * 1.2, 1)
             )
         }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.3
+        }):Play()
     end)
     
     btn.MouseLeave:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = color
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.7
         }):Play()
     end)
     
@@ -1663,8 +1032,6 @@ end
 
 -- ========= UI ELEMENTS =========
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
-local AnimBtn = CreateButton("ANIMATIONS", 127, 5, 113, 30, Color3.fromRGB(80, 15, 150))
-
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1677,7 +1044,7 @@ local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22,
 
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(58, 26)
-SpeedBox.Position = UDim2.fromOffset(5, 129)
+SpeedBox.Position = UDim2.fromOffset(0, 129)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -1694,12 +1061,12 @@ SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(90, 26)
-FilenameBox.Position = UDim2.fromOffset(68, 129)
+FilenameBox.Size = UDim2.fromOffset(58, 26)
+FilenameBox.Position = UDim2.fromOffset(63, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
-FilenameBox.PlaceholderText = "File Name..."
+FilenameBox.PlaceholderText = "File..."
 FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 FilenameBox.Font = Enum.Font.GothamBold
 FilenameBox.TextSize = 11
@@ -1713,7 +1080,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(163, 129)
+WalkSpeedBox.Position = UDim2.fromOffset(126, 129)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1799,6 +1166,95 @@ WalkSpeedBox.FocusLost:Connect(function()
     end
 end)
 
+-- ========= RESPONSIVE RESIZE FUNCTIONALITY =========
+local IsResizing = false
+local StartMousePos
+local StartSize
+
+ResizeButton.MouseButton1Down:Connect(function()
+    IsResizing = true
+    StartMousePos = UserInputService:GetMouseLocation()
+    StartSize = MainFrame.Size
+end)
+
+UserInputService.TouchStarted:Connect(function(touch, processed)
+    if processed then return end
+    if touch and ResizeButton:IsDescendantOf(ScreenGui) then
+        local touchPos = Vector2.new(touch.Position.X, touch.Position.Y)
+        local framePos = MainFrame.AbsolutePosition
+        local frameSize = MainFrame.AbsoluteSize
+        
+        if touchPos.X >= framePos.X + frameSize.X - 50 and 
+           touchPos.Y >= framePos.Y + frameSize.Y - 50 then
+            IsResizing = true
+            StartMousePos = touchPos
+            StartSize = MainFrame.Size
+        end
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if IsResizing then
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local currentMousePos
+            if input.UserInputType == Enum.UserInputType.Touch then
+                currentMousePos = Vector2.new(input.Position.X, input.Position.Y)
+            else
+                currentMousePos = UserInputService:GetMouseLocation()
+            end
+            
+            local delta = currentMousePos - StartMousePos
+            
+            local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600)
+            
+            MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
+            
+            local widthScale = newWidth / 250
+            
+            RecordBtnBig.Size = UDim2.fromOffset(117 * widthScale, 30)
+            PlayBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            StopBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            PauseBtnBig.Size = UDim2.fromOffset(75 * widthScale, 30)
+            
+            StopBtnBig.Position = UDim2.fromOffset(5 + (75 * widthScale) + 5, 40)
+            PauseBtnBig.Position = UDim2.fromOffset(5 + (75 * widthScale) * 2 + 10, 40)
+            
+            LoopBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            JumpBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            ShiftLockBtn.Size = UDim2.fromOffset(78 * widthScale, 22)
+            
+            JumpBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) + 5, 75)
+            ShiftLockBtn.Position = UDim2.fromOffset(5 + (78 * widthScale) * 2 + 10, 75)
+            
+            RespawnBtn.Size = UDim2.fromOffset(117 * widthScale, 22)
+            
+            SpeedBox.Size = UDim2.fromOffset(58 * widthScale, 26)
+            FilenameBox.Size = UDim2.fromOffset(58 * widthScale, 26)
+            WalkSpeedBox.Size = UDim2.fromOffset(58 * widthScale, 26)
+            
+            FilenameBox.Position = UDim2.fromOffset(5 + (58 * widthScale) + 5, 129)
+            WalkSpeedBox.Position = UDim2.fromOffset(5 + (58 * widthScale) * 2 + 10, 129)
+            
+            SaveFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            LoadFileBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            LoadFileBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 160)
+            
+            PathToggleBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
+            MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
+            
+            RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        IsResizing = false
+    end
+end)
+
 -- ========= REORDER FUNCTIONS =========
 local function MoveRecordingUp(name)
     local currentIndex = table.find(RecordingOrder, name)
@@ -1825,7 +1281,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= FIXED UPDATE RECORD LIST FUNCTION =========
+-- ========= UPDATE RECORD LIST WITH CHECKBOX =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -1835,6 +1291,11 @@ function UpdateRecordList()
     for index, name in ipairs(RecordingOrder) do
         local rec = RecordedMovements[name]
         if not rec then continue end
+        
+        -- Initialize selected state if not exists
+        if SelectedReplays[name] == nil then
+            SelectedReplays[name] = false
+        end
         
         local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -6, 0, 40)
@@ -1846,10 +1307,75 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
-        -- Play Button (kiri)
+        -- NEW: Checkbox
+        local checkbox = Instance.new("TextButton")
+        checkbox.Size = UDim2.fromOffset(18, 18)
+        checkbox.Position = UDim2.fromOffset(4, 11)
+        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
+        checkbox.Text = SelectedReplays[name] and "✓" or ""
+        checkbox.TextColor3 = Color3.new(1, 1, 1)
+        checkbox.Font = Enum.Font.GothamBold
+        checkbox.TextSize = 14
+        checkbox.Parent = item
+        
+        local checkboxCorner = Instance.new("UICorner")
+        checkboxCorner.CornerRadius = UDim.new(0, 3)
+        checkboxCorner.Parent = checkbox
+        
+        -- Get recording rig type for display
+        local recordingRigType = GetRecordingRigType(rec)
+        local currentRigType = GetRigType()
+        local rigMismatch = recordingRigType ~= currentRigType
+        
+        local nameBox = Instance.new("TextBox")
+        nameBox.Size = UDim2.new(1, -160, 0, 18)
+        nameBox.Position = UDim2.new(0, 26, 0, 4)
+        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        nameBox.BorderSizePixel = 0
+        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
+        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameBox.Font = Enum.Font.GothamBold
+        nameBox.TextSize = 10
+        nameBox.TextXAlignment = Enum.TextXAlignment.Left
+        nameBox.PlaceholderText = "Enter name..."
+        nameBox.ClearTextOnFocus = false
+        nameBox.Parent = item
+        
+        local nameBoxCorner = Instance.new("UICorner")
+        nameBoxCorner.CornerRadius = UDim.new(0, 3)
+        nameBoxCorner.Parent = nameBox
+        
+        nameBox.FocusLost:Connect(function()
+            local newName = nameBox.Text
+            if newName and newName ~= "" then
+                checkpointNames[name] = newName
+                PlaySound("Success")
+            end
+        end)
+        
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(1, -160, 0, 16)
+        infoLabel.Position = UDim2.new(0, 26, 0, 22)
+        infoLabel.BackgroundTransparency = 1
+        if #rec > 0 then
+            local totalSeconds = rec[#rec].Timestamp
+            local rigText = recordingRigType
+            if rigMismatch then
+                rigText = rigText .. " ⚠️→" .. currentRigType
+            end
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. "f • " .. rigText
+        else
+            infoLabel.Text = "0:00 • 0f • " .. recordingRigType
+        end
+        infoLabel.TextColor3 = rigMismatch and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(255, 255, 255)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 8
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
+        
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
-        playBtn.Position = UDim2.new(0, 5, 0, 7)
+        playBtn.Position = UDim2.new(1, -110, 0, 7)
         playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1861,56 +1387,9 @@ function UpdateRecordList()
         playCorner.CornerRadius = UDim.new(0, 6)
         playCorner.Parent = playBtn
         
-        -- Delete Button (kanan play)
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(0, 35, 0, 7)
-        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        delBtn.Text = "x"
-        delBtn.TextColor3 = Color3.new(1, 1, 1)
-        delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 30
-        delBtn.Parent = item
-        
-        local delCorner = Instance.new("UICorner")
-        delCorner.CornerRadius = UDim.new(0, 6)
-        delCorner.Parent = delBtn
-        
-        -- TextBox untuk nama (tengah)
-        local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(0, 80, 0, 18)
-        nameBox.Position = UDim2.new(0, 65, 0, 4)
-        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        nameBox.BorderSizePixel = 0
-        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
-        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        nameBox.Font = Enum.Font.GothamBold
-        nameBox.TextSize = 10
-        nameBox.TextXAlignment = Enum.TextXAlignment.Center
-        nameBox.PlaceholderText = "Enter name..."
-        nameBox.ClearTextOnFocus = false
-        nameBox.Parent = item
-        
-        local nameBoxCorner = Instance.new("UICorner")
-        nameBoxCorner.CornerRadius = UDim.new(0, 3)
-        nameBoxCorner.Parent = nameBox
-        
-        -- SELECT TOGGLE BUTTON (kecil di bawah textbox)
-        local selectToggle = Instance.new("TextButton")
-        selectToggle.Size = UDim2.fromOffset(20, 12)
-        selectToggle.Position = UDim2.new(0, 65, 0, 24)
-        selectToggle.BackgroundColor3 = SelectedReplay == name and Color3.fromRGB(60, 120, 200) or Color3.fromRGB(80, 80, 80)
-        selectToggle.Text = ""
-        selectToggle.Parent = item
-        
-        local selectCorner = Instance.new("UICorner")
-        selectCorner.CornerRadius = UDim.new(0, 3)
-        selectCorner.Parent = selectToggle
-        
-        -- Up Button (kanan textbox)
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.new(0, 150, 0, 7)
+        upBtn.Position = UDim2.new(1, -80, 0, 7)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1922,10 +1401,9 @@ function UpdateRecordList()
         upCorner.CornerRadius = UDim.new(0, 6)
         upCorner.Parent = upBtn
         
-        -- Down Button (paling kanan)
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.new(0, 180, 0, 7)
+        downBtn.Position = UDim2.new(1, -50, 0, 7)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1937,37 +1415,26 @@ function UpdateRecordList()
         downCorner.CornerRadius = UDim.new(0, 6)
         downCorner.Parent = downBtn
         
-        -- Info Label (durasi dan frames)
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(0, 60, 0, 16)
-        infoLabel.Position = UDim2.new(0, 90, 0, 24)
-        infoLabel.BackgroundTransparency = 1
-        if #rec > 0 then
-            local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
-        else
-            infoLabel.Text = "0:00 • 0 frames"
-        end
-        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        infoLabel.Font = Enum.Font.GothamBold
-        infoLabel.TextSize = 8
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Center
-        infoLabel.Parent = item
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(25, 25)
+        delBtn.Position = UDim2.new(1, -20, 0, 7)
+        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        delBtn.Text = "x"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 30
+        delBtn.Parent = item
         
-        -- EVENT HANDLERS
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 6)
+        delCorner.Parent = delBtn
         
-        -- Select Toggle Button
-        selectToggle.MouseButton1Click:Connect(function()
-            SelectReplay(name, item)
-            UpdateRecordList()
-        end)
-        
-        nameBox.FocusLost:Connect(function()
-            local newName = nameBox.Text
-            if newName and newName ~= "" then
-                checkpointNames[name] = newName
-                PlaySound("Success")
-            end
+        -- Checkbox toggle
+        checkbox.MouseButton1Click:Connect(function()
+            SelectedReplays[name] = not SelectedReplays[name]
+            checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
+            checkbox.Text = SelectedReplays[name] and "✓" or ""
+            PlaySound("Toggle")
         end)
         
         upBtn.MouseButton1Click:Connect(function()
@@ -1995,13 +1462,7 @@ function UpdateRecordList()
             AnimateButtonClick(delBtn)
             RecordedMovements[name] = nil
             checkpointNames[name] = nil
-            
-            -- Jika yang dihapus adalah selected replay, reset selection
-            if SelectedReplay == name then
-                SelectedReplay = nil
-                SelectedReplayButton = nil
-            end
-            
+            SelectedReplays[name] = nil
             local idx = table.find(RecordingOrder, name)
             if idx then table.remove(RecordingOrder, idx) end
             UpdateRecordList()
@@ -2030,7 +1491,7 @@ local function EnableJump()
     if char then
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            humanoid.JumpPower = prePauseJumpPower or 50
+            humanoid.JumpPower = prePauseJumpPower or GetDefaultJumpPower()
         end
     end
 end
@@ -2055,6 +1516,7 @@ local function AutoSaveRecording()
     RecordedMovements[name] = CurrentRecording.Frames
     table.insert(RecordingOrder, name)
     checkpointNames[name] = "checkpoint_" .. #RecordingOrder
+    SelectedReplays[name] = false
     
     UpdateRecordList()
     
@@ -2119,7 +1581,7 @@ function StartRecording()
             MoveState = moveState,
             WalkSpeed = hum and hum.WalkSpeed or 16,
             Timestamp = tick() - CurrentRecording.StartTime,
-            RigType = GetRigType()
+            RigType = GetRigType(char)
         }
         
         table.insert(CurrentRecording.Frames, frameData)
@@ -2152,7 +1614,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= OPTIMIZED PLAYBACK SYSTEM =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH RIG COMPATIBILITY =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2174,9 +1636,20 @@ function PlayRecording(name)
     playbackStartTime = tick()
     totalPausedDuration = 0
     pauseStartTime = 0
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
+
+    -- Detect rig compatibility
+    local recordedRig = GetRecordingRigType(recording)
+    local currentRig = GetRigType()
+    
+    if recordedRig ~= currentRig then
+        warn(string.format("⚠️ Recording is %s, playing on %s. Auto-adjusting velocity...", recordedRig, currentRig))
+    end
 
     SaveHumanoidState()
     DisableJump()
+    
     HideJumpButton()
     PlaySound("Play")
 
@@ -2184,6 +1657,9 @@ function PlayRecording(name)
         if not IsPlaying then
             playbackConnection:Disconnect()
             RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
         
@@ -2192,6 +1668,9 @@ function PlayRecording(name)
                 pauseStartTime = tick()
                 RestoreHumanoidState()
                 ShowJumpButton()
+                if ShiftLockEnabled then
+                    ApplyVisibleShiftLock()
+                end
                 UpdatePauseMarker()
             end
             return
@@ -2209,6 +1688,9 @@ function PlayRecording(name)
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
             RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
         
@@ -2217,14 +1699,16 @@ function PlayRecording(name)
         if not hum or not hrp then
             IsPlaying = false
             RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
 
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- Find current frame
-        while currentPlaybackFrame < #recording and recording[currentPlaybackFrame + 1].Timestamp <= effectiveTime do
+        while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
             currentPlaybackFrame = currentPlaybackFrame + 1
         end
 
@@ -2232,29 +1716,364 @@ function PlayRecording(name)
             IsPlaying = false
             RestoreFullUserControl()
             PlaySound("Success")
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             return
         end
 
         local frame = recording[currentPlaybackFrame]
-        if frame then
-            pcall(function()
-                local adjustedFrame = AdjustPositionForRig(frame, hrp)
-                local pos = Vector3.new(adjustedFrame.Position[1], adjustedFrame.Position[2], adjustedFrame.Position[3])
-                local look = Vector3.new(adjustedFrame.LookVector[1], adjustedFrame.LookVector[2], adjustedFrame.LookVector[3])
-                local up = Vector3.new(adjustedFrame.UpVector[1], adjustedFrame.UpVector[2], adjustedFrame.UpVector[3])
-                
-                hrp.CFrame = CFrame.lookAt(pos, pos + look, up)
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(adjustedFrame)
-                
-                if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(adjustedFrame) * CurrentSpeed
-                    hum.AutoRotate = false
-                end
-            end)
+        if not frame then
+            IsPlaying = false
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            return
         end
+
+        pcall(function()
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, recordedRig, currentRig)
+            
+            if hum then
+                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                hum.AutoRotate = false
+                
+                local moveState = frame.MoveState
+                local stateTime = tick()
+                
+                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    lastPlaybackState = moveState
+                    lastStateChangeTime = stateTime
+                    
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                        hum.AutoRotate = false
+                        
+                    elseif moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        
+                    elseif moveState == "Falling" then
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        if currentVelocity.Y < -8 then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        end
+                        
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+            end
+            
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
+        end)
     end)
     
     AddConnection(playbackConnection)
+end
+
+-- ========= PERFECTED AUTO LOOP SYSTEM WITH RIG COMPATIBILITY =========
+function StartAutoLoopAll()
+    if not AutoLoop then return end
+    
+    if #RecordingOrder == 0 then
+        AutoLoop = false
+        AnimateLoop(false)
+        PlaySound("Error")
+        return
+    end
+    
+    PlaySound("Play")
+    
+    CurrentLoopIndex = 1
+    IsAutoLoopPlaying = true
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
+    
+    loopConnection = task.spawn(function()
+        while AutoLoop and IsAutoLoopPlaying do
+            if not AutoLoop or not IsAutoLoopPlaying then
+                break
+            end
+            
+            local recordingName = RecordingOrder[CurrentLoopIndex]
+            local recording = RecordedMovements[recordingName]
+            
+            if not recording or #recording == 0 then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(1)
+                continue
+            end
+            
+            -- Detect rig compatibility
+            local recordedRig = GetRecordingRigType(recording)
+            local currentRig = GetRigType()
+            
+            if recordedRig ~= currentRig then
+                warn(string.format("⚠️ Loop: Recording %s is %s, playing on %s", recordingName, recordedRig, currentRig))
+            end
+            
+            if not IsCharacterReady() then
+                if AutoRespawn then
+                    ResetCharacter()
+                    local success = WaitForRespawn()
+                    if not success then
+                        task.wait(2)
+                        continue
+                    end
+                    task.wait(1.5)
+                else
+                    local waitAttempts = 0
+                    local maxWaitAttempts = 120
+                    
+                    while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                        waitAttempts = waitAttempts + 1
+                        
+                        if waitAttempts >= maxWaitAttempts then
+                            waitAttempts = 0
+                        end
+                        
+                        task.wait(0.5)
+                    end
+                    
+                    if not AutoLoop or not IsAutoLoopPlaying then break end
+                    task.wait(1.0)
+                end
+            end
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            local playbackCompleted = false
+            local playbackStart = tick()
+            local playbackPausedTime = 0
+            local playbackPauseStart = 0
+            local currentFrame = 1
+            local deathRetryCount = 0
+            local maxDeathRetries = 999999
+            
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            
+            SaveHumanoidState()
+            DisableJump()
+            HideJumpButton()
+            
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
+                
+                if not IsCharacterReady() then
+                    deathRetryCount = deathRetryCount + 1
+                    
+                    if AutoRespawn then
+                        ResetCharacter()
+                        local success = WaitForRespawn()
+                        
+                        if success then
+                            RestoreFullUserControl()
+                            task.wait(1.5)
+                            
+                            currentFrame = 1
+                            playbackStart = tick()
+                            playbackPausedTime = 0
+                            playbackPauseStart = 0
+                            lastPlaybackState = nil
+                            lastStateChangeTime = 0
+                            
+                            SaveHumanoidState()
+                            DisableJump()
+                            HideJumpButton()
+                            
+                            continue
+                        else
+                            task.wait(2)
+                            continue
+                        end
+                    else
+                        local manualRespawnWait = 0
+                        local maxManualWait = 120
+                        
+                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                            manualRespawnWait = manualRespawnWait + 1
+                            
+                            if manualRespawnWait >= maxManualWait then
+                                manualRespawnWait = 0
+                            end
+                            
+                            task.wait(0.5)
+                        end
+                        
+                        if not AutoLoop or not IsAutoLoopPlaying then break end
+                        
+                        RestoreFullUserControl()
+                        task.wait(1.5)
+                        
+                        currentFrame = 1
+                        playbackStart = tick()
+                        playbackPausedTime = 0
+                        playbackPauseStart = 0
+                        lastPlaybackState = nil
+                        lastStateChangeTime = 0
+                        
+                        SaveHumanoidState()
+                        DisableJump()
+                        HideJumpButton()
+                        
+                        continue
+                    end
+                end
+                
+                if IsPaused then
+                    if playbackPauseStart == 0 then
+                        playbackPauseStart = tick()
+                        RestoreHumanoidState()
+                        ShowJumpButton()
+                        if ShiftLockEnabled then
+                            ApplyVisibleShiftLock()
+                        end
+                        UpdatePauseMarker()
+                    end
+                    task.wait(0.1)
+                else
+                    if playbackPauseStart > 0 then
+                        playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
+                        playbackPauseStart = 0
+                        DisableJump()
+                        HideJumpButton()
+                        UpdatePauseMarker()
+                    end
+                    
+                    local char = player.Character
+                    if not char or not char:FindFirstChild("HumanoidRootPart") then
+                        task.wait(0.5)
+                        break
+                    end
+                    
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if not hum or not hrp then
+                        task.wait(0.5)
+                        break
+                    end
+                    
+                    local currentTime = tick()
+                    local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
+                    
+                    while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                        currentFrame = currentFrame + 1
+                    end
+                    
+                    if currentFrame >= #recording then
+                        playbackCompleted = true
+                        break
+                    end
+                    
+                    local frame = recording[currentFrame]
+                    if frame then
+                        pcall(function()
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, recordedRig, currentRig)
+                            
+                            if hum then
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = false
+                                
+                                local moveState = frame.MoveState
+                                local stateTime = tick()
+                                
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                    lastPlaybackState = moveState
+                                    lastStateChangeTime = stateTime
+                                    
+                                    if moveState == "Climbing" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                        hum.PlatformStand = false
+                                        hum.AutoRotate = false
+                                    elseif moveState == "Jumping" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    elseif moveState == "Falling" then
+                                        local currentVelocity = hrp.AssemblyLinearVelocity
+                                        if currentVelocity.Y < -8 then
+                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                        end
+                                    elseif moveState == "Swimming" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                    else
+                                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                                    end
+                                end
+                            end
+                            
+                            if ShiftLockEnabled then
+                                ApplyVisibleShiftLock()
+                            end
+                        end)
+                    end
+                    
+                    task.wait()
+                end
+            end
+            
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            
+            if playbackCompleted then
+                PlaySound("Success")
+                
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
+                
+                task.wait(0.5)
+            else
+                if not AutoLoop or not IsAutoLoopPlaying then
+                    break
+                else
+                    task.wait(1)
+                end
+            end
+        end
+        
+        IsAutoLoopPlaying = false
+        IsPaused = false
+        RestoreFullUserControl()
+        UpdatePauseMarker()
+        lastPlaybackState = nil
+        lastStateChangeTime = 0
+    end)
+end
+
+function StopAutoLoopAll()
+    AutoLoop = false
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    IsPaused = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
+    
+    if loopConnection then
+        task.cancel(loopConnection)
+        loopConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    UpdatePauseMarker()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
 end
 
 function StopPlayback()
@@ -2266,7 +2085,14 @@ function StopPlayback()
     if not IsPlaying then return end
     IsPlaying = false
     IsPaused = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     RestoreFullUserControl()
+    UpdatePauseMarker()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
     PlaySound("Stop")
 end
 
@@ -2279,6 +2105,9 @@ function PausePlayback()
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
             RestoreHumanoidState()
             ShowJumpButton()
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
             UpdatePauseMarker()
             PlaySound("Click")
         else
@@ -2298,6 +2127,9 @@ function PausePlayback()
             PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
             RestoreHumanoidState()
             ShowJumpButton()
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
             UpdatePauseMarker()
             PlaySound("Click")
         else
@@ -2312,7 +2144,184 @@ function PausePlayback()
     end
 end
 
--- ========= BUTTON EVENTS =========
+-- ========= SELECTIVE SAVE SYSTEM =========
+local function SaveToObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    -- Check if any replays selected
+    local hasSelected = false
+    local selectedCount = 0
+    for name, isSelected in pairs(SelectedReplays) do
+        if isSelected then
+            hasSelected = true
+            selectedCount = selectedCount + 1
+        end
+    end
+    
+    if not next(RecordedMovements) then
+        PlaySound("Error")
+        return
+    end
+    
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "2.0",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
+        
+        local recordingsToSave = {}
+        
+        if hasSelected then
+            -- Save only selected recordings
+            for name, isSelected in pairs(SelectedReplays) do
+                if isSelected and RecordedMovements[name] then
+                    recordingsToSave[name] = RecordedMovements[name]
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
+            end
+            warn(string.format("💾 Saving %d selected replay(s) to %s", selectedCount, filename))
+        else
+            -- Save all recordings
+            recordingsToSave = RecordedMovements
+            saveData.RecordingOrder = RecordingOrder
+            saveData.CheckpointNames = checkpointNames
+            warn(string.format("💾 Saving all %d replay(s) to %s", #RecordingOrder, filename))
+        end
+        
+        for name, frames in pairs(recordingsToSave) do
+            local checkpointData = {
+                Name = name,
+                DisplayName = saveData.CheckpointNames[name] or "checkpoint",
+                Frames = frames
+            }
+            table.insert(saveData.Checkpoints, checkpointData)
+        end
+        
+        local obfuscatedData = ObfuscateRecordingData(recordingsToSave)
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        writefile(filename, jsonString)
+        PlaySound("Success")
+        
+        -- Auto-deselect after save
+        if hasSelected then
+            for name, _ in pairs(SelectedReplays) do
+                SelectedReplays[name] = false
+            end
+            UpdateRecordList()
+        end
+    end)
+    
+    if not success then
+        PlaySound("Error")
+        warn("❌ Save failed: " .. tostring(err))
+    end
+end
+
+local function LoadFromObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        if not isfile(filename) then
+            PlaySound("Error")
+            warn("❌ File not found: " .. filename)
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        SelectedReplays = {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    SelectedReplays[name] = false
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                    
+                    -- Check rig compatibility
+                    local recordedRig = GetRecordingRigType(frames)
+                    local currentRig = GetRigType()
+                    if recordedRig ~= currentRig then
+                        warn(string.format("⚠️ '%s' recorded on %s, current rig: %s", name, recordedRig, currentRig))
+                    end
+                end
+            end
+        else
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    SelectedReplays[name] = false
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+        warn(string.format("✅ Loaded %d replay(s) from %s", #RecordingOrder, filename))
+    end)
+    
+    if not success then
+        PlaySound("Error")
+        warn("❌ Load failed: " .. tostring(err))
+    end
+end
+
+-- ========= PATH VISUALIZATION FOR ALL RECORDINGS =========
+local function VisualizeAllPaths()
+    ClearPathVisualization()
+    
+    if not ShowPaths then return end
+    
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
+        
+        local previousPos = Vector3.new(
+            recording[1].Position[1],
+            recording[1].Position[2], 
+            recording[1].Position[3]
+        )
+        
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
+            end
+        end
+    end
+end
+
+-- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
 RecordBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(RecordBtnBig)
     if IsRecording then 
@@ -2322,21 +2331,10 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     end
 end)
 
-AnimBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(AnimBtn)
-    OpenAnimGUI()
-end)
-
 PlayBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(PlayBtnBig)
     if AutoLoop then return end
-    
-    local selected = GetSelectedReplay()
-    if selected then
-        PlayRecording(selected)
-    else
-        PlayRecording()
-    end
+    PlayRecording()
 end)
 
 StopBtnBig.MouseButton1Click:Connect(function()
@@ -2395,12 +2393,12 @@ end)
 
 SaveFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(SaveFileBtn)
-    SaveSelectedReplay()
+    SaveToObfuscatedJSON()
 end)
 
 LoadFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoadFileBtn)
-    LoadSelectedReplay()
+    LoadFromObfuscatedJSON()
 end)
 
 PathToggleBtn.MouseButton1Click:Connect(function()
@@ -2418,6 +2416,18 @@ end)
 MergeBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(MergeBtn)
     CreateMergedReplay()
+end)
+
+HideButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(HideButton)
+    MainFrame.Visible = false
+    MiniButton.Visible = true
+end)
+
+MiniButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MiniButton)
+    MainFrame.Visible = true
+    MiniButton.Visible = false
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
@@ -2438,34 +2448,57 @@ UserInputService.InputBegan:Connect(function(input, processed)
     if input.KeyCode == Enum.KeyCode.F9 then
         if IsRecording then StopRecording() else StartRecording() end
     elseif input.KeyCode == Enum.KeyCode.F10 then
-        if IsPlaying or AutoLoop then StopPlayback() else 
-            local selected = GetSelectedReplay()
-            if selected then
-                PlayRecording(selected)
-            else
-                PlayRecording()
-            end
-        end
+        if IsPlaying or AutoLoop then StopPlayback() else PlayRecording() end
+    elseif input.KeyCode == Enum.KeyCode.F11 then
+        MainFrame.Visible = not MainFrame.Visible
+        MiniButton.Visible = not MainFrame.Visible
+    elseif input.KeyCode == Enum.KeyCode.F8 then
+        local char = player.Character
+        if char then CompleteCharacterReset(char) end
     elseif input.KeyCode == Enum.KeyCode.F7 then
         AutoLoop = not AutoLoop
         AnimateLoop(AutoLoop)
         if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
-    elseif input.KeyCode == Enum.KeyCode.F12 then
-        OpenAnimGUI()
+    elseif input.KeyCode == Enum.KeyCode.F6 then
+        SaveToObfuscatedJSON()
+    elseif input.KeyCode == Enum.KeyCode.F5 then
+        AutoRespawn = not AutoRespawn
+        AnimateRespawn(AutoRespawn)
+    elseif input.KeyCode == Enum.KeyCode.F4 then
+        ShowPaths = not ShowPaths
+        if ShowPaths then
+            PathToggleBtn.Text = "HIDE RUTE"
+            VisualizeAllPaths()
+        else
+            PathToggleBtn.Text = "SHOW RUTE"
+            ClearPathVisualization()
+        end
+    elseif input.KeyCode == Enum.KeyCode.F3 then
+        ToggleVisibleShiftLock()
+        AnimateShiftLock(ShiftLockEnabled)
+    elseif input.KeyCode == Enum.KeyCode.F2 then
+        ToggleInfiniteJump()
+        AnimateJump(InfiniteJump)
     end
 end)
 
 -- ========= INITIAL SETUP =========
 UpdateRecordList()
 
+-- Detect current rig type on startup
 task.spawn(function()
-    task.wait(2)
-    LoadSavedAnimations()
+    task.wait(1)
+    local currentRig = GetRigType()
+    warn(string.format("🎮 ByaruL Macro System Loaded | Current Rig: %s", currentRig))
+    warn("📋 Hotkeys: F9=Record | F10=Play | F7=Loop | F6=Save | F5=Respawn | F11=Hide")
 end)
 
-player.CharacterAdded:Connect(function(character)
+task.spawn(function()
     task.wait(2)
-    LoadSavedAnimations()
+    local filename = "MyReplays.json"
+    if isfile and readfile and isfile(filename) then
+        LoadFromObfuscatedJSON()
+    end
 end)
 
 player.CharacterRemoving:Connect(function()
@@ -2476,3 +2509,60 @@ player.CharacterRemoving:Connect(function()
         StopPlayback()
     end
 end)
+
+-- ========= CHARACTER ADDED HANDLER =========
+player.CharacterAdded:Connect(function(character)
+    task.wait(1)
+    local newRig = GetRigType(character)
+    CurrentRigType = newRig
+    
+    -- Update humanoid settings
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = GetDefaultJumpPower(newRig)
+    end
+    
+    warn(string.format("🔄 Character respawned | Rig Type: %s", newRig))
+end)
+
+-- ========= FINAL INITIALIZATION =========
+game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
+    if descendant == ScreenGui then
+        CleanupConnections()
+        ClearPathVisualization()
+        ShowJumpButton()
+    end
+end)
+
+-- ========= RIG TYPE MONITOR (Optional Debug) =========
+task.spawn(function()
+    while true do
+        task.wait(5)
+        if player.Character then
+            local currentRig = GetRigType()
+            if currentRig ~= CurrentRigType then
+                CurrentRigType = currentRig
+                warn(string.format("⚠️ Rig type changed to: %s", currentRig))
+            end
+        end
+    end
+end)
+
+warn("✅ ByaruL Macro System V2.0 - Full R6/R15 Support Loaded!")
+warn("📝 Features:")
+warn("   - Auto Rig Detection (R6/R15)")
+warn("   - Auto Velocity Adjustment")
+warn("   - Selective Save System (Checkbox)")
+warn("   - Rig Compatibility Warning")
+warn("   - Cross-Rig Playback Support")
+warn("")
+warn("💡 How to use Selective Save:")
+warn("   1. Check ✓ replays you want to save")
+warn("   2. Leave unchecked to save ALL replays")
+warn("   3. Click 'SAVE FILE' button")
+warn("")
+warn("⚠️ Rig Compatibility:")
+warn("   - R6 recording → R15 playback: Auto-adjusted (+17.6% velocity)")
+warn("   - R15 recording → R6 playback: Auto-adjusted (-15% velocity)")
+warn("   - Warnings shown in Output when rig mismatch detected")
