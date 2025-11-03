@@ -33,14 +33,6 @@ local RIG_PROFILES = {
         GroundOffset = 0.0,
         HeightCompensation = 0.0
     },
-    ["R15_Tall"] = {
-        Height = 6.5,
-        HipHeight = 2.8,
-        VelocityMultiplier = 1.2,
-        JumpPower = 60,
-        GroundOffset = 0.8,
-        HeightCompensation = 1.2
-    }
 }
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
@@ -174,15 +166,20 @@ local function DetectAdvancedRigType(character)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return "R15" end
     
-    local rigType = humanoid.RigType.Name
+    -- Simple detection: hanya R6 atau R15
+    return humanoid.RigType.Name
+end
     
     -- Detect tall R15 characters (Idol 2D, etc)
-    if rigType == "R15" then
-        local height = humanoid.Height
-        if height > 6.0 then
-            return "R15_Tall"
-        end
+if rigType == "R15" then
+    local success, height = pcall(function()
+        return humanoid.Height
+    end)
+    
+    if success and height and height > 6.0 then
+        return "R15_Tall"
     end
+end
     
     return rigType
 end
