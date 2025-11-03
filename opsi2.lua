@@ -117,6 +117,7 @@ local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
+local SelectedReplaysList = {}
 
 -- ========= VISIBLE SHIFTLOCK SYSTEM =========
 local shiftLockConnection = nil
@@ -920,7 +921,7 @@ local function EnableJump()
     end
 end
 
--- ========= PERFECTED MOVETO PLAYBACK SYSTEM =========
+-- ========= PERFECT MOVETO SYSTEM - PURE FRAME BY FRAME =========
 local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, currentRig)
     if not recording or #recording == 0 then return end
     
@@ -931,21 +932,29 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
     if not hum or not hrp then return end
+
+    -- RESET STATE
+    hum:MoveTo(hrp.Position)
     
+    local currentFrame = startFrame or 1
+    playbackStartTime = tick()
+    totalPausedDuration = 0
+    pauseStartTime = 0
+    lastPlaybackState = nil
+
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
             playbackConnection:Disconnect()
             return
         end
         
+        -- PAUSE HANDLING
         if IsPaused then
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
                 RestoreHumanoidState()
                 ShowJumpButton()
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
+                if ShiftLockEnabled then ApplyVisibleShiftLock() end
                 UpdatePauseMarker()
             end
             return
@@ -960,6 +969,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
             end
         end
 
+        -- CHARACTER SAFETY CHECK
         char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
@@ -975,33 +985,19 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
             return
         end
 
+        -- TIME CALCULATION
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- Find current frame based on timestamp
-        local targetFrame
-        local currentFrame = 1
-        
-        if UseFrameInterpolation then
-            targetFrame = GetInterpolatedFrame(recording, effectiveTime)
-            -- Find the closest frame index for progress tracking
-            for i = 1, #recording do
-                if recording[i].Timestamp <= effectiveTime then
-                    currentFrame = i
-                else
-                    break
-                end
-            end
-        else
-            while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                currentFrame = currentFrame + 1
-            end
-            targetFrame = recording[currentFrame]
+        -- SIMPLE FRAME PROGRESSION - Pure frame by frame
+        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+            currentFrame = currentFrame + 1
         end
-
-        if not targetFrame or currentFrame >= #recording then
+        
+        if currentFrame > #recording then
+            -- END OF RECORDING
             if AutoLoop and IsPlaying then
-                currentPlaybackFrame = 1
+                currentFrame = 1
                 playbackStartTime = tick()
                 totalPausedDuration = 0
             else
@@ -1015,27 +1011,30 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
             return
         end
 
+        local targetFrame = recording[currentFrame]
+        if not targetFrame then
+            playbackConnection:Disconnect()
+            return
+        end
+
+        -- APPLY MOVEMENT - Pure frame following
         pcall(function()
             local targetPos = GetFramePosition(targetFrame)
             local moveState = targetFrame.MoveState
             
-            local scaledVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
-            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+            -- PURE MOVETO - Just follow the frame position
+            hum:MoveTo(targetPos)
             
-            -- IMPROVED MOVETO LOGIC: Always move to target, but with smart progression
-            local distanceToTarget = (hrp.Position - targetPos).Magnitude
-            
-            -- Only use MoveTo if we're not already very close
-            if distanceToTarget > 1.5 then
-                hum:MoveTo(targetPos)
-            end
-            
-            -- Apply rotation and velocity for better accuracy
+            -- APPLY ROTATION for accuracy
             local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
             hrp.CFrame = CFrame.new(hrp.Position, targetCFrame.Position + targetCFrame.LookVector * 10)
-            hrp.AssemblyLinearVelocity = scaledVelocity
             
-            -- State management
+            -- APPLY WALKSPEED & VELOCITY
+            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+            local scaledVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+            hrp.AssemblyLinearVelocity = Vector3.new(scaledVelocity.X, hrp.AssemblyLinearVelocity.Y, scaledVelocity.Z)
+            
+            -- STATE MANAGEMENT
             if moveState ~= lastPlaybackState then
                 lastPlaybackState = moveState
                 
@@ -1045,6 +1044,12 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
                     hum.AutoRotate = false
                 elseif moveState == "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    -- Apply vertical velocity for jumps
+                    hrp.AssemblyLinearVelocity = Vector3.new(
+                        hrp.AssemblyLinearVelocity.X,
+                        math.max(hrp.AssemblyLinearVelocity.Y, scaledVelocity.Y),
+                        hrp.AssemblyLinearVelocity.Z
+                    )
                 elseif moveState == "Falling" then
                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                 elseif moveState == "Swimming" then
@@ -1054,7 +1059,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
                 end
             end
             
-            -- Update frame counter for display
+            -- UPDATE DISPLAY
             currentPlaybackFrame = currentFrame
             FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
         end)
@@ -1063,6 +1068,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
     AddConnection(playbackConnection)
 end
 
+-- ========= PERFECT CFRAME SYSTEM =========
 local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, currentRig)
     if not recording or #recording == 0 then return end
     
@@ -1073,7 +1079,13 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
     if not hum or not hrp then return end
-    
+
+    local currentFrame = startFrame or 1
+    playbackStartTime = tick()
+    totalPausedDuration = 0
+    pauseStartTime = 0
+    lastPlaybackState = nil
+
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
             playbackConnection:Disconnect()
@@ -1085,9 +1097,7 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
                 pauseStartTime = tick()
                 RestoreHumanoidState()
                 ShowJumpButton()
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
+                if ShiftLockEnabled then ApplyVisibleShiftLock() end
                 UpdatePauseMarker()
             end
             return
@@ -1120,28 +1130,14 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        local targetFrame
-        local currentFrame = 1
-        
-        if UseFrameInterpolation then
-            targetFrame = GetInterpolatedFrame(recording, effectiveTime)
-            for i = 1, #recording do
-                if recording[i].Timestamp <= effectiveTime then
-                    currentFrame = i
-                else
-                    break
-                end
-            end
-        else
-            while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                currentFrame = currentFrame + 1
-            end
-            targetFrame = recording[currentFrame]
+        -- SIMPLE FRAME PROGRESSION
+        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+            currentFrame = currentFrame + 1
         end
 
-        if not targetFrame or currentFrame >= #recording then
+        if currentFrame > #recording then
             if AutoLoop and IsPlaying then
-                currentPlaybackFrame = 1
+                currentFrame = 1
                 playbackStartTime = tick()
                 totalPausedDuration = 0
             else
@@ -1154,6 +1150,9 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
             end
             return
         end
+
+        local targetFrame = recording[currentFrame]
+        if not targetFrame then return end
 
         pcall(function()
             hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
@@ -1186,6 +1185,223 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
     end)
     
     AddConnection(playbackConnection)
+end
+
+-- ========= PERFECT AUTO LOOP SYSTEM =========
+local function GetSelectedReplaysList()
+    local selectedList = {}
+    
+    -- Check if any replays are selected
+    local hasSelected = false
+    for name, isSelected in pairs(SelectedReplays) do
+        if isSelected then
+            hasSelected = true
+            break
+        end
+    end
+    
+    if hasSelected then
+        -- Use only selected replays in order
+        for _, name in ipairs(RecordingOrder) do
+            if SelectedReplays[name] then
+                table.insert(selectedList, name)
+            end
+        end
+    else
+        -- Use all replays in order
+        selectedList = RecordingOrder
+    end
+    
+    return selectedList
+end
+
+local function StartAutoLoopAll()
+    if not AutoLoop then return end
+    
+    local replayList = GetSelectedReplaysList()
+    
+    if #replayList == 0 then
+        AutoLoop = false
+        AnimateLoop(false)
+        PlaySound("Error")
+        return
+    end
+    
+    PlaySound("Play")
+    
+    CurrentLoopIndex = 1
+    IsAutoLoopPlaying = true
+    lastPlaybackState = nil
+    
+    loopConnection = RunService.Heartbeat:Connect(function()
+        if not AutoLoop or not IsAutoLoopPlaying then
+            loopConnection:Disconnect()
+            return
+        end
+        
+        while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #replayList do
+            local recordingName = replayList[CurrentLoopIndex]
+            local recording = RecordedMovements[recordingName]
+            
+            if not recording or #recording == 0 then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #replayList then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(0.5)
+                continue
+            end
+            
+            -- WAIT FOR CHARACTER TO BE READY
+            if not IsCharacterReady() then
+                if AutoRespawn then
+                    ResetCharacter()
+                    local success = WaitForRespawn()
+                    if not success then
+                        task.wait(2)
+                        continue
+                    end
+                else
+                    local waitStart = tick()
+                    while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                        if tick() - waitStart > 30 then
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                end
+                task.wait(1.5)
+            end
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            -- PLAY CURRENT RECORDING
+            local recordedRig = GetRecordingRigType(recording)
+            local currentRig = DetectAdvancedRigType()
+            local playbackCompleted = false
+            
+            SaveHumanoidState()
+            DisableJump()
+            HideJumpButton()
+            
+            local framePlaybackStart = tick()
+            local framePausedTime = 0
+            local framePauseStart = 0
+            local currentFrame = 1
+            
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
+                if IsPaused then
+                    if framePauseStart == 0 then
+                        framePauseStart = tick()
+                        RestoreHumanoidState()
+                        ShowJumpButton()
+                        if ShiftLockEnabled then ApplyVisibleShiftLock() end
+                        UpdatePauseMarker()
+                    end
+                    task.wait(0.1)
+                    continue
+                else
+                    if framePauseStart > 0 then
+                        framePausedTime = framePausedTime + (tick() - framePauseStart)
+                        framePauseStart = 0
+                        SaveHumanoidState()
+                        DisableJump()
+                        HideJumpButton()
+                        UpdatePauseMarker()
+                    end
+                end
+                
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    break
+                end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then
+                    break
+                end
+                
+                local currentTime = tick()
+                local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
+                
+                -- FRAME PROGRESSION
+                while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                    currentFrame = currentFrame + 1
+                end
+                
+                if currentFrame >= #recording then
+                    playbackCompleted = true
+                    break
+                end
+                
+                local targetFrame = recording[currentFrame]
+                if targetFrame then
+                    pcall(function()
+                        if UseMoveTo then
+                            local targetPos = GetFramePosition(targetFrame)
+                            hum:MoveTo(targetPos)
+                            local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                            hrp.CFrame = CFrame.new(hrp.Position, targetCFrame.Position + targetCFrame.LookVector * 10)
+                        else
+                            hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                        end
+                        
+                        hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+                        hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+                        
+                        local moveState = targetFrame.MoveState
+                        if moveState ~= lastPlaybackState then
+                            lastPlaybackState = moveState
+                            ApplyMovementState(hum, moveState)
+                        end
+                        
+                        FrameLabel.Text = string.format("Loop: %d/%d | Frame: %d/%d", 
+                            CurrentLoopIndex, #replayList, currentFrame, #recording)
+                    end)
+                end
+                
+                task.wait()
+            end
+            
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            
+            if playbackCompleted then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #replayList then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(0.5)
+            else
+                break
+            end
+        end
+    end)
+    
+    AddConnection(loopConnection)
+end
+
+local function StopAutoLoopAll()
+    AutoLoop = false
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    IsPaused = false
+    lastPlaybackState = nil
+    
+    if loopConnection then
+        loopConnection:Disconnect()
+        loopConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    UpdatePauseMarker()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
 end
 
 -- ========= GUI SETUP =========
@@ -2018,299 +2234,6 @@ function StopPlayback()
     if playbackConnection then
         playbackConnection:Disconnect()
         playbackConnection = nil
-    end
-    
-    RestoreFullUserControl()
-    UpdatePauseMarker()
-    
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
-    
-    PlaySound("Stop")
-end
-
--- ========= PERFECTED AUTO LOOP SYSTEM =========
-function StartAutoLoopAll()
-    if not AutoLoop then return end
-    
-    if #RecordingOrder == 0 then
-        AutoLoop = false
-        AnimateLoop(false)
-        PlaySound("Error")
-        return
-    end
-    
-    PlaySound("Play")
-    
-    CurrentLoopIndex = 1
-    IsAutoLoopPlaying = true
-    lastPlaybackState = nil
-    
-    loopConnection = task.spawn(function()
-        while AutoLoop and IsAutoLoopPlaying do
-            if not AutoLoop or not IsAutoLoopPlaying then
-                break
-            end
-            
-            local recordingName = RecordingOrder[CurrentLoopIndex]
-            local recording = RecordedMovements[recordingName]
-            
-            if not recording or #recording == 0 then
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-                task.wait(1)
-                continue
-            end
-            
-            local recordedRig = GetRecordingRigType(recording)
-            local currentRig = DetectAdvancedRigType()
-            
-            if not IsCharacterReady() then
-                if AutoRespawn then
-                    ResetCharacter()
-                    local success = WaitForRespawn()
-                    if not success then
-                        task.wait(2)
-                        continue
-                    end
-                    task.wait(1.5)
-                else
-                    local waitAttempts = 0
-                    local maxWaitAttempts = 120
-                    
-                    while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                        waitAttempts = waitAttempts + 1
-                        
-                        if waitAttempts >= maxWaitAttempts then
-                            waitAttempts = 0
-                        end
-                        
-                        task.wait(0.5)
-                    end
-                    
-                    if not AutoLoop or not IsAutoLoopPlaying then break end
-                    task.wait(1.0)
-                end
-            end
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            local playbackCompleted = false
-            local playbackStart = tick()
-            local playbackPausedTime = 0
-            local playbackPauseStart = 0
-            local currentFrame = 1
-            local deathRetryCount = 0
-            local maxDeathRetries = 999999
-            
-            lastPlaybackState = nil
-            
-            SaveHumanoidState()
-            DisableJump()
-            HideJumpButton()
-            
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
-                
-                if not IsCharacterReady() then
-                    deathRetryCount = deathRetryCount + 1
-                    
-                    if AutoRespawn then
-                        ResetCharacter()
-                        local success = WaitForRespawn()
-                        
-                        if success then
-                            RestoreFullUserControl()
-                            task.wait(1.5)
-                            
-                            currentFrame = 1
-                            playbackStart = tick()
-                            playbackPausedTime = 0
-                            playbackPauseStart = 0
-                            lastPlaybackState = nil
-                            
-                            SaveHumanoidState()
-                            DisableJump()
-                            HideJumpButton()
-                            
-                            continue
-                        else
-                            task.wait(2)
-                            continue
-                        end
-                    else
-                        local manualRespawnWait = 0
-                        local maxManualWait = 120
-                        
-                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                            manualRespawnWait = manualRespawnWait + 1
-                            
-                            if manualRespawnWait >= maxManualWait then
-                                manualRespawnWait = 0
-                            end
-                            
-                            task.wait(0.5)
-                        end
-                        
-                        if not AutoLoop or not IsAutoLoopPlaying then break end
-                        
-                        RestoreFullUserControl()
-                        task.wait(1.5)
-                        
-                        currentFrame = 1
-                        playbackStart = tick()
-                        playbackPausedTime = 0
-                        playbackPauseStart = 0
-                        lastPlaybackState = nil
-                        
-                        SaveHumanoidState()
-                        DisableJump()
-                        HideJumpButton()
-                        
-                        continue
-                    end
-                end
-                
-                if IsPaused then
-                    if playbackPauseStart == 0 then
-                        playbackPauseStart = tick()
-                        RestoreHumanoidState()
-                        ShowJumpButton()
-                        if ShiftLockEnabled then
-                            ApplyVisibleShiftLock()
-                        end
-                        UpdatePauseMarker()
-                    end
-                    task.wait(0.1)
-                else
-                    if playbackPauseStart > 0 then
-                        playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
-                        playbackPauseStart = 0
-                        DisableJump()
-                        HideJumpButton()
-                        UpdatePauseMarker()
-                    end
-                    
-                    local char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
-                    
-                    local targetFrame
-                    if UseFrameInterpolation then
-                        targetFrame = GetInterpolatedFrame(recording, effectiveTime)
-                    else
-                        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                            currentFrame = currentFrame + 1
-                        end
-                        targetFrame = recording[currentFrame]
-                    end
-                    
-                    if currentFrame >= #recording then
-                        playbackCompleted = true
-                        break
-                    end
-                    
-                    if targetFrame then
-                        pcall(function()
-                            if UseMoveTo then
-                                local targetPos = GetFramePosition(targetFrame)
-                                local distanceToTarget = (hrp.Position - targetPos).Magnitude
-                                
-                                if distanceToTarget > MOVETO_REACH_DISTANCE then
-                                    hum:MoveTo(targetPos)
-                                else
-                                    currentFrame = currentFrame + 1
-                                end
-                            else
-                                hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
-                            end
-                            
-                            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-                            
-                            local moveState = targetFrame.MoveState
-                            
-                            if moveState ~= lastPlaybackState then
-                                lastPlaybackState = moveState
-                                
-                                if moveState == "Climbing" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                    hum.PlatformStand = false
-                                    hum.AutoRotate = false
-                                elseif moveState == "Jumping" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                elseif moveState == "Falling" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                elseif moveState == "Swimming" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                else
-                                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                                end
-                            end
-                            
-                            if ShiftLockEnabled then
-                                ApplyVisibleShiftLock()
-                            end
-                        end)
-                    end
-                    
-                    task.wait()
-                end
-            end
-            
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            
-            if playbackCompleted then
-                PlaySound("Success")
-                
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-                
-                task.wait(0.5)
-            else
-                if not AutoLoop or not IsAutoLoopPlaying then
-                    break
-                else
-                    task.wait(1)
-                end
-            end
-        end
-        
-        IsAutoLoopPlaying = false
-        IsPaused = false
-        RestoreFullUserControl()
-        UpdatePauseMarker()
-        lastPlaybackState = nil
-    end)
-end
-
-function StopAutoLoopAll()
-    AutoLoop = false
-    IsAutoLoopPlaying = false
-    IsPlaying = false
-    IsPaused = false
-    lastPlaybackState = nil
-    
-    if loopConnection then
-        task.cancel(loopConnection)
-        loopConnection = nil
     end
     
     RestoreFullUserControl()
