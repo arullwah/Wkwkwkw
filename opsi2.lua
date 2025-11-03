@@ -14,12 +14,30 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
+local ROUTE_PROXIMITY_THRESHOLD = 15
+local MOVETO_REACH_DISTANCE = 3
+local MAX_FRAME_JUMP = 30
+local USE_MOVETO_SYSTEM = true
 
--- ========= RIG TYPE CONFIGURATION =========
-local R6_VELOCITY_MULTIPLIER = 0.85
-local R15_VELOCITY_MULTIPLIER = 1.0
-local R6_JUMP_POWER = 50
-local R15_JUMP_POWER = 50
+-- ========= ADVANCED RIG TYPE CONFIGURATION =========
+local RIG_PROFILES = {
+    ["R6"] = {
+        Height = 4.0,
+        HipHeight = 1.5,
+        VelocityMultiplier = 0.85,
+        JumpPower = 50,
+        GroundOffset = 0.0,
+        HeightCompensation = 0.0
+    },
+    ["R15"] = {
+        Height = 5.0,
+        HipHeight = 2.0, 
+        VelocityMultiplier = 1.0,
+        JumpPower = 50,
+        GroundOffset = 0.0,
+        HeightCompensation = 0.0
+    },
+}
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -58,6 +76,7 @@ local SelectedReplays = {}
 local AutoRespawn = false
 local InfiniteJump = false
 local AutoLoop = false
+local UseMoveTo = true
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -91,7 +110,7 @@ local originalJumpButtonEnabled = true
 -- ========= PLAYBACK STATE TRACKING =========
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
-local STATE_CHANGE_COOLDOWN = 0.1 -- Reduced for more responsive state changes
+local STATE_CHANGE_COOLDOWN = 0.15
 
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
@@ -142,48 +161,60 @@ local function CleanupConnections()
     end
 end
 
--- ========= RIG TYPE DETECTION SYSTEM =========
+-- ========= ADVANCED RIG TYPE DETECTION SYSTEM =========
 local CurrentRigType = "R15"
 
-local function GetRigType(character)
+local function DetectAdvancedRigType(character)
     character = character or player.Character
     if not character then return "R15" end
     
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return "R15" end
     
-    return humanoid.RigType.Name
+    local rigType = humanoid.RigType.Name
+    
+    if rigType == "R6" then
+        return "R6"
+    end
+    
+    if rigType == "R15" then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        local head = character:FindFirstChild("Head")
+        
+        if hrp and head then
+            local characterHeight = math.abs(head.Position.Y - hrp.Position.Y) + head.Size.Y
+            
+            if characterHeight > 6.0 then
+                return "R15_Tall"
+            end
+        end
+    end
+    
+    return rigType
 end
 
-local function GetRigVelocityMultiplier(rigType)
-    rigType = rigType or GetRigType()
-    return rigType == "R6" and R6_VELOCITY_MULTIPLIER or R15_VELOCITY_MULTIPLIER
+local function GetRigProfile(rigType)
+    rigType = rigType or DetectAdvancedRigType()
+    return RIG_PROFILES[rigType] or RIG_PROFILES["R15"]
 end
 
-local function GetDefaultJumpPower(rigType)
-    rigType = rigType or GetRigType()
-    return rigType == "R6" and R6_JUMP_POWER or R15_JUMP_POWER
+local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
+    local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
+    local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
+    
+    return currentProfile.VelocityMultiplier / recordedProfile.VelocityMultiplier
+end
+
+local function GetRigHeightOffset(recordedRig, currentRig)
+    local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
+    local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
+    
+    return currentProfile.HeightCompensation - recordedProfile.HeightCompensation
 end
 
 local function GetRecordingRigType(recording)
     if not recording or #recording == 0 then return "R15" end
     return recording[1].RigType or "R15"
-end
-
-local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
-    if recordedRig == currentRig then
-        return 1.0
-    end
-    
-    if recordedRig == "R6" and currentRig == "R15" then
-        return R15_VELOCITY_MULTIPLIER / R6_VELOCITY_MULTIPLIER
-    end
-    
-    if recordedRig == "R15" and currentRig == "R6" then
-        return R6_VELOCITY_MULTIPLIER / R15_VELOCITY_MULTIPLIER
-    end
-    
-    return 1.0
 end
 
 -- ========= SOUND EFFECTS =========
@@ -283,7 +314,7 @@ local function CompleteCharacterReset(char)
         humanoid.PlatformStand = false
         humanoid.AutoRotate = true
         humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = GetDefaultJumpPower()
+        humanoid.JumpPower = GetRigProfile().JumpPower
         humanoid.Sit = false
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
@@ -492,7 +523,7 @@ local function RestoreFullUserControl()
     if humanoid then
         humanoid.AutoRotate = true
         humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = GetDefaultJumpPower()
+        humanoid.JumpPower = GetRigProfile().JumpPower
         humanoid.PlatformStand = false
         humanoid.Sit = false
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
@@ -717,7 +748,7 @@ local function CreateMergedReplay()
                 MoveState = "Grounded",
                 WalkSpeed = firstFrame.WalkSpeed,
                 Timestamp = lastFrame.Timestamp + 0.05,
-                RigType = firstFrame.RigType or GetRigType()
+                RigType = firstFrame.RigType or DetectAdvancedRigType()
             }
             table.insert(mergedFrames, transitionFrame)
             totalTimeOffset = totalTimeOffset + 0.05
@@ -732,7 +763,7 @@ local function CreateMergedReplay()
                 MoveState = frame.MoveState,
                 WalkSpeed = frame.WalkSpeed,
                 Timestamp = frame.Timestamp + totalTimeOffset,
-                RigType = frame.RigType or GetRigType()
+                RigType = frame.RigType or DetectAdvancedRigType()
             }
             table.insert(mergedFrames, newFrame)
         end
@@ -774,7 +805,68 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
--- ========= ADVANCED FRAME INTERPOLATION SYSTEM =========
+-- ========= ADVANCED FRAME DATA FUNCTIONS WITH RIG COMPATIBILITY =========
+local function GetFramePosition(frame)
+    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+end
+
+local function GetFrameCFrame(frame, recordedRig, currentRig)
+    local pos = GetFramePosition(frame)
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    
+    local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
+    pos = pos + Vector3.new(0, heightOffset, 0)
+    
+    return CFrame.lookAt(pos, pos + look, up)
+end
+
+local function GetFrameVelocity(frame, recordedRig, currentRig)
+    recordedRig = recordedRig or frame.RigType or "R15"
+    currentRig = currentRig or DetectAdvancedRigType()
+    
+    local compatMultiplier = CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
+    local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
+    local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
+    
+    local heightMultiplier = currentProfile.Height / recordedProfile.Height
+    
+    return frame.Velocity and Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE * compatMultiplier * heightMultiplier,
+        frame.Velocity[2] * VELOCITY_Y_SCALE * compatMultiplier,
+        frame.Velocity[3] * VELOCITY_SCALE * compatMultiplier * heightMultiplier
+    ) or Vector3.new(0, 0, 0)
+end
+
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
+end
+
+local function GetFrameTimestamp(frame)
+    return frame.Timestamp or 0
+end
+
+-- ========= SMART ROUTE DETECTION SYSTEM =========
+local function FindNearestFrame(recording, position)
+    if not recording or #recording == 0 then return 1, math.huge end
+    
+    local nearestFrame = 1
+    local nearestDistance = math.huge
+    
+    for i, frame in ipairs(recording) do
+        local framePos = GetFramePosition(frame)
+        local distance = (framePos - position).Magnitude
+        
+        if distance < nearestDistance then
+            nearestDistance = distance
+            nearestFrame = i
+        end
+    end
+    
+    return nearestFrame, nearestDistance
+end
+
+-- ========= HIGH-PERFORMANCE PLAYBACK SYSTEM =========
 local function GetInterpolatedFrame(recording, targetTime)
     if #recording < 2 then return recording[1] end
     
@@ -786,24 +878,16 @@ local function GetInterpolatedFrame(recording, targetTime)
             local alpha = (targetTime - frame1.Timestamp) / (frame2.Timestamp - frame1.Timestamp)
             alpha = math.clamp(alpha, 0, 1)
             
-            -- Smooth interpolation
-            local smoothAlpha = alpha * alpha * (3 - 2 * alpha)
-            
-            -- Position interpolation
             local pos1 = Vector3.new(frame1.Position[1], frame1.Position[2], frame1.Position[3])
             local pos2 = Vector3.new(frame2.Position[1], frame2.Position[2], frame2.Position[3])
-            local interpolatedPos = pos1:Lerp(pos2, smoothAlpha)
-            
-            -- Use latest look direction for better responsiveness
-            local lookVector = frame2.LookVector
-            local upVector = frame2.UpVector
+            local interpolatedPos = pos1:Lerp(pos2, alpha)
             
             return {
                 Position = {interpolatedPos.X, interpolatedPos.Y, interpolatedPos.Z},
-                LookVector = lookVector,
-                UpVector = upVector,
-                Velocity = frame2.Velocity, -- Use target frame velocity
-                MoveState = frame2.MoveState, -- Use target frame state
+                LookVector = frame2.LookVector,
+                UpVector = frame2.UpVector,
+                Velocity = frame2.Velocity,
+                MoveState = frame2.MoveState,
                 WalkSpeed = frame2.WalkSpeed,
                 Timestamp = targetTime,
                 RigType = frame2.RigType
@@ -814,33 +898,227 @@ local function GetInterpolatedFrame(recording, targetTime)
     return recording[#recording]
 end
 
--- ========= FRAME DATA FUNCTIONS WITH RIG COMPATIBILITY =========
-local function GetFrameCFrame(frame)
-    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame, recordedRig, currentRig)
-    recordedRig = recordedRig or frame.RigType or "R15"
-    currentRig = currentRig or GetRigType()
+-- ========= DUAL MOVEMENT SYSTEM =========
+local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, currentRig)
+    if not recording or #recording == 0 then return end
     
-    local compatMultiplier = CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
-    return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE * compatMultiplier,
-        frame.Velocity[2] * VELOCITY_Y_SCALE * compatMultiplier,
-        frame.Velocity[3] * VELOCITY_SCALE * compatMultiplier
-    ) or Vector3.new(0, 0, 0)
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then return end
+    
+    task.spawn(function()
+        hum.AutoRotate = true
+        hum.PlatformStand = false
+        
+        local currentFrame = startFrame or 1
+        
+        while IsPlaying and currentFrame <= #recording do
+            if IsPaused then
+                if pauseStartTime == 0 then
+                    pauseStartTime = tick()
+                    RestoreHumanoidState()
+                    ShowJumpButton()
+                    if ShiftLockEnabled then
+                        ApplyVisibleShiftLock()
+                    end
+                    UpdatePauseMarker()
+                end
+                task.wait(0.1)
+                continue
+            else
+                if pauseStartTime > 0 then
+                    totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                    pauseStartTime = 0
+                    SaveHumanoidState()
+                    DisableJump()
+                    HideJumpButton()
+                    UpdatePauseMarker()
+                end
+            end
+
+            char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then break end
+            hum = char:FindFirstChildOfClass("Humanoid")
+            hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not hrp then break end
+
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            
+            local targetFrame
+            if UseFrameInterpolation then
+                targetFrame = GetInterpolatedFrame(recording, effectiveTime)
+            else
+                while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                    currentFrame = currentFrame + 1
+                end
+                targetFrame = recording[currentFrame]
+            end
+
+            if not targetFrame or currentFrame >= #recording then break end
+
+            pcall(function()
+                local targetPos = GetFramePosition(targetFrame)
+                local moveState = targetFrame.MoveState
+                
+                local scaledVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+                hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+                
+                local distanceToTarget = (hrp.Position - targetPos).Magnitude
+                
+                if distanceToTarget > MOVETO_REACH_DISTANCE then
+                    hum:MoveTo(targetPos)
+                else
+                    currentFrame = currentFrame + 1
+                end
+                
+                if moveState ~= lastPlaybackState then
+                    lastPlaybackState = moveState
+                    
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                        hum.AutoRotate = false
+                    elseif moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    elseif moveState == "Falling" then
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+            end)
+            
+            if currentFrame >= #recording then break end
+            task.wait()
+        end
+        
+        if AutoLoop and IsPlaying then
+            currentPlaybackFrame = 1
+            playbackStartTime = tick()
+            totalPausedDuration = 0
+            PlayRecordingWithMoveTo(recording, 1, recordedRig, currentRig)
+        else
+            IsPlaying = false
+            IsPaused = false
+            lastPlaybackState = nil
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+        end
+    end)
 end
 
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
+local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, currentRig)
+    if not recording or #recording == 0 then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then return end
+    
+    task.spawn(function()
+        hum.AutoRotate = false
+        hum.PlatformStand = false
+        
+        local currentFrame = startFrame or 1
+        
+        while IsPlaying and currentFrame <= #recording do
+            if IsPaused then
+                if pauseStartTime == 0 then
+                    pauseStartTime = tick()
+                    RestoreHumanoidState()
+                    ShowJumpButton()
+                    if ShiftLockEnabled then
+                        ApplyVisibleShiftLock()
+                    end
+                    UpdatePauseMarker()
+                end
+                task.wait(0.1)
+                continue
+            else
+                if pauseStartTime > 0 then
+                    totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                    pauseStartTime = 0
+                    SaveHumanoidState()
+                    DisableJump()
+                    HideJumpButton()
+                    UpdatePauseMarker()
+                end
+            end
 
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
+            char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then break end
+            hum = char:FindFirstChildOfClass("Humanoid")
+            hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not hrp then break end
+
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            
+            local targetFrame
+            if UseFrameInterpolation then
+                targetFrame = GetInterpolatedFrame(recording, effectiveTime)
+            else
+                while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                    currentFrame = currentFrame + 1
+                end
+                targetFrame = recording[currentFrame]
+            end
+
+            if not targetFrame or currentFrame >= #recording then break end
+
+            pcall(function()
+                hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+                hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+                
+                local moveState = targetFrame.MoveState
+                
+                if moveState ~= lastPlaybackState then
+                    lastPlaybackState = moveState
+                    
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                        hum.AutoRotate = false
+                    elseif moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    elseif moveState == "Falling" then
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+            end)
+            
+            if currentFrame >= #recording then break end
+            task.wait()
+        end
+        
+        if AutoLoop and IsPlaying then
+            currentPlaybackFrame = 1
+            playbackStartTime = tick()
+            totalPausedDuration = 0
+            PlayRecordingWithCFrame(recording, 1, recordedRig, currentRig)
+        else
+            IsPlaying = false
+            IsPaused = false
+            lastPlaybackState = nil
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+        end
+    end)
 end
 
 -- ========= GUI SETUP =========
@@ -1085,9 +1363,11 @@ local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22
 
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
 
+local MoveToBtn, AnimateMoveTo = CreateToggle("Use MoveTo", 0, 129, 117, 22, true)
+
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(58, 26)
-SpeedBox.Position = UDim2.fromOffset(0, 129)
+SpeedBox.Position = UDim2.fromOffset(123, 102)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -1105,7 +1385,7 @@ SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(58, 26)
-FilenameBox.Position = UDim2.fromOffset(63, 129)
+FilenameBox.Position = UDim2.fromOffset(123, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
@@ -1123,7 +1403,7 @@ FilenameCorner.Parent = FilenameBox
 
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(58, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(126, 129)
+WalkSpeedBox.Position = UDim2.fromOffset(123, 156)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1139,16 +1419,16 @@ local WalkSpeedCorner = Instance.new("UICorner")
 WalkSpeedCorner.CornerRadius = UDim.new(0, 6)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
-local SaveFileBtn = CreateButton("SAVE FILE", 0, 160, 117, 26, Color3.fromRGB(59, 15, 116))
-local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(59, 15, 116))
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 183, 117, 26, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 123, 183, 117, 26, Color3.fromRGB(59, 15, 116))
 
-local PathToggleBtn = CreateButton("SHOW RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
-local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
+local PathToggleBtn = CreateButton("SHOW RUTE", 0, 214, 117, 26, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 123, 214, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- Record List dengan layout yang diperbaiki
+-- Record List dengan layout baru
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 180)
-RecordList.Position = UDim2.fromOffset(0, 222)
+RecordList.Size = UDim2.new(1, 0, 0, 120)
+RecordList.Position = UDim2.fromOffset(0, 245)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
 RecordList.ScrollBarThickness = 6
@@ -1235,7 +1515,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
--- ========= UPDATED RECORD LIST DENGAN LAYOUT YANG DIPERBAIKI =========
+-- ========= UPDATED RECORD LIST DENGAN LAYOUT BARU =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
@@ -1251,7 +1531,7 @@ function UpdateRecordList()
         end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -6, 0, 50) -- Increased height for better layout
+        item.Size = UDim2.new(1, -6, 0, 50)
         item.Position = UDim2.new(0, 3, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         item.Parent = RecordList
@@ -1296,9 +1576,9 @@ function UpdateRecordList()
         delCorner.CornerRadius = UDim.new(0, 4)
         delCorner.Parent = delBtn
         
-        -- Name TextBox - DIKECILKAN
+        -- Name TextBox
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(0, 100, 0, 25) -- Reduced width from 120 to 100
+        nameBox.Size = UDim2.new(0, 100, 0, 25)
         nameBox.Position = UDim2.fromOffset(65, 0)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
@@ -1318,7 +1598,7 @@ function UpdateRecordList()
         -- Up Button
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.fromOffset(170, 0) -- Adjusted position
+        upBtn.Position = UDim2.fromOffset(170, 0)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1333,7 +1613,7 @@ function UpdateRecordList()
         -- Down Button
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.fromOffset(200, 0) -- Adjusted position
+        downBtn.Position = UDim2.fromOffset(200, 0)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1375,7 +1655,7 @@ function UpdateRecordList()
         
         -- Get recording info
         local recordingRigType = GetRecordingRigType(rec)
-        local currentRigType = GetRigType()
+        local currentRigType = DetectAdvancedRigType()
         local rigMismatch = recordingRigType ~= currentRigType
         
         if #rec > 0 then
@@ -1465,7 +1745,7 @@ local function EnableJump()
     if char then
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            humanoid.JumpPower = prePauseJumpPower or GetDefaultJumpPower()
+            humanoid.JumpPower = prePauseJumpPower or GetRigProfile().JumpPower
         end
     end
 end
@@ -1555,7 +1835,7 @@ function StartRecording()
             MoveState = moveState,
             WalkSpeed = hum and hum.WalkSpeed or 16,
             Timestamp = tick() - CurrentRecording.StartTime,
-            RigType = GetRigType(char)
+            RigType = DetectAdvancedRigType(char)
         }
         
         table.insert(CurrentRecording.Frames, frameData)
@@ -1588,7 +1868,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= HIGH-PERFORMANCE PLAYBACK SYSTEM DENGAN INTERPOLATION =========
+-- ========= ENHANCED PLAYBACK SYSTEM WITH DUAL MOVEMENT =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -1606,147 +1886,45 @@ function PlayRecording(name)
 
     IsPlaying = true
     IsPaused = false
-    currentPlaybackFrame = 1
-    playbackStartTime = tick()
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
-    lastStateChangeTime = 0
 
     -- Detect rig compatibility
     local recordedRig = GetRecordingRigType(recording)
-    local currentRig = GetRigType()
+    local currentRig = DetectAdvancedRigType()
     
-    if recordedRig ~= currentRig then
-        warn(string.format("⚠️ Recording is %s, playing on %s. Auto-adjusting...", recordedRig, currentRig))
+    -- SMART ROUTE DETECTION: Find nearest frame
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
+    
+    if distance <= ROUTE_PROXIMITY_THRESHOLD then
+        -- Start from nearest frame
+        currentPlaybackFrame = nearestFrame
+        playbackStartTime = tick() - (GetFrameTimestamp(recording[nearestFrame]) / CurrentSpeed)
+    else
+        -- Start from beginning
+        currentPlaybackFrame = 1
+        playbackStartTime = tick()
+        
+        -- Teleport to start position if too far
+        local startPos = GetFramePosition(recording[1])
+        if (hrp.Position - startPos).Magnitude > 50 then
+            hrp.CFrame = CFrame.new(startPos)
+        end
     end
 
     SaveHumanoidState()
     DisableJump()
-    
     HideJumpButton()
     PlaySound("Play")
 
-    playbackConnection = RunService.Heartbeat:Connect(function()
-        if not IsPlaying then
-            playbackConnection:Disconnect()
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            return
-        end
-        
-        if IsPaused then
-            if pauseStartTime == 0 then
-                pauseStartTime = tick()
-                RestoreHumanoidState()
-                ShowJumpButton()
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if pauseStartTime > 0 then
-                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                pauseStartTime = 0
-                DisableJump()
-                HideJumpButton()
-                UpdatePauseMarker()
-            end
-        end
-
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            return
-        end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            return
-        end
-
-        local currentTime = tick()
-        local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-        
-        -- HIGH-PERFORMANCE FRAME INTERPOLATION
-        local targetFrame
-        if UseFrameInterpolation then
-            targetFrame = GetInterpolatedFrame(recording, effectiveTime)
-        else
-            while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
-                currentPlaybackFrame = currentPlaybackFrame + 1
-            end
-            targetFrame = recording[currentPlaybackFrame]
-        end
-
-        if not targetFrame or currentPlaybackFrame >= #recording then
-            IsPlaying = false
-            RestoreFullUserControl()
-            PlaySound("Success")
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            return
-        end
-
-        pcall(function()
-            -- SMOOTH CHARACTER CONTROL
-            hrp.CFrame = GetFrameCFrame(targetFrame)
-            hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig)
-            
-            if hum then
-                hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-                hum.AutoRotate = false
-                
-                local moveState = targetFrame.MoveState
-                local stateTime = tick()
-                
-                -- More responsive state changes
-                if moveState ~= lastPlaybackState or (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = stateTime
-                    
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                        hum.AutoRotate = false
-                        
-                    elseif moveState == "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        
-                    elseif moveState == "Falling" then
-                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                        
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end
-            end
-            
-            if ShiftLockEnabled then
-                ApplyVisibleShiftLock()
-            end
-        end)
-    end)
-    
-    AddConnection(playbackConnection)
+    -- Choose playback method based on MoveTo setting
+    if UseMoveTo then
+        PlayRecordingWithMoveTo(recording, currentPlaybackFrame, recordedRig, currentRig)
+    else
+        PlayRecordingWithCFrame(recording, currentPlaybackFrame, recordedRig, currentRig)
+    end
 end
 
 -- ========= PERFECTED AUTO LOOP SYSTEM =========
@@ -1765,7 +1943,6 @@ function StartAutoLoopAll()
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
     lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
@@ -1785,13 +1962,8 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Detect rig compatibility
             local recordedRig = GetRecordingRigType(recording)
-            local currentRig = GetRigType()
-            
-            if recordedRig ~= currentRig then
-                warn(string.format("⚠️ Loop: Recording %s is %s, playing on %s", recordingName, recordedRig, currentRig))
-            end
+            local currentRig = DetectAdvancedRigType()
             
             if not IsCharacterReady() then
                 if AutoRespawn then
@@ -1832,7 +2004,6 @@ function StartAutoLoopAll()
             local maxDeathRetries = 999999
             
             lastPlaybackState = nil
-            lastStateChangeTime = 0
             
             SaveHumanoidState()
             DisableJump()
@@ -1856,7 +2027,6 @@ function StartAutoLoopAll()
                             playbackPausedTime = 0
                             playbackPauseStart = 0
                             lastPlaybackState = nil
-                            lastStateChangeTime = 0
                             
                             SaveHumanoidState()
                             DisableJump()
@@ -1891,7 +2061,6 @@ function StartAutoLoopAll()
                         playbackPausedTime = 0
                         playbackPauseStart = 0
                         lastPlaybackState = nil
-                        lastStateChangeTime = 0
                         
                         SaveHumanoidState()
                         DisableJump()
@@ -1937,7 +2106,6 @@ function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
                     
-                    -- HIGH-PERFORMANCE FRAME INTERPOLATION
                     local targetFrame
                     if UseFrameInterpolation then
                         targetFrame = GetInterpolatedFrame(recording, effectiveTime)
@@ -1955,33 +2123,39 @@ function StartAutoLoopAll()
                     
                     if targetFrame then
                         pcall(function()
-                            hrp.CFrame = GetFrameCFrame(targetFrame)
-                            hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig)
+                            if UseMoveTo then
+                                local targetPos = GetFramePosition(targetFrame)
+                                local distanceToTarget = (hrp.Position - targetPos).Magnitude
+                                
+                                if distanceToTarget > MOVETO_REACH_DISTANCE then
+                                    hum:MoveTo(targetPos)
+                                else
+                                    currentFrame = currentFrame + 1
+                                end
+                            else
+                                hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                                hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+                            end
                             
-                            if hum then
-                                hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-                                hum.AutoRotate = false
+                            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+                            
+                            local moveState = targetFrame.MoveState
+                            
+                            if moveState ~= lastPlaybackState then
+                                lastPlaybackState = moveState
                                 
-                                local moveState = targetFrame.MoveState
-                                local stateTime = tick()
-                                
-                                if moveState ~= lastPlaybackState or (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
+                                if moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                    hum.PlatformStand = false
+                                    hum.AutoRotate = false
+                                elseif moveState == "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                elseif moveState == "Swimming" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                else
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
                                 end
                             end
                             
@@ -1998,7 +2172,6 @@ function StartAutoLoopAll()
             RestoreFullUserControl()
             UpdatePauseMarker()
             lastPlaybackState = nil
-            lastStateChangeTime = 0
             
             if playbackCompleted then
                 PlaySound("Success")
@@ -2023,7 +2196,6 @@ function StartAutoLoopAll()
         RestoreFullUserControl()
         UpdatePauseMarker()
         lastPlaybackState = nil
-        lastStateChangeTime = 0
     end)
 end
 
@@ -2033,7 +2205,6 @@ function StopAutoLoopAll()
     IsPlaying = false
     IsPaused = false
     lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     if loopConnection then
         task.cancel(loopConnection)
@@ -2059,7 +2230,6 @@ function StopPlayback()
     IsPlaying = false
     IsPaused = false
     lastPlaybackState = nil
-    lastStateChangeTime = 0
     RestoreFullUserControl()
     UpdatePauseMarker()
     
@@ -2123,7 +2293,6 @@ local function SaveToObfuscatedJSON()
     if filename == "" then filename = "MyReplays" end
     filename = filename .. ".json"
     
-    -- Check if any replays selected
     local hasSelected = false
     local selectedCount = 0
     for name, isSelected in pairs(SelectedReplays) do
@@ -2140,7 +2309,7 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "2.1", -- Updated version
+            Version = "2.2",
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
@@ -2150,7 +2319,6 @@ local function SaveToObfuscatedJSON()
         local recordingsToSave = {}
         
         if hasSelected then
-            -- Save only selected recordings
             for name, isSelected in pairs(SelectedReplays) do
                 if isSelected and RecordedMovements[name] then
                     recordingsToSave[name] = RecordedMovements[name]
@@ -2158,13 +2326,10 @@ local function SaveToObfuscatedJSON()
                     saveData.CheckpointNames[name] = checkpointNames[name]
                 end
             end
-            warn(string.format("💾 Saving %d selected replay(s) to %s", selectedCount, filename))
         else
-            -- Save all recordings
             recordingsToSave = RecordedMovements
             saveData.RecordingOrder = RecordingOrder
             saveData.CheckpointNames = checkpointNames
-            warn(string.format("💾 Saving all %d replay(s) to %s", #RecordingOrder, filename))
         end
         
         for name, frames in pairs(recordingsToSave) do
@@ -2180,10 +2345,14 @@ local function SaveToObfuscatedJSON()
         saveData.ObfuscatedFrames = obfuscatedData
         
         local jsonString = HttpService:JSONEncode(saveData)
-        writefile(filename, jsonString)
-        PlaySound("Success")
         
-        -- Auto-deselect after save
+        if writefile then
+            writefile(filename, jsonString)
+            PlaySound("Success")
+        else
+            PlaySound("Error")
+        end
+        
         if hasSelected then
             for name, _ in pairs(SelectedReplays) do
                 SelectedReplays[name] = false
@@ -2194,7 +2363,6 @@ local function SaveToObfuscatedJSON()
     
     if not success then
         PlaySound("Error")
-        warn("❌ Save failed: " .. tostring(err))
     end
 end
 
@@ -2204,9 +2372,13 @@ local function LoadFromObfuscatedJSON()
     filename = filename .. ".json"
     
     local success, err = pcall(function()
+        if not readfile or not isfile then
+            PlaySound("Error")
+            return
+        end
+        
         if not isfile(filename) then
             PlaySound("Error")
-            warn("❌ File not found: " .. filename)
             return
         end
         
@@ -2231,13 +2403,6 @@ local function LoadFromObfuscatedJSON()
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
-                    
-                    -- Check rig compatibility
-                    local recordedRig = GetRecordingRigType(frames)
-                    local currentRig = GetRigType()
-                    if recordedRig ~= currentRig then
-                        warn(string.format("⚠️ '%s' recorded on %s, current rig: %s", name, recordedRig, currentRig))
-                    end
                 end
             end
         else
@@ -2257,12 +2422,10 @@ local function LoadFromObfuscatedJSON()
         
         UpdateRecordList()
         PlaySound("Success")
-        warn(string.format("✅ Loaded %d replay(s) from %s", #RecordingOrder, filename))
     end)
     
     if not success then
         PlaySound("Error")
-        warn("❌ Load failed: " .. tostring(err))
     end
 end
 
@@ -2354,6 +2517,12 @@ RespawnBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RespawnBtn)
     AutoRespawn = not AutoRespawn
     AnimateRespawn(AutoRespawn)
+    PlaySound("Toggle")
+end)
+
+MoveToBtn.MouseButton1Click:Connect(function()
+    UseMoveTo = not UseMoveTo
+    AnimateMoveTo(UseMoveTo)
     PlaySound("Toggle")
 end)
 
@@ -2452,6 +2621,9 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F2 then
         ToggleInfiniteJump()
         AnimateJump(InfiniteJump)
+    elseif input.KeyCode == Enum.KeyCode.F1 then
+        UseMoveTo = not UseMoveTo
+        AnimateMoveTo(UseMoveTo)
     end
 end)
 
@@ -2461,15 +2633,13 @@ UpdateRecordList()
 -- Detect current rig type on startup
 task.spawn(function()
     task.wait(1)
-    local currentRig = GetRigType()
-    warn(string.format("🎮 ByaruL Macro System V2.1 Loaded | Current Rig: %s", currentRig))
-    warn("📋 Hotkeys: F9=Record | F10=Play | F7=Loop | F6=Save | F5=Respawn | F11=Hide")
+    CurrentRigType = DetectAdvancedRigType()
 end)
 
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
-    if isfile and readfile and isfile(filename) then
+    if readfile and isfile and isfile(filename) then
         LoadFromObfuscatedJSON()
     end
 end)
@@ -2486,17 +2656,14 @@ end)
 -- ========= CHARACTER ADDED HANDLER =========
 player.CharacterAdded:Connect(function(character)
     task.wait(1)
-    local newRig = GetRigType(character)
+    local newRig = DetectAdvancedRigType(character)
     CurrentRigType = newRig
     
-    -- Update humanoid settings
     local humanoid = character:WaitForChild("Humanoid", 5)
     if humanoid then
         humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = GetDefaultJumpPower(newRig)
+        humanoid.JumpPower = GetRigProfile(newRig).JumpPower
     end
-    
-    warn(string.format("🔄 Character respawned | Rig Type: %s", newRig))
 end)
 
 -- ========= FINAL INITIALIZATION =========
@@ -2513,27 +2680,10 @@ task.spawn(function()
     while true do
         task.wait(5)
         if player.Character then
-            local currentRig = GetRigType()
+            local currentRig = DetectAdvancedRigType()
             if currentRig ~= CurrentRigType then
                 CurrentRigType = currentRig
-                warn(string.format("⚠️ Rig type changed to: %s", currentRig))
             end
         end
     end
 end)
-
-warn("✅ ByaruL Macro System V2.1 - Enhanced Playback & UI Fixed!")
-warn("📝 Major Fixes Applied:")
-warn("   - Smooth Frame Interpolation System")
-warn("   - Fixed UI Layout (Buttons no longer cut off)")
-warn("   - Improved Humanoid State Management")
-warn("   - Better Jump/Fall/Climb Detection")
-warn("   - Reduced State Change Cooldown (0.1s)")
-warn("   - Optimized Recording/Playback Performance")
-warn("")
-warn("🎯 Playback Now Features:")
-warn("   - Smooth movement transitions")
-warn("   - Proper idle/walk/run states")
-warn("   - Accurate jump/fall detection")
-warn("   - Climbing state support")
-warn("   - No more stuck animations")
