@@ -22,21 +22,24 @@ local RIG_PROFILES = {
         HipHeight = 1.5,
         VelocityMultiplier = 0.85,
         JumpPower = 50,
-        GroundOffset = 0.0
+        GroundOffset = 0.0,
+        HeightCompensation = 0.0
     },
     ["R15"] = {
         Height = 5.0,
         HipHeight = 2.0, 
         VelocityMultiplier = 1.0,
         JumpPower = 50,
-        GroundOffset = 0.0
+        GroundOffset = 0.0,
+        HeightCompensation = 0.0
     },
     ["R15_Tall"] = {
         Height = 6.5,
         HipHeight = 2.8,
         VelocityMultiplier = 1.2,
         JumpPower = 60,
-        GroundOffset = 0.8
+        GroundOffset = 0.8,
+        HeightCompensation = 1.2
     }
 }
 
@@ -200,7 +203,12 @@ local function GetRigHeightOffset(recordedRig, currentRig)
     local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
     local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
     
-    return currentProfile.GroundOffset - recordedProfile.GroundOffset
+    return currentProfile.HeightCompensation - recordedProfile.HeightCompensation
+end
+
+local function GetRecordingRigType(recording)
+    if not recording or #recording == 0 then return "R15" end
+    return recording[1].RigType or "R15"
 end
 
 -- ========= SOUND EFFECTS =========
@@ -844,7 +852,7 @@ local function GetInterpolatedFrame(recording, targetTime)
             
             -- Linear interpolation for smooth movement
             local pos1 = Vector3.new(frame1.Position[1], frame1.Position[2], frame1.Position[3])
-            local pos2 = Vector3.new(frame2.Position[1], frame2.Position[2], frame2.Position[2])
+            local pos2 = Vector3.new(frame2.Position[1], frame2.Position[2], frame2.Position[3])
             local interpolatedPos = pos1:Lerp(pos2, alpha)
             
             return {
@@ -1378,7 +1386,7 @@ function UpdateRecordList()
         checkbox.Size = UDim2.fromOffset(16, 16)
         checkbox.Position = UDim2.fromOffset(10, 2)
         checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
-        checkbox.Text = SelectedReplays[name] and "✓" : ""
+        checkbox.Text = SelectedReplays[name] and "✓" or ""
         checkbox.TextColor3 = Color3.new(1, 1, 1)
         checkbox.Font = Enum.Font.GothamBold
         checkbox.TextSize = 10
@@ -1420,7 +1428,7 @@ function UpdateRecordList()
         checkbox.MouseButton1Click:Connect(function()
             SelectedReplays[name] = not SelectedReplays[name]
             checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
-            checkbox.Text = SelectedReplays[name] and "✓" : ""
+            checkbox.Text = SelectedReplays[name] and "✓" or ""
             PlaySound("Toggle")
         end)
         
