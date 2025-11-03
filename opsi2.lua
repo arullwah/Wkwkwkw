@@ -17,7 +17,8 @@ local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 15
 local MOVETO_REACH_DISTANCE = 3
 local MAX_FRAME_JUMP = 30
-local USE_MOVETO_SYSTEM = true
+local USE_MOVETO_SYSTEM = false
+local USE_FORCED_MOVEMENT = true
 
 -- ========= ADVANCED RIG TYPE CONFIGURATION =========
 local RIG_PROFILES = {
@@ -76,7 +77,7 @@ local SelectedReplays = {}
 local AutoRespawn = false
 local InfiniteJump = false
 local AutoLoop = false
-local UseMoveTo = true
+local UseMoveTo = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
@@ -105,7 +106,6 @@ local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
-local originalJumpButtonEnabled = true
 
 -- ========= PLAYBACK STATE TRACKING =========
 local lastPlaybackState = nil
@@ -423,51 +423,6 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= JUMP BUTTON CONTROL SYSTEM =========
-local function HideJumpButton()
-    pcall(function()
-        StarterGui:SetCore("VRLaserPointerMode", 0)
-        StarterGui:SetCore("VREnableControllerModels", false)
-        
-        local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
-        if touchGui then
-            local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
-            if touchControlFrame then
-                local jumpButton = touchControlFrame:FindFirstChild("JumpButton")
-                if jumpButton then
-                    jumpButton.Visible = false
-                end
-            end
-        end
-        
-        StarterGui:SetCore("TopbarEnabled", false)
-    end)
-end
-
-local function ShowJumpButton()
-    pcall(function()
-        StarterGui:SetCore("VRLaserPointerMode", 3)
-        StarterGui:SetCore("VREnableControllerModels", true)
-        
-        local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
-        if touchGui then
-            local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
-            if touchControlFrame then
-                local jumpButton = touchControlFrame:FindFirstChild("JumpButton")
-                if jumpButton then
-                    jumpButton.Visible = true
-                end
-            end
-        end
-        
-        StarterGui:SetCore("TopbarEnabled", true)
-    end)
-end
-
-local function SaveJumpButtonState()
-    originalJumpButtonEnabled = true
-end
-
 -- ========= IMPROVED CLIMBING PAUSE FIX =========
 local function SaveHumanoidState()
     local char = player.Character
@@ -487,8 +442,6 @@ local function SaveHumanoidState()
             humanoid.AutoRotate = false
         end
     end
-    
-    SaveJumpButtonState()
 end
 
 local function RestoreHumanoidState()
@@ -533,12 +486,6 @@ local function RestoreFullUserControl()
     if hrp then
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-    end
-    
-    ShowJumpButton()
-    
-    if ShiftLockEnabled then
-        EnableVisibleShiftLock()
     end
 end
 
@@ -921,8 +868,8 @@ local function EnableJump()
     end
 end
 
--- ========= PERFECT MOVETO SYSTEM - PURE FRAME BY FRAME =========
-local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, currentRig)
+-- ========= PERFECT FORCED MOVEMENT SYSTEM =========
+local function PlayRecordingWithForcedMovement(recording, startFrame, recordedRig, currentRig)
     if not recording or #recording == 0 then return end
     
     local char = player.Character
@@ -933,9 +880,6 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
     
     if not hum or not hrp then return end
 
-    -- RESET STATE
-    hum:MoveTo(hrp.Position)
-    
     local currentFrame = startFrame or 1
     playbackStartTime = tick()
     totalPausedDuration = 0
@@ -945,6 +889,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
         
@@ -953,7 +898,6 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
                 RestoreHumanoidState()
-                ShowJumpButton()
                 if ShiftLockEnabled then ApplyVisibleShiftLock() end
                 UpdatePauseMarker()
             end
@@ -964,7 +908,6 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
                 pauseStartTime = 0
                 SaveHumanoidState()
                 DisableJump()
-                HideJumpButton()
                 UpdatePauseMarker()
             end
         end
@@ -974,6 +917,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
 
@@ -982,6 +926,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
         if not hum or not hrp then
             IsPlaying = false
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
 
@@ -989,52 +934,91 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- SIMPLE FRAME PROGRESSION - Pure frame by frame
+        -- FRAME PROGRESSION
         while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
             currentFrame = currentFrame + 1
         end
         
-        if currentFrame > #recording then
-            -- END OF RECORDING
-            if AutoLoop and IsPlaying then
-                currentFrame = 1
-                playbackStartTime = tick()
-                totalPausedDuration = 0
-            else
-                IsPlaying = false
-                IsPaused = false
-                lastPlaybackState = nil
-                RestoreFullUserControl()
-                UpdatePauseMarker()
-                playbackConnection:Disconnect()
+        -- AUTO STOP FIX
+        if currentFrame >= #recording then
+            IsPlaying = false
+            IsPaused = false
+            lastPlaybackState = nil
+            
+            -- Ensure final position accuracy
+            local finalFrame = recording[#recording]
+            if finalFrame then
+                pcall(function()
+                    hrp.CFrame = GetFrameCFrame(finalFrame, recordedRig, currentRig)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end)
             end
+            
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            playbackConnection:Disconnect()
+            PlaySound("Stop")
             return
         end
 
         local targetFrame = recording[currentFrame]
         if not targetFrame then
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
 
-        -- APPLY MOVEMENT - Pure frame following
+        -- PURE FORCED MOVEMENT - NO MOVETO, NO PATHFINDING
         pcall(function()
             local targetPos = GetFramePosition(targetFrame)
-            local moveState = targetFrame.MoveState
-            
-            -- PURE MOVETO - Just follow the frame position
-            hum:MoveTo(targetPos)
-            
-            -- APPLY ROTATION for accuracy
             local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
-            hrp.CFrame = CFrame.new(hrp.Position, targetCFrame.Position + targetCFrame.LookVector * 10)
+            local moveState = targetFrame.MoveState
+            local currentPos = hrp.Position
             
-            -- APPLY WALKSPEED & VELOCITY
-            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+            -- CALCULATE DIRECTION AND DISTANCE
+            local direction = (targetPos - currentPos)
+            local distance = direction.Magnitude
+            local directionUnit = distance > 0 and direction.Unit or Vector3.new(0, 0, 0)
+            
+            -- APPLY FORCED MOVEMENT BASED ON DISTANCE
+            if distance > 10.0 then
+                -- TERLALU JAUH: Teleport untuk efisiensi
+                hrp.CFrame = targetCFrame
+                FrameLabel.Text = string.format("Frame: %d/%d | TELEPORT", currentFrame, #recording)
+                
+            elseif distance > 2.0 then
+                -- JARAK SEDANG: Velocity movement dengan walk/run animation
+                local speed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed * 1.2
+                hrp.AssemblyLinearVelocity = directionUnit * speed
+                hrp.CFrame = CFrame.new(currentPos, targetPos) -- Face target
+                FrameLabel.Text = string.format("Frame: %d/%d | WALKING", currentFrame, #recording)
+                
+            elseif distance > 0.1 then
+                -- JARAK DEKAT: Exact movement dengan kecepatan dikurangi
+                local speed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed * 0.8
+                hrp.AssemblyLinearVelocity = directionUnit * speed
+                hrp.CFrame = targetCFrame -- Exact rotation
+                FrameLabel.Text = string.format("Frame: %d/%d | PRECISE", currentFrame, #recording)
+                
+            else
+                -- SANGAT DEKAT: Exact position dan rotation
+                hrp.CFrame = targetCFrame
+                hrp.AssemblyLinearVelocity = Vector3.new(0, hrp.AssemblyLinearVelocity.Y, 0) -- Maintain Y velocity for jumps
+                FrameLabel.Text = string.format("Frame: %d/%d | EXACT", currentFrame, #recording)
+            end
+            
+            -- APPLY RECORDED VELOCITY untuk physics accuracy
             local scaledVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
-            hrp.AssemblyLinearVelocity = Vector3.new(scaledVelocity.X, hrp.AssemblyLinearVelocity.Y, scaledVelocity.Z)
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                hrp.AssemblyLinearVelocity.X, 
+                scaledVelocity.Y, -- Use recorded Y velocity for jumps/falls
+                hrp.AssemblyLinearVelocity.Z
+            )
             
-            -- STATE MANAGEMENT
+            -- APPLY WALKSPEED untuk animation
+            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+            
+            -- STATE MANAGEMENT untuk animation yang tepat
             if moveState ~= lastPlaybackState then
                 lastPlaybackState = moveState
                 
@@ -1044,7 +1028,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
                     hum.AutoRotate = false
                 elseif moveState == "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    -- Apply vertical velocity for jumps
+                    -- Boost jump velocity
                     hrp.AssemblyLinearVelocity = Vector3.new(
                         hrp.AssemblyLinearVelocity.X,
                         math.max(hrp.AssemblyLinearVelocity.Y, scaledVelocity.Y),
@@ -1059,9 +1043,7 @@ local function PlayRecordingWithMoveTo(recording, startFrame, recordedRig, curre
                 end
             end
             
-            -- UPDATE DISPLAY
             currentPlaybackFrame = currentFrame
-            FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
         end)
     end)
     
@@ -1089,6 +1071,7 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
         
@@ -1096,7 +1079,6 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
                 RestoreHumanoidState()
-                ShowJumpButton()
                 if ShiftLockEnabled then ApplyVisibleShiftLock() end
                 UpdatePauseMarker()
             end
@@ -1107,7 +1089,6 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
                 pauseStartTime = 0
                 SaveHumanoidState()
                 DisableJump()
-                HideJumpButton()
                 UpdatePauseMarker()
             end
         end
@@ -1116,6 +1097,7 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
 
@@ -1124,6 +1106,7 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
         if not hum or not hrp then
             IsPlaying = false
             playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
 
@@ -1135,19 +1118,24 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
             currentFrame = currentFrame + 1
         end
 
-        if currentFrame > #recording then
-            if AutoLoop and IsPlaying then
-                currentFrame = 1
-                playbackStartTime = tick()
-                totalPausedDuration = 0
-            else
-                IsPlaying = false
-                IsPaused = false
-                lastPlaybackState = nil
-                RestoreFullUserControl()
-                UpdatePauseMarker()
-                playbackConnection:Disconnect()
+        if currentFrame >= #recording then
+            IsPlaying = false
+            IsPaused = false
+            lastPlaybackState = nil
+            
+            -- Ensure final position accuracy
+            local finalFrame = recording[#recording]
+            if finalFrame then
+                pcall(function()
+                    hrp.CFrame = GetFrameCFrame(finalFrame, recordedRig, currentRig)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end)
             end
+            
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            playbackConnection:Disconnect()
+            PlaySound("Stop")
             return
         end
 
@@ -1282,7 +1270,6 @@ local function StartAutoLoopAll()
             
             SaveHumanoidState()
             DisableJump()
-            HideJumpButton()
             
             local framePlaybackStart = tick()
             local framePausedTime = 0
@@ -1294,7 +1281,6 @@ local function StartAutoLoopAll()
                     if framePauseStart == 0 then
                         framePauseStart = tick()
                         RestoreHumanoidState()
-                        ShowJumpButton()
                         if ShiftLockEnabled then ApplyVisibleShiftLock() end
                         UpdatePauseMarker()
                     end
@@ -1306,7 +1292,6 @@ local function StartAutoLoopAll()
                         framePauseStart = 0
                         SaveHumanoidState()
                         DisableJump()
-                        HideJumpButton()
                         UpdatePauseMarker()
                     end
                 end
@@ -1339,21 +1324,18 @@ local function StartAutoLoopAll()
                 if targetFrame then
                     pcall(function()
                         if UseMoveTo then
-                            local targetPos = GetFramePosition(targetFrame)
-                            hum:MoveTo(targetPos)
-                            local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
-                            hrp.CFrame = CFrame.new(hrp.Position, targetCFrame.Position + targetCFrame.LookVector * 10)
+                            PlayRecordingWithForcedMovement({targetFrame}, 1, recordedRig, currentRig)
                         else
                             hrp.CFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
                         end
                         
-                        hrp.AssemblyLinearVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
                         hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
                         
                         local moveState = targetFrame.MoveState
                         if moveState ~= lastPlaybackState then
                             lastPlaybackState = moveState
-                            ApplyMovementState(hum, moveState)
+                            -- Apply movement state here if needed
                         end
                         
                         FrameLabel.Text = string.format("Loop: %d/%d | Frame: %d/%d", 
@@ -1640,19 +1622,20 @@ local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 11
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
+-- TOGGLE LAYOUT BARU: Sejajar kiri-kanan
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
 
+-- TOGGLE SEJAJAR: Auto Respawn kiri, Natural Movement kanan
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
-
-local MoveToBtn, AnimateMoveTo = CreateToggle("Use MoveTo", 0, 129, 117, 22, true)
+local MoveToBtn, AnimateMoveTo = CreateToggle("Natural Movement", 123, 102, 117, 22, false)
 
 -- ========= PERBAIKAN LAYOUT TEXTBOX =========
 -- Speed Box (Kiri - 55px)
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(55, 26)
-SpeedBox.Position = UDim2.fromOffset(5, 156)
+SpeedBox.Position = UDim2.fromOffset(5, 129)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -1668,10 +1651,10 @@ local SpeedCorner = Instance.new("UICorner")
 SpeedCorner.CornerRadius = UDim.new(0, 6)
 SpeedCorner.Parent = SpeedBox
 
--- Filename Box (Tengah - 120px)
+-- Filename Box (Tengah - 110px, diperkecil)
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(120, 26)
-FilenameBox.Position = UDim2.fromOffset(65, 156)
+FilenameBox.Size = UDim2.fromOffset(110, 26)
+FilenameBox.Position = UDim2.fromOffset(65, 129)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
@@ -1687,10 +1670,10 @@ local FilenameCorner = Instance.new("UICorner")
 FilenameCorner.CornerRadius = UDim.new(0, 6)
 FilenameCorner.Parent = FilenameBox
 
--- WalkSpeed Box (Kanan - 55px)
+-- WalkSpeed Box (Kanan - 55px, digeser kiri)
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(55, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(190, 156)
+WalkSpeedBox.Position = UDim2.fromOffset(180, 129) -- Digeser kiri untuk mengisi space
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1706,16 +1689,16 @@ local WalkSpeedCorner = Instance.new("UICorner")
 WalkSpeedCorner.CornerRadius = UDim.new(0, 6)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
-local SaveFileBtn = CreateButton("SAVE FILE", 0, 183, 117, 26, Color3.fromRGB(59, 15, 116))
-local LoadFileBtn = CreateButton("LOAD FILE", 123, 183, 117, 26, Color3.fromRGB(59, 15, 116))
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 160, 117, 26, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(59, 15, 116))
 
-local PathToggleBtn = CreateButton("SHOW RUTE", 0, 214, 117, 26, Color3.fromRGB(59, 15, 116))
-local MergeBtn = CreateButton("MERGE", 123, 214, 117, 26, Color3.fromRGB(59, 15, 116))
+local PathToggleBtn = CreateButton("SHOW RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
 -- Record List dengan layout baru
 local RecordList = Instance.new("ScrollingFrame")
 RecordList.Size = UDim2.new(1, 0, 0, 120)
-RecordList.Position = UDim2.fromOffset(0, 245)
+RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
 RecordList.ScrollBarThickness = 6
@@ -2181,12 +2164,11 @@ function PlayRecording(name)
 
     SaveHumanoidState()
     DisableJump()
-    HideJumpButton()
     PlaySound("Play")
 
     -- Choose playback method based on MoveTo setting
     if UseMoveTo then
-        PlayRecordingWithMoveTo(recording, currentPlaybackFrame, recordedRig, currentRig)
+        PlayRecordingWithForcedMovement(recording, currentPlaybackFrame, recordedRig, currentRig)
     else
         PlayRecordingWithCFrame(recording, currentPlaybackFrame, recordedRig, currentRig)
     end
@@ -2203,7 +2185,6 @@ function PausePlayback()
         PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
         RestoreHumanoidState()
         EnableJump()
-        ShowJumpButton()
         if ShiftLockEnabled then
             ApplyVisibleShiftLock()
         end
@@ -2214,7 +2195,6 @@ function PausePlayback()
         PauseBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         SaveHumanoidState()
         DisableJump()
-        HideJumpButton()
         UpdatePauseMarker()
         PlaySound("Click")
     end
@@ -2538,7 +2518,6 @@ CloseButton.MouseButton1Click:Connect(function()
     if InfiniteJump then DisableInfiniteJump() end
     CleanupConnections()
     ClearPathVisualization()
-    ShowJumpButton()
     ScreenGui:Destroy()
 end)
 
@@ -2629,7 +2608,6 @@ game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
         CleanupConnections()
         ClearPathVisualization()
-        ShowJumpButton()
     end
 end)
 
