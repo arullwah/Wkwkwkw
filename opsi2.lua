@@ -166,20 +166,28 @@ local function DetectAdvancedRigType(character)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return "R15" end
     
-    -- Simple detection: hanya R6 atau R15
-    return humanoid.RigType.Name
-end
+    local rigType = humanoid.RigType.Name
     
-    -- Detect tall R15 characters (Idol 2D, etc)
-if rigType == "R15" then
-    local success, height = pcall(function()
-        return humanoid.Height
-    end)
-    
-    if success and height and height > 6.0 then
-        return "R15_Tall"
+    -- Jika R6, langsung return
+    if rigType == "R6" then
+        return "R6"
     end
-end
+    
+    -- Untuk R15, cek apakah tall character
+    if rigType == "R15" then
+        -- Metode alternatif: hitung dari body parts
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        local head = character:FindFirstChild("Head")
+        
+        if hrp and head then
+            -- Hitung tinggi karakter dari distance HRP ke Head
+            local characterHeight = math.abs(head.Position.Y - hrp.Position.Y) + head.Size.Y
+            
+            if characterHeight > 6.0 then
+                return "R15_Tall"
+            end
+        end
+    end
     
     return rigType
 end
