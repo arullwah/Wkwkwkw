@@ -1,9 +1,7 @@
 --[[
-
-    WindUI Example - Auto Walk dengan Sistem Lengkap
-    
+    AUTO WALK SYSTEM BY WindUI
+    Full Integration dengan Semua Fitur
 ]]
-
 
 local WindUI
 
@@ -19,7 +17,7 @@ do
     end
 end
 
--- */  Mendapatkan data player  /* --
+-- ========= SERVICES =========
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -29,7 +27,7 @@ local StarterGui = game:GetService("StarterGui")
 local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 
--- ========= SISTEM AUTO WALK LENGKAP =========
+-- ========= AUTO WALK CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.015
@@ -63,7 +61,7 @@ local REVERSE_MAPPING = {
     ["77"] = "RigType"
 }
 
--- Variables
+-- ========= VARIABLES =========
 local IsRecording = false
 local IsPlaying = false
 local IsPaused = false
@@ -155,7 +153,7 @@ local function CleanupConnections()
     end
 end
 
--- Rig Type Detection System
+-- ========= RIG TYPE DETECTION =========
 local CurrentRigType = "R15"
 
 local function GetRigType(character)
@@ -199,7 +197,7 @@ local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
     return 1.0
 end
 
--- Sound Effects
+-- ========= SOUND SYSTEM =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
     Toggle = "rbxassetid://7468131335", 
@@ -222,7 +220,7 @@ local function PlaySound(soundType)
     end)
 end
 
--- Auto Respawn Functions
+-- ========= CHARACTER MANAGEMENT =========
 local function ResetCharacter()
     local char = player.Character
     if char then
@@ -274,7 +272,7 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- Visible Shiftlock System
+-- ========= SHIFTLOCK SYSTEM =========
 local function ApplyVisibleShiftLock()
     if not ShiftLockEnabled or not player.Character then return end
     
@@ -341,7 +339,7 @@ local function ToggleVisibleShiftLock()
     end
 end
 
--- Infinite Jump System
+-- ========= INFINITE JUMP SYSTEM =========
 local function EnableInfiniteJump()
     if jumpConnection then return end
     
@@ -374,7 +372,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- Humanoid State Management
+-- ========= HUMANOID STATE MANAGEMENT =========
 local function SaveHumanoidState()
     local char = player.Character
     if not char then return end
@@ -443,7 +441,7 @@ local function RestoreFullUserControl()
     end
 end
 
--- Move State Detection
+-- ========= MOVE STATE DETECTION =========
 local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
     local state = hum:GetState()
@@ -455,7 +453,7 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- Path Visualization
+-- ========= PATH VISUALIZATION =========
 local function ClearPathVisualization()
     for _, part in pairs(PathVisualization) do
         if part and part.Parent then
@@ -506,7 +504,7 @@ local function UpdatePauseMarker()
     end
 end
 
--- Obfuscation Functions
+-- ========= OBFUSCATION SYSTEM =========
 local function ObfuscateRecordingData(recordingData)
     local obfuscated = {}
     
@@ -561,7 +559,7 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
--- Frame Data Functions
+-- ========= FRAME DATA FUNCTIONS =========
 local function GetFrameCFrame(frame)
     local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
@@ -590,7 +588,7 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- Recording System
+-- ========= RECORDING SYSTEM =========
 local lastFrameTime = 0
 local frameInterval = 1 / RECORDING_FPS
 
@@ -698,7 +696,7 @@ local function StopRecording()
     PlaySound("RecordStop")
 end
 
--- Playback System
+-- ========= PLAYBACK SYSTEM =========
 local function PlayRecording(name)
     if IsPlaying then return end
     
@@ -867,7 +865,7 @@ local function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- Auto Loop System
+-- ========= AUTO LOOP SYSTEM =========
 local function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -1244,7 +1242,7 @@ local function PausePlayback()
     end
 end
 
--- Save/Load System
+-- ========= SAVE/LOAD SYSTEM =========
 local function SaveToObfuscatedJSON(filename)
     if filename == "" then filename = "MyReplays" end
     filename = filename .. ".json"
@@ -1386,7 +1384,7 @@ local function LoadFromObfuscatedJSON(filename)
     end
 end
 
--- Merge System
+-- ========= MERGE SYSTEM =========
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
         PlaySound("Error")
@@ -1469,7 +1467,7 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
--- Path Visualization
+-- ========= PATH VISUALIZATION =========
 local function VisualizeAllPaths()
     ClearPathVisualization()
     
@@ -1522,166 +1520,53 @@ local Window = WindUI:CreateWindow({
     }
 })
 
--- Global variables untuk UI elements
-local ReplayListContainer
+-- Global variables
 local FilenameInput
+local ReplayDropdown
+local SelectedReplayActions
 
--- Function to update replay list in WindUI
+-- Function to update replay dropdown
 function UpdateRecordList()
-    if not ReplayListContainer then return end
-    
-    -- Clear existing replay list
-    for _, child in pairs(ReplayListContainer:GetChildren()) do
-        if child:IsA("TextLabel") or child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
+    local dropdownValues = {}
     
     if #RecordingOrder == 0 then
-        local noReplaysLabel = Instance.new("TextLabel")
-        noReplaysLabel.Size = UDim2.new(1, 0, 0, 30)
-        noReplaysLabel.BackgroundTransparency = 1
-        noReplaysLabel.Text = "No replays recorded yet"
-        noReplaysLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-        noReplaysLabel.Font = Enum.Font.Gotham
-        noReplaysLabel.TextSize = 12
-        noReplaysLabel.Parent = ReplayListContainer
-        return
-    end
-    
-    local yPosition = 0
-    for index, name in ipairs(RecordingOrder) do
-        local rec = RecordedMovements[name]
-        if not rec then continue end
-        
-        if SelectedReplays[name] == nil then
-            SelectedReplays[name] = false
-        end
-        
-        local recordingRigType = GetRecordingRigType(rec)
-        local currentRigType = GetRigType()
-        local rigMismatch = recordingRigType ~= currentRigType
-        
-        local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
-        local minutes = math.floor(totalSeconds / 60)
-        local seconds = math.floor(totalSeconds % 60)
-        local durationText = string.format("%d:%02d", minutes, seconds)
-        
-        -- Create replay item frame
-        local itemFrame = Instance.new("Frame")
-        itemFrame.Size = UDim2.new(1, -10, 0, 60)
-        itemFrame.Position = UDim2.new(0, 5, 0, yPosition)
-        itemFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        itemFrame.BorderSizePixel = 0
-        itemFrame.Parent = ReplayListContainer
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = itemFrame
-        
-        -- Checkbox
-        local checkbox = Instance.new("TextButton")
-        checkbox.Size = UDim2.new(0, 20, 0, 20)
-        checkbox.Position = UDim2.new(0, 5, 0, 5)
-        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
-        checkbox.Text = SelectedReplays[name] and "✓" or ""
-        checkbox.TextColor3 = Color3.new(1, 1, 1)
-        checkbox.Font = Enum.Font.GothamBold
-        checkbox.TextSize = 14
-        checkbox.Parent = itemFrame
-        
-        local checkboxCorner = Instance.new("UICorner")
-        checkboxCorner.CornerRadius = UDim.new(0, 4)
-        checkboxCorner.Parent = checkbox
-        
-        -- Replay name
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(0.6, -30, 0, 20)
-        nameLabel.Position = UDim2.new(0, 30, 0, 5)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = checkpointNames[name] or name
-        nameLabel.TextColor3 = Color3.new(1, 1, 1)
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextSize = 12
-        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-        nameLabel.Parent = itemFrame
-        
-        -- Replay info
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(0.6, -30, 0, 16)
-        infoLabel.Position = UDim2.new(0, 30, 0, 25)
-        infoLabel.BackgroundTransparency = 1
-        local rigText = recordingRigType
-        if rigMismatch then
-            rigText = rigText .. " ⚠️→" .. currentRigType
-        end
-        infoLabel.Text = durationText .. " • " .. #rec .. "f • " .. rigText
-        infoLabel.TextColor3 = rigMismatch and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(200, 200, 200)
-        infoLabel.Font = Enum.Font.Gotham
-        infoLabel.TextSize = 10
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-        infoLabel.Parent = itemFrame
-        
-        -- Play button
-        local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.new(0, 50, 0, 25)
-        playBtn.Position = UDim2.new(0.7, 5, 0, 5)
-        playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-        playBtn.Text = "PLAY"
-        playBtn.TextColor3 = Color3.new(1, 1, 1)
-        playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 10
-        playBtn.Parent = itemFrame
-        
-        local playCorner = Instance.new("UICorner")
-        playCorner.CornerRadius = UDim.new(0, 4)
-        playCorner.Parent = playBtn
-        
-        -- Delete button
-        local deleteBtn = Instance.new("TextButton")
-        deleteBtn.Size = UDim2.new(0, 50, 0, 25)
-        deleteBtn.Position = UDim2.new(0.7, 5, 0, 30)
-        deleteBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-        deleteBtn.Text = "DELETE"
-        deleteBtn.TextColor3 = Color3.new(1, 1, 1)
-        deleteBtn.Font = Enum.Font.GothamBold
-        deleteBtn.TextSize = 10
-        deleteBtn.Parent = itemFrame
-        
-        local deleteCorner = Instance.new("UICorner")
-        deleteCorner.CornerRadius = UDim.new(0, 4)
-        deleteCorner.Parent = deleteBtn
-        
-        -- Checkbox click event
-        checkbox.MouseButton1Click:Connect(function()
-            SelectedReplays[name] = not SelectedReplays[name]
-            checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
-            checkbox.Text = SelectedReplays[name] and "✓" or ""
-            PlaySound("Toggle")
-        end)
-        
-        -- Play button click event
-        playBtn.MouseButton1Click:Connect(function()
-            if not IsPlaying then 
-                PlayRecording(name)
+        dropdownValues = {"No replays available"}
+    else
+        for _, name in ipairs(RecordingOrder) do
+            local rec = RecordedMovements[name]
+            if rec then
+                local displayName = checkpointNames[name] or name
+                local recordingRigType = GetRecordingRigType(rec)
+                local currentRigType = GetRigType()
+                local rigMismatch = recordingRigType ~= currentRigType
+                
+                local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
+                local minutes = math.floor(totalSeconds / 60)
+                local seconds = math.floor(totalSeconds % 60)
+                local durationText = string.format("%d:%02d", minutes, seconds)
+                
+                local desc = durationText .. " • " .. #rec .. " frames"
+                if rigMismatch then
+                    desc = desc .. " • " .. recordingRigType .. " → " .. currentRigType
+                end
+                
+                table.insert(dropdownValues, {
+                    Title = displayName,
+                    Desc = desc,
+                    Icon = rigMismatch and "alert-circle" or "check-circle",
+                    Color = rigMismatch and Color3.fromHex("#f59e0b") or nil
+                })
             end
-        end)
-        
-        -- Delete button click event
-        deleteBtn.MouseButton1Click:Connect(function()
-            RecordedMovements[name] = nil
-            checkpointNames[name] = nil
-            SelectedReplays[name] = nil
-            local idx = table.find(RecordingOrder, name)
-            if idx then table.remove(RecordingOrder, idx) end
-            UpdateRecordList()
-        end)
-        
-        yPosition = yPosition + 65
+        end
     end
     
-    -- Update container size
-    ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+    -- Update dropdown
+    if ReplayDropdown then
+        ReplayDropdown:Set({
+            Values = dropdownValues,
+            Value = #RecordingOrder > 0 and dropdownValues[1].Title or "No replays available"
+        })
+    end
 end
 
 -- */  Profile Section  /* --
@@ -1783,11 +1668,21 @@ do
                     Title = "START RECORDING",
                     Color = Color3.fromHex("#3b82f6")
                 })
+                WindUI:Notify({
+                    Title = "Recording Stopped",
+                    Content = "Recording saved to replay list",
+                    Icon = "check"
+                })
             else 
                 StartRecording()
                 RecordBtn:Set({
                     Title = "STOP RECORDING",
                     Color = Color3.fromHex("#ef4444")
+                })
+                WindUI:Notify({
+                    Title = "Recording Started",
+                    Content = "Press STOP to save recording",
+                    Icon = "record"
                 })
             end
         end
@@ -1797,38 +1692,58 @@ do
     
     -- Playback Controls
     local PlayBtn = ControlsTab:Button({
-        Title = "PLAY",
+        Title = "PLAY FIRST REPLAY",
         Color = Color3.fromHex("#10b981"),
         Icon = "play",
         Callback = function()
-            PlayRecording()
+            if #RecordingOrder > 0 then
+                PlayRecording(RecordingOrder[1])
+                WindUI:Notify({
+                    Title = "Playing Replay",
+                    Content = "Now playing: " .. (checkpointNames[RecordingOrder[1]] or RecordingOrder[1]),
+                    Icon = "play"
+                })
+            else
+                WindUI:Notify({
+                    Title = "No Replays",
+                    Content = "Record a replay first!",
+                    Icon = "error"
+                })
+            end
         end
     })
     
     local StopBtn = ControlsTab:Button({
-        Title = "STOP",
+        Title = "STOP PLAYBACK",
         Color = Color3.fromHex("#ef4444"),
         Icon = "square",
         Callback = function()
             StopPlayback()
+            WindUI:Notify({
+                Title = "Playback Stopped",
+                Content = "All playback stopped",
+                Icon = "stop"
+            })
         end
     })
     
     local PauseBtn = ControlsTab:Button({
-        Title = "PAUSE",
+        Title = "PAUSE/RESUME",
         Color = Color3.fromHex("#f59e0b"),
         Icon = "pause",
         Callback = function()
             PausePlayback()
             if IsPaused then
-                PauseBtn:Set({
-                    Title = "RESUME",
-                    Color = Color3.fromHex("#10b981")
+                WindUI:Notify({
+                    Title = "Playback Paused",
+                    Content = "Playback is now paused",
+                    Icon = "pause"
                 })
             else
-                PauseBtn:Set({
-                    Title = "PAUSE", 
-                    Color = Color3.fromHex("#f59e0b")
+                WindUI:Notify({
+                    Title = "Playback Resumed", 
+                    Content = "Playback continues",
+                    Icon = "play"
                 })
             end
         end
@@ -1847,9 +1762,19 @@ do
                 CurrentSpeed = math.floor((speed * 4) + 0.5) / 4
                 SpeedInput:Set(string.format("%.2f", CurrentSpeed))
                 PlaySound("Success")
+                WindUI:Notify({
+                    Title = "Speed Updated",
+                    Content = "Playback speed: " .. string.format("%.2f", CurrentSpeed) .. "x",
+                    Icon = "check"
+                })
             else
                 SpeedInput:Set(string.format("%.2f", CurrentSpeed))
                 PlaySound("Error")
+                WindUI:Notify({
+                    Title = "Invalid Speed",
+                    Content = "Speed must be between 0.25 and 30",
+                    Icon = "error"
+                })
             end
         end
     })
@@ -1869,9 +1794,19 @@ do
                 end
                 
                 PlaySound("Success")
+                WindUI:Notify({
+                    Title = "Walk Speed Updated",
+                    Content = "Walk speed: " .. walkSpeed,
+                    Icon = "check"
+                })
             else
                 WalkSpeedInput:Set(tostring(CurrentWalkSpeed))
                 PlaySound("Error")
+                WindUI:Notify({
+                    Title = "Invalid Walk Speed",
+                    Content = "Walk speed must be between 8 and 200",
+                    Icon = "error"
+                })
             end
         end
     })
@@ -1880,7 +1815,7 @@ do
     
     -- Toggle Controls
     local LoopToggle = ControlsTab:Toggle({
-        Title = "Auto Loop",
+        Title = "Auto Loop All Replays",
         Desc = "Loop through all recordings automatically",
         Callback = function(state)
             AutoLoop = state
@@ -1888,6 +1823,11 @@ do
                 if not next(RecordedMovements) then
                     AutoLoop = false
                     LoopToggle:Set(false)
+                    WindUI:Notify({
+                        Title = "No Replays",
+                        Content = "Record a replay first!",
+                        Icon = "error"
+                    })
                     return
                 end
                 
@@ -1898,8 +1838,18 @@ do
                 end
                 
                 StartAutoLoopAll()
+                WindUI:Notify({
+                    Title = "Auto Loop Started",
+                    Content = "Looping through all replays",
+                    Icon = "repeat"
+                })
             else
                 StopAutoLoopAll()
+                WindUI:Notify({
+                    Title = "Auto Loop Stopped",
+                    Content = "Auto loop disabled",
+                    Icon = "stop"
+                })
             end
         end
     })
@@ -1909,6 +1859,19 @@ do
         Desc = "Enable infinite jumping",
         Callback = function(state)
             ToggleInfiniteJump()
+            if InfiniteJump then
+                WindUI:Notify({
+                    Title = "Infinite Jump Enabled",
+                    Content = "You can now jump infinitely",
+                    Icon = "check"
+                })
+            else
+                WindUI:Notify({
+                    Title = "Infinite Jump Disabled",
+                    Content = "Normal jump behavior restored",
+                    Icon = "check"
+                })
+            end
         end
     })
     
@@ -1917,6 +1880,19 @@ do
         Desc = "Enable shiftlock system",
         Callback = function(state)
             ToggleVisibleShiftLock()
+            if ShiftLockEnabled then
+                WindUI:Notify({
+                    Title = "ShiftLock Enabled",
+                    Content = "ShiftLock system activated",
+                    Icon = "check"
+                })
+            else
+                WindUI:Notify({
+                    Title = "ShiftLock Disabled",
+                    Content = "ShiftLock system deactivated",
+                    Icon = "check"
+                })
+            end
         end
     })
     
@@ -1925,6 +1901,19 @@ do
         Desc = "Automatically respawn when dead",
         Callback = function(state)
             AutoRespawn = state
+            if AutoRespawn then
+                WindUI:Notify({
+                    Title = "Auto Respawn Enabled",
+                    Content = "Automatic respawn activated",
+                    Icon = "check"
+                })
+            else
+                WindUI:Notify({
+                    Title = "Auto Respawn Disabled",
+                    Content = "Manual respawn required",
+                    Icon = "check"
+                })
+            end
         end
     })
     
@@ -1938,8 +1927,18 @@ do
             ShowPaths = state
             if ShowPaths then
                 VisualizeAllPaths()
+                WindUI:Notify({
+                    Title = "Paths Visible",
+                    Content = "Recording paths are now visible",
+                    Icon = "eye"
+                })
             else
                 ClearPathVisualization()
+                WindUI:Notify({
+                    Title = "Paths Hidden",
+                    Content = "Recording paths are now hidden",
+                    Icon = "eye-off"
+                })
             end
         end
     })
@@ -1948,12 +1947,17 @@ do
     
     -- Save/Load Buttons
     ControlsTab:Button({
-        Title = "SAVE REPLAYS",
+        Title = "SAVE ALL REPLAYS",
         Color = Color3.fromHex("#10b981"),
         Icon = "download",
         Callback = function()
             local filename = FilenameInput:Get()
             SaveToObfuscatedJSON(filename)
+            WindUI:Notify({
+                Title = "Replays Saved",
+                Content = "All replays saved to: " .. filename .. ".json",
+                Icon = "check"
+            })
         end
     })
     
@@ -1964,264 +1968,379 @@ do
         Callback = function()
             local filename = FilenameInput:Get()
             LoadFromObfuscatedJSON(filename)
+            WindUI:Notify({
+                Title = "Replays Loaded",
+                Content = "Replays loaded from: " .. filename .. ".json",
+                Icon = "check"
+            })
         end
     })
     
     ControlsTab:Button({
-        Title = "MERGE REPLAYS",
+        Title = "MERGE ALL REPLAYS",
         Color = Color3.fromHex("#8b5cf6"),
         Icon = "merge",
         Callback = function()
             CreateMergedReplay()
+            WindUI:Notify({
+                Title = "Replays Merged",
+                Content = "All replays merged into one",
+                Icon = "check"
+            })
         end
     })
 end
 
--- */  Replay List Section  /* --
+-- */  Replay Management Section  /* --
 local ReplaySection = Window:Section({
-    Title = "Replay List",
+    Title = "Replay Management",
 })
 
 do
     local ReplayTab = ReplaySection:Tab({
-        Title = "Saved Replays",
+        Title = "Replay List",
         Icon = "list",
     })
     
-    -- Create scrolling frame for replay list
-    local ReplayListFrame = Instance.new("ScrollingFrame")
-    ReplayListFrame.Size = UDim2.new(1, -20, 0, 300)
-    ReplayListFrame.Position = UDim2.new(0, 10, 0, 10)
-    ReplayListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-    ReplayListFrame.BorderSizePixel = 0
-    ReplayListFrame.ScrollBarThickness = 6
-    ReplayListFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-    ReplayListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    ReplayListFrame.Parent = ReplayTab.Content
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
-    corner.Parent = ReplayListFrame
-    
-    ReplayListContainer = ReplayListFrame
-    
-    -- Info label
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Size = UDim2.new(1, -20, 0, 20)
-    infoLabel.Position = UDim2.new(0, 10, 0, 320)
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.Text = "Total Replays: 0"
-    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    infoLabel.Font = Enum.Font.Gotham
-    infoLabel.TextSize = 12
-    infoLabel.Parent = ReplayTab.Content
-    
-    -- Function to update info label
-    local function UpdateInfoLabel()
-        infoLabel.Text = string.format("Total Replays: %d | Selected: %d", #RecordingOrder, GetSelectedCount())
-    end
-    
-    -- Function to get selected count
-    local function GetSelectedCount()
-        local count = 0
-        for _, selected in pairs(SelectedReplays) do
-            if selected then
-                count = count + 1
-            end
+    -- Replay selection dropdown
+    ReplayDropdown = ReplayTab:Dropdown({
+        Title = "Select Replay",
+        Desc = "Choose a replay to manage",
+        Values = {"No replays available"},
+        Value = "No replays available",
+        Callback = function(selected)
+            -- Selected replay is stored for actions
         end
-        return count
-    end
+    })
     
-    -- Update both list and info
-    function UpdateRecordList()
-        -- Update the visual list
-        if ReplayListContainer then
-            for _, child in pairs(ReplayListContainer:GetChildren()) do
-                if child:IsA("Frame") then
-                    child:Destroy()
-                end
-            end
-            
-            if #RecordingOrder == 0 then
-                local noReplaysLabel = Instance.new("TextLabel")
-                noReplaysLabel.Size = UDim2.new(1, 0, 1, 0)
-                noReplaysLabel.BackgroundTransparency = 1
-                noReplaysLabel.Text = "No replays recorded yet\nClick RECORD to start"
-                noReplaysLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-                noReplaysLabel.Font = Enum.Font.Gotham
-                noReplaysLabel.TextSize = 14
-                noReplaysLabel.TextYAlignment = Enum.TextYAlignment.Center
-                noReplaysLabel.Parent = ReplayListContainer
-                ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-            else
-                local yPosition = 0
-                for index, name in ipairs(RecordingOrder) do
-                    local rec = RecordedMovements[name]
-                    if not rec then continue end
-                    
-                    if SelectedReplays[name] == nil then
-                        SelectedReplays[name] = false
-                    end
-                    
-                    local recordingRigType = GetRecordingRigType(rec)
-                    local currentRigType = GetRigType()
-                    local rigMismatch = recordingRigType ~= currentRigType
-                    
-                    local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
-                    local minutes = math.floor(totalSeconds / 60)
-                    local seconds = math.floor(totalSeconds % 60)
-                    local durationText = string.format("%d:%02d", minutes, seconds)
-                    
-                    -- Create replay item
-                    local itemFrame = Instance.new("Frame")
-                    itemFrame.Size = UDim2.new(1, -10, 0, 60)
-                    itemFrame.Position = UDim2.new(0, 5, 0, yPosition)
-                    itemFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-                    itemFrame.BorderSizePixel = 0
-                    itemFrame.Parent = ReplayListContainer
-                    
-                    local corner = Instance.new("UICorner")
-                    corner.CornerRadius = UDim.new(0, 6)
-                    corner.Parent = itemFrame
-                    
-                    -- Checkbox
-                    local checkbox = Instance.new("TextButton")
-                    checkbox.Size = UDim2.new(0, 20, 0, 20)
-                    checkbox.Position = UDim2.new(0, 5, 0, 5)
-                    checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
-                    checkbox.Text = SelectedReplays[name] and "✓" or ""
-                    checkbox.TextColor3 = Color3.new(1, 1, 1)
-                    checkbox.Font = Enum.Font.GothamBold
-                    checkbox.TextSize = 14
-                    checkbox.Parent = itemFrame
-                    
-                    local checkboxCorner = Instance.new("UICorner")
-                    checkboxCorner.CornerRadius = UDim.new(0, 4)
-                    checkboxCorner.Parent = checkbox
-                    
-                    -- Replay name
-                    local nameLabel = Instance.new("TextLabel")
-                    nameLabel.Size = UDim2.new(0.6, -30, 0, 20)
-                    nameLabel.Position = UDim2.new(0, 30, 0, 5)
-                    nameLabel.BackgroundTransparency = 1
-                    nameLabel.Text = checkpointNames[name] or name
-                    nameLabel.TextColor3 = Color3.new(1, 1, 1)
-                    nameLabel.Font = Enum.Font.GothamBold
-                    nameLabel.TextSize = 12
-                    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-                    nameLabel.Parent = itemFrame
-                    
-                    -- Replay info
-                    local infoLabel = Instance.new("TextLabel")
-                    infoLabel.Size = UDim2.new(0.6, -30, 0, 16)
-                    infoLabel.Position = UDim2.new(0, 30, 0, 25)
-                    infoLabel.BackgroundTransparency = 1
-                    local rigText = recordingRigType
-                    if rigMismatch then
-                        rigText = rigText .. " ⚠️→" .. currentRigType
-                    end
-                    infoLabel.Text = durationText .. " • " .. #rec .. "f • " .. rigText
-                    infoLabel.TextColor3 = rigMismatch and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(200, 200, 200)
-                    infoLabel.Font = Enum.Font.Gotham
-                    infoLabel.TextSize = 10
-                    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-                    infoLabel.Parent = itemFrame
-                    
-                    -- Play button
-                    local playBtn = Instance.new("TextButton")
-                    playBtn.Size = UDim2.new(0, 50, 0, 25)
-                    playBtn.Position = UDim2.new(0.7, 5, 0, 5)
-                    playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-                    playBtn.Text = "PLAY"
-                    playBtn.TextColor3 = Color3.new(1, 1, 1)
-                    playBtn.Font = Enum.Font.GothamBold
-                    playBtn.TextSize = 10
-                    playBtn.Parent = itemFrame
-                    
-                    local playCorner = Instance.new("UICorner")
-                    playCorner.CornerRadius = UDim.new(0, 4)
-                    playCorner.Parent = playBtn
-                    
-                    -- Delete button
-                    local deleteBtn = Instance.new("TextButton")
-                    deleteBtn.Size = UDim2.new(0, 50, 0, 25)
-                    deleteBtn.Position = UDim2.new(0.7, 5, 0, 30)
-                    deleteBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-                    deleteBtn.Text = "DELETE"
-                    deleteBtn.TextColor3 = Color3.new(1, 1, 1)
-                    deleteBtn.Font = Enum.Font.GothamBold
-                    deleteBtn.TextSize = 10
-                    deleteBtn.Parent = itemFrame
-                    
-                    local deleteCorner = Instance.new("UICorner")
-                    deleteCorner.CornerRadius = UDim.new(0, 4)
-                    deleteCorner.Parent = deleteBtn
-                    
-                    -- Checkbox click event
-                    checkbox.MouseButton1Click:Connect(function()
-                        SelectedReplays[name] = not SelectedReplays[name]
-                        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
-                        checkbox.Text = SelectedReplays[name] and "✓" or ""
-                        PlaySound("Toggle")
-                        UpdateInfoLabel()
-                    end)
-                    
-                    -- Play button click event
-                    playBtn.MouseButton1Click:Connect(function()
-                        if not IsPlaying then 
-                            PlayRecording(name)
+    -- Selected replay actions
+    SelectedReplayActions = ReplayTab:Dropdown({
+        Title = "Replay Actions",
+        Desc = "Actions for selected replay",
+        Values = {
+            {
+                Title = "Play Selected Replay",
+                Desc = "Play the currently selected replay",
+                Icon = "play",
+                Callback = function()
+                    local selected = ReplayDropdown:Get()
+                    if selected and selected ~= "No replays available" then
+                        -- Find the actual replay name from display name
+                        local replayName = nil
+                        for name, displayName in pairs(checkpointNames) do
+                            if displayName == selected then
+                                replayName = name
+                                break
+                            end
                         end
-                    end)
-                    
-                    -- Delete button click event
-                    deleteBtn.MouseButton1Click:Connect(function()
-                        RecordedMovements[name] = nil
-                        checkpointNames[name] = nil
-                        SelectedReplays[name] = nil
-                        local idx = table.find(RecordingOrder, name)
-                        if idx then table.remove(RecordingOrder, idx) end
-                        UpdateRecordList()
-                        UpdateInfoLabel()
-                    end)
-                    
-                    yPosition = yPosition + 65
+                        replayName = replayName or selected
+                        
+                        if RecordedMovements[replayName] then
+                            PlayRecording(replayName)
+                            WindUI:Notify({
+                                Title = "Playing Replay",
+                                Content = "Now playing: " .. selected,
+                                Icon = "play"
+                            })
+                        end
+                    else
+                        WindUI:Notify({
+                            Title = "No Replay Selected",
+                            Content = "Please select a replay first",
+                            Icon = "error"
+                        })
+                    end
                 end
-                
-                ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+            },
+            {
+                Title = "Rename Replay",
+                Desc = "Change the name of this replay",
+                Icon = "edit",
+                Callback = function()
+                    local selected = ReplayDropdown:Get()
+                    if selected and selected ~= "No replays available" then
+                        WindUI:Popup({
+                            Title = "Rename Replay",
+                            Content = "Enter new name for: " .. selected,
+                            Icon = "edit",
+                            Input = true,
+                            InputPlaceholder = "New replay name...",
+                            Buttons = {
+                                {
+                                    Title = "Rename",
+                                    Icon = "check",
+                                    Callback = function(input)
+                                        if input and input ~= "" then
+                                            -- Find the actual replay name
+                                            local replayName = nil
+                                            for name, displayName in pairs(checkpointNames) do
+                                                if displayName == selected then
+                                                    replayName = name
+                                                    break
+                                                end
+                                            end
+                                            replayName = replayName or selected
+                                            
+                                            checkpointNames[replayName] = input
+                                            UpdateRecordList()
+                                            WindUI:Notify({
+                                                Title = "Replay Renamed",
+                                                Content = "Renamed to: " .. input,
+                                                Icon = "check"
+                                            })
+                                        end
+                                    end
+                                },
+                                {
+                                    Title = "Cancel", 
+                                    Icon = "x"
+                                }
+                            }
+                        })
+                    end
+                end
+            },
+            {
+                Type = "Divider"
+            },
+            {
+                Title = "Delete This Replay",
+                Desc = "Permanently delete this replay",
+                Icon = "trash",
+                Color = Color3.fromHex("#ef4444"),
+                Callback = function()
+                    local selected = ReplayDropdown:Get()
+                    if selected and selected ~= "No replays available" then
+                        WindUI:Popup({
+                            Title = "Delete Replay",
+                            Content = "Are you sure you want to delete:\n" .. selected .. "\nThis action cannot be undone!",
+                            Icon = "trash",
+                            Buttons = {
+                                {
+                                    Title = "Delete",
+                                    Icon = "trash",
+                                    Color = Color3.fromHex("#ef4444"),
+                                    Callback = function()
+                                        -- Find the actual replay name
+                                        local replayName = nil
+                                        for name, displayName in pairs(checkpointNames) do
+                                            if displayName == selected then
+                                                replayName = name
+                                                break
+                                            end
+                                        end
+                                        replayName = replayName or selected
+                                        
+                                        RecordedMovements[replayName] = nil
+                                        checkpointNames[replayName] = nil
+                                        SelectedReplays[replayName] = nil
+                                        local idx = table.find(RecordingOrder, replayName)
+                                        if idx then table.remove(RecordingOrder, idx) end
+                                        UpdateRecordList()
+                                        WindUI:Notify({
+                                            Title = "Replay Deleted",
+                                            Content = "Replay has been deleted",
+                                            Icon = "check"
+                                        })
+                                    end
+                                },
+                                {
+                                    Title = "Cancel",
+                                    Icon = "x"
+                                }
+                            }
+                        })
+                    end
+                end
+            }
+        }
+    })
+    
+    ReplayTab:Space()
+    
+    -- Replay information
+    ReplayTab:Section({
+        Title = "Replay Information",
+        Desc = "Total Replays: 0"
+    })
+    
+    -- Quick action buttons
+    ReplayTab:Button({
+        Title = "PLAY ALL SEQUENTIALLY",
+        Color = Color3.fromHex("#10b981"),
+        Icon = "play",
+        Callback = function()
+            if #RecordingOrder > 0 then
+                if not AutoLoop then
+                    AutoLoop = true
+                    StartAutoLoopAll()
+                    WindUI:Notify({
+                        Title = "Playing All Replays",
+                        Content = "Now playing all replays in sequence",
+                        Icon = "repeat"
+                    })
+                end
+            else
+                WindUI:Notify({
+                    Title = "No Replays",
+                    Content = "Record some replays first!",
+                    Icon = "error"
+                })
             end
         end
-        
-        -- Update info label
-        UpdateInfoLabel()
-    end
+    })
+    
+    ReplayTab:Button({
+        Title = "CLEAR ALL REPLAYS",
+        Color = Color3.fromHex("#ef4444"),
+        Icon = "trash",
+        Callback = function()
+            if #RecordingOrder > 0 then
+                WindUI:Popup({
+                    Title = "Clear All Replays",
+                    Content = "Are you sure you want to delete ALL " .. #RecordingOrder .. " replays?\nThis action cannot be undone!",
+                    Icon = "trash",
+                    Buttons = {
+                        {
+                            Title = "Delete All",
+                            Icon = "trash",
+                            Color = Color3.fromHex("#ef4444"),
+                            Callback = function()
+                                RecordedMovements = {}
+                                RecordingOrder = {}
+                                checkpointNames = {}
+                                SelectedReplays = {}
+                                UpdateRecordList()
+                                WindUI:Notify({
+                                    Title = "All Replays Deleted",
+                                    Content = "All replays have been cleared",
+                                    Icon = "check"
+                                })
+                            end
+                        },
+                        {
+                            Title = "Cancel",
+                            Icon = "x"
+                        }
+                    }
+                })
+            else
+                WindUI:Notify({
+                    Title = "No Replays",
+                    Content = "There are no replays to clear",
+                    Icon = "error"
+                })
+            end
+        end
+    })
 end
 
 -- ========= HOTKEY SYSTEM =========
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.F9 then
-        if IsRecording then StopRecording() else StartRecording() end
+        if IsRecording then 
+            StopRecording()
+            WindUI:Notify({
+                Title = "Recording Stopped",
+                Content = "Recording saved to replay list",
+                Icon = "check"
+            })
+        else 
+            StartRecording()
+            WindUI:Notify({
+                Title = "Recording Started", 
+                Content = "Press STOP to save recording",
+                Icon = "record"
+            })
+        end
     elseif input.KeyCode == Enum.KeyCode.F10 then
-        if IsPlaying or AutoLoop then StopPlayback() else PlayRecording() end
+        if IsPlaying or AutoLoop then 
+            StopPlayback()
+            WindUI:Notify({
+                Title = "Playback Stopped",
+                Content = "All playback stopped",
+                Icon = "stop"
+            })
+        else 
+            if #RecordingOrder > 0 then
+                PlayRecording(RecordingOrder[1])
+                WindUI:Notify({
+                    Title = "Playing Replay",
+                    Content = "Now playing first replay",
+                    Icon = "play"
+                })
+            else
+                WindUI:Notify({
+                    Title = "No Replays",
+                    Content = "Record a replay first!",
+                    Icon = "error"
+                })
+            end
+        end
     elseif input.KeyCode == Enum.KeyCode.F7 then
         AutoLoop = not AutoLoop
-        if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
+        if AutoLoop then 
+            StartAutoLoopAll()
+            WindUI:Notify({
+                Title = "Auto Loop Started",
+                Content = "Looping through all replays",
+                Icon = "repeat"
+            })
+        else 
+            StopAutoLoopAll()
+            WindUI:Notify({
+                Title = "Auto Loop Stopped",
+                Content = "Auto loop disabled",
+                Icon = "stop"
+            })
+        end
     elseif input.KeyCode == Enum.KeyCode.F6 then
         local filename = FilenameInput and FilenameInput:Get() or "MyReplays"
         SaveToObfuscatedJSON(filename)
+        WindUI:Notify({
+            Title = "Replays Saved",
+            Content = "All replays saved to: " .. filename .. ".json",
+            Icon = "check"
+        })
     elseif input.KeyCode == Enum.KeyCode.F5 then
         AutoRespawn = not AutoRespawn
+        WindUI:Notify({
+            Title = AutoRespawn and "Auto Respawn Enabled" or "Auto Respawn Disabled",
+            Content = AutoRespawn and "Automatic respawn activated" or "Manual respawn required",
+            Icon = "check"
+        })
     elseif input.KeyCode == Enum.KeyCode.F4 then
         ShowPaths = not ShowPaths
         if ShowPaths then
             VisualizeAllPaths()
+            WindUI:Notify({
+                Title = "Paths Visible",
+                Content = "Recording paths are now visible",
+                Icon = "eye"
+            })
         else
             ClearPathVisualization()
+            WindUI:Notify({
+                Title = "Paths Hidden", 
+                Content = "Recording paths are now hidden",
+                Icon = "eye-off"
+            })
         end
     elseif input.KeyCode == Enum.KeyCode.F3 then
         ToggleVisibleShiftLock()
+        WindUI:Notify({
+            Title = ShiftLockEnabled and "ShiftLock Enabled" or "ShiftLock Disabled",
+            Content = ShiftLockEnabled and "ShiftLock system activated" or "ShiftLock system deactivated",
+            Icon = "check"
+        })
     elseif input.KeyCode == Enum.KeyCode.F2 then
         ToggleInfiniteJump()
+        WindUI:Notify({
+            Title = InfiniteJump and "Infinite Jump Enabled" or "Infinite Jump Disabled",
+            Content = InfiniteJump and "You can now jump infinitely" or "Normal jump behavior restored",
+            Icon = "check"
+        })
     end
 end)
 
@@ -2231,6 +2350,9 @@ task.spawn(function()
     local currentRig = GetRigType()
     warn(string.format("🎮 Auto Walk System Loaded | Current Rig: %s", currentRig))
     warn("📋 Hotkeys: F9=Record | F10=Play | F7=Loop | F6=Save | F5=Respawn")
+    
+    -- Initial update of replay dropdown
+    UpdateRecordList()
 end)
 
 task.spawn(function()
@@ -2238,6 +2360,11 @@ task.spawn(function()
     local filename = "MyReplays.json"
     if isfile and readfile and isfile(filename) then
         LoadFromObfuscatedJSON("MyReplays")
+        WindUI:Notify({
+            Title = "Replays Loaded",
+            Content = "Previous replays loaded automatically",
+            Icon = "check"
+        })
     end
 end)
 
