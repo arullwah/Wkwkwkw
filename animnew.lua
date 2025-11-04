@@ -53,6 +53,17 @@ local RIG_PROFILES = {
         HeightCompensation = 1.5,
         TorsoName = "UpperTorso",
         HeadOffset = 0.8
+    },
+    -- TAMBAHAN UNTUK ZEPETO/2D CHARACTER
+    ["Zepeto"] = {
+        Height = 4.8,
+        HipHeight = 0.5,  -- Sangat rendah karena flat
+        VelocityMultiplier = 1.0,
+        JumpPower = 50,
+        GroundOffset = 2.0,  -- Extra offset untuk Zepeto
+        HeightCompensation = 3.5,  -- Boost besar untuk Zepeto
+        TorsoName = "UpperTorso",
+        HeadOffset = 0.3
     }
 }
 
@@ -104,6 +115,10 @@ local checkpointNames = {}
 local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
+
+-- ========= VARIABLE BARU UNTUK ZEPETO =========
+local ForceZepetoMode = false
+local IsZepetoCharacter = false
 
 -- ========= SMOOTH PLAYBACK VARIABLES =========
 local lastPlaybackCFrame = nil
@@ -236,8 +251,59 @@ local function DetectAdvancedRigType(character)
     return "R15"
 end
 
+-- ========= DETECTION ZEPETO/2D CHARACTER =========
+local function DetectZepetoCharacter(character)
+    character = character or player.Character
+    if not character then return false end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false end
+    
+    -- Cek berdasarkan karakteristik Zepeto/2D
+    local head = character:FindFirstChild("Head")
+    local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+    
+    if head and torso then
+        -- Zepeto biasanya punya proporsi kepala besar dan badan kecil
+        local headSize = head.Size.Y
+        local torsoSize = torso.Size.Y
+        local sizeRatio = headSize / torsoSize
+        
+        -- Karakter 2D/Zepeto biasanya punya ratio kepala:badan yang tinggi
+        if sizeRatio > 1.2 then
+            return true
+        end
+        
+        -- Cek berdasarkan scale atau appearance unik
+        if headSize > 1.2 or torsoSize < 1.0 then
+            return true
+        end
+    end
+    
+    -- Cek berdasarkan nama
+    local playerName = string.lower(player.Name)
+    local displayName = string.lower(player.DisplayName)
+    
+    if string.find(playerName, "zepeto") or 
+       string.find(displayName, "zepeto") or
+       string.find(playerName, "itboy") or 
+       string.find(displayName, "itboy") or
+       string.find(playerName, "2d") or 
+       string.find(displayName, "2d") then
+        return true
+    end
+    
+    return false
+end
+
 local function GetRigProfile(rigType)
     rigType = rigType or DetectAdvancedRigType()
+    
+    -- Prioritaskan Zepeto detection
+    if IsZepetoCharacter or ForceZepetoMode then
+        return RIG_PROFILES["Zepeto"] or RIG_PROFILES["R15"]
+    end
+    
     return RIG_PROFILES[rigType] or RIG_PROFILES["R15"]
 end
 
@@ -251,8 +317,13 @@ local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
     return currentProfile.VelocityMultiplier / recordedProfile.VelocityMultiplier
 end
 
--- ========= PERBAIKAN R15 TALL MODE - FIX KAKI MENDEM =========
+-- ========= PERBAIKAN R15 TALL MODE & ZEPETO FIX =========
 local function GetRigHeightOffset(recordedRig, currentRig)
+    -- SPECIAL HANDLING UNTUK ZEPETO
+    if IsZepetoCharacter or ForceZepetoMode then
+        return 3.5  -- Boost besar untuk Zepeto
+    end
+    
     local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
     local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
     
@@ -816,33 +887,34 @@ local function GetFramePosition(frame)
     return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
 end
 
--- ========= PERBAIKAN R15 TALL MODE - FIX KAKI MENDEM =========
+-- ========= PERBAIKAN R15 TALL MODE & ZEPETO FIX =========
 local function GetFrameCFrame(frame, recordedRig, currentRig)
     local pos = GetFramePosition(frame)
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
     local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
     
-    -- PERBAIKAN: Height adjustment yang lebih aggressive untuk R15 Tall Mode
-    local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
-    
-    -- Special handling untuk R6 → R15 Tall conversion
-    if R15TallMode and recordedRig == "R6" and currentRig == "R15_Tall" then
-        local tallProfile = RIG_PROFILES["R15_Tall"]
-        local r6Profile = RIG_PROFILES["R6"]
-        
-        -- Height difference yang lebih signifikan
-        local heightDiff = tallProfile.Height - r6Profile.Height
-        pos = pos + Vector3.new(0, heightDiff * 0.5, 0)  -- 50% height difference
-        
-        -- Tambahkan HipHeight compensation
-        local hipHeightDiff = tallProfile.HipHeight - r6Profile.HipHeight
-        pos = pos + Vector3.new(0, hipHeightDiff * 0.7, 0)
-        
-        -- Extra lift untuk pastikan tidak mendem
-        pos = pos + Vector3.new(0, 0.5, 0)
+    -- SPECIAL FIX UNTUK ZEPETO/2D CHARACTER
+    if IsZepetoCharacter or ForceZepetoMode then
+        -- BOOST TINGGI BESAR UNTUK ZEPETO
+        pos = pos + Vector3.new(0, 4.0, 0)  -- 4 STUD BOOST!
+        print("🔧 ZEPETO MODE: Height boosted +4 studs")
     else
-        -- Normal height adjustment
-        pos = pos + Vector3.new(0, heightOffset, 0)
+        -- NORMAL CHARACTER HANDLING
+        local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
+        
+        if R15TallMode and recordedRig == "R6" and currentRig == "R15_Tall" then
+            local tallProfile = RIG_PROFILES["R15_Tall"]
+            local r6Profile = RIG_PROFILES["R6"]
+            
+            local heightDiff = tallProfile.Height - r6Profile.Height
+            pos = pos + Vector3.new(0, heightDiff * 0.5, 0)
+            
+            local hipHeightDiff = tallProfile.HipHeight - r6Profile.HipHeight
+            pos = pos + Vector3.new(0, hipHeightDiff * 0.7, 0)
+            pos = pos + Vector3.new(0, 0.5, 0)
+        else
+            pos = pos + Vector3.new(0, heightOffset, 0)
+        end
     end
     
     return CFrame.lookAt(pos, pos + look, up)
@@ -1109,38 +1181,23 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
     AddConnection(playbackConnection)
 end
 
--- ========= PERBAIKAN AUTO LOOP SYSTEM - UNLIMITED & SELECTIVE =========
+-- ========= PERBAIKAN AUTO LOOP SYSTEM - FIX KARAKTER DIAM =========
 local function GetSelectedReplaysList()
     local selectedList = {}
     
-    -- PERBAIKAN: Auto ceklis semua saat AutoLoop aktif TAPI tetap respect manual selection
-    if AutoLoop then
-        -- Jika ada yang dicentang manual, gunakan yang manual
-        local hasManualSelection = false
-        for name, isSelected in pairs(SelectedReplays) do
-            if isSelected then
-                hasManualSelection = true
-                break
-            end
-        end
-        
-        if hasManualSelection then
-            -- Gunakan hanya yang dicentang manual
-            for _, name in ipairs(RecordingOrder) do
-                if SelectedReplays[name] then
-                    table.insert(selectedList, name)
-                end
-            end
-        else
-            -- Auto ceklis semua jika tidak ada manual selection
-            for _, name in ipairs(RecordingOrder) do
+    -- PERBAIKAN: Pastikan hanya replay yang ada di RecordedMovements yang dipilih
+    for _, name in ipairs(RecordingOrder) do
+        if RecordedMovements[name] and #RecordedMovements[name] > 0 then
+            if SelectedReplays[name] then
                 table.insert(selectedList, name)
             end
         end
-    else
-        -- Normal mode: hanya yang dicentang
+    end
+    
+    -- Jika tidak ada yang terpilih, gunakan semua replay yang valid
+    if #selectedList == 0 then
         for _, name in ipairs(RecordingOrder) do
-            if SelectedReplays[name] then
+            if RecordedMovements[name] and #RecordedMovements[name] > 0 then
                 table.insert(selectedList, name)
             end
         end
@@ -1149,57 +1206,190 @@ local function GetSelectedReplaysList()
     return selectedList
 end
 
-local function StartAutoLoopAll()
-    if IsAutoLoopPlaying then return end -- Prevent race condition
-    if not AutoLoop then return end
+local function PlaySingleRecording(recordingName)
+    local recording = RecordedMovements[recordingName]
+    if not recording or #recording == 0 then return false end
     
-    local replayList = GetSelectedReplaysList()
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
     
-    if #replayList == 0 then
-        -- PERBAIKAN: Auto ceklis semua jika tidak ada yang terpilih
-        for _, name in ipairs(RecordingOrder) do
-            if not SelectedReplays[name] then
-                SelectedReplays[name] = true
-            end
-        end
-        UpdateRecordList()
-        
-        replayList = GetSelectedReplaysList()
-        if #replayList == 0 then
-            AutoLoop = false
-            AnimateLoop(false)
-            PlaySound("Error")
-            return
-        end
+    local recordedRig = GetRecordingRigType(recording)
+    local currentRig = DetectAdvancedRigType()
+    
+    SaveHumanoidState()
+    DisableJump()
+    
+    local framePlaybackStart = tick()
+    local framePausedTime = 0
+    local framePauseStart = 0
+    local currentFrame = 1
+    
+    -- Reset smooth playback variables
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        lastPlaybackCFrame = char.HumanoidRootPart.CFrame
+        lastPlaybackVelocity = Vector3.new(0, 0, 0)
     end
     
+    local playbackCompleted = false
+    
+    -- Buat connection terpisah untuk single playback
+    local singlePlaybackConnection
+    singlePlaybackConnection = RunService.Heartbeat:Connect(function()
+        if not AutoLoop or not IsAutoLoopPlaying then
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        -- PAUSE HANDLING
+        if IsPaused then
+            if framePauseStart == 0 then
+                framePauseStart = tick()
+                RestoreHumanoidState()
+                if ShiftLockEnabled then ApplyVisibleShiftLock() end
+                UpdatePauseMarker()
+            end
+            return
+        else
+            if framePauseStart > 0 then
+                framePausedTime = framePausedTime + (tick() - framePauseStart)
+                framePauseStart = 0
+                SaveHumanoidState()
+                DisableJump()
+                UpdatePauseMarker()
+            end
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            playbackCompleted = false
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then
+            playbackCompleted = false
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local currentTime = tick()
+        local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
+        
+        -- FRAME PROGRESSION
+        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+            currentFrame = currentFrame + 1
+            if currentFrame % 5 == 0 then
+                break
+            end
+        end
+        
+        if currentFrame >= #recording then
+            playbackCompleted = true
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local targetFrame = recording[currentFrame]
+        if targetFrame then
+            pcall(function()
+                local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
+                local targetVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
+                
+                -- Apply smooth interpolation
+                local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
+                local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
+                
+                hrp.CFrame = smoothCFrame
+                hrp.AssemblyLinearVelocity = smoothVelocity
+                
+                lastPlaybackCFrame = smoothCFrame
+                lastPlaybackVelocity = smoothVelocity
+                
+                hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+                
+                local moveState = targetFrame.MoveState
+                if moveState ~= lastPlaybackState then
+                    lastPlaybackState = moveState
+                    
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    elseif moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    elseif moveState == "Falling" then
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    end
+                end
+                
+                if currentFrame % 3 == 0 then
+                    FrameLabel.Text = string.format("Loop: %d/%d | Frame: %d/%d", 
+                        CurrentLoopIndex, #SelectedReplaysList, currentFrame, #recording)
+                end
+            end)
+        end
+    end)
+    
+    AddConnection(singlePlaybackConnection)
+    
+    -- Tunggu sampai playback selesai atau interrupted
+    local startWait = tick()
+    while AutoLoop and IsAutoLoopPlaying and not playbackCompleted do
+        if tick() - startWait > 60 then -- Timeout 60 detik
+            break
+        end
+        task.wait(0.1)
+    end
+    
+    singlePlaybackConnection:Disconnect()
+    RestoreFullUserControl()
+    
+    return playbackCompleted
+end
+
+local function StartAutoLoopAll()
+    if IsAutoLoopPlaying then 
+        print("🔄 AutoLoop sudah berjalan")
+        return 
+    end
+    
+    if not AutoLoop then 
+        print("❌ AutoLoop tidak aktif")
+        return 
+    end
+    
+    SelectedReplaysList = GetSelectedReplaysList()
+    
+    if #SelectedReplaysList == 0 then
+        print("❌ Tidak ada replay yang valid untuk di-loop")
+        PlaySound("Error")
+        return
+    end
+    
+    print("🔄 Memulai AutoLoop dengan " .. #SelectedReplaysList .. " replay")
     PlaySound("Play")
     
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
     lastPlaybackState = nil
     
+    -- Buat connection utama untuk manage loop sequence
     loopConnection = RunService.Heartbeat:Connect(function()
         if not AutoLoop or not IsAutoLoopPlaying then
-            loopConnection:Disconnect()
+            if loopConnection then
+                loopConnection:Disconnect()
+                loopConnection = nil
+            end
             return
         end
         
-        while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #replayList do
-            local recordingName = replayList[CurrentLoopIndex]
-            local recording = RecordedMovements[recordingName]
+        -- Loop melalui semua replay yang dipilih
+        while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #SelectedReplaysList do
+            local recordingName = SelectedReplaysList[CurrentLoopIndex]
+            print("🎮 Memutar replay: " .. recordingName .. " (" .. CurrentLoopIndex .. "/" .. #SelectedReplaysList .. ")")
             
-            if not recording or #recording == 0 then
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #replayList then
-                    CurrentLoopIndex = 1
-                end
-                task.wait(0.5)
-                continue
-            end
-            
-            -- PERBAIKAN: UNLIMITED LOOP - Terus coba bahkan jika karakter mati
-            local maxRetries = 10
+            -- Tunggu sampai karakter ready
+            local maxRetries = 5
             local retryCount = 0
             
             while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying and retryCount < maxRetries do
@@ -1209,7 +1399,7 @@ local function StartAutoLoopAll()
                 
                 local waitStart = tick()
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                    if tick() - waitStart > 15 then -- Timeout 15 detik
+                    if tick() - waitStart > 10 then -- Timeout 10 detik
                         break
                     end
                     task.wait(0.5)
@@ -1217,7 +1407,7 @@ local function StartAutoLoopAll()
                 
                 retryCount = retryCount + 1
                 if retryCount >= maxRetries then
-                    warn("AutoLoop: Max retries reached for character respawn")
+                    print("❌ Gagal respawn karakter setelah " .. maxRetries .. " percobaan")
                     break
                 end
                 
@@ -1227,141 +1417,34 @@ local function StartAutoLoopAll()
             if not AutoLoop or not IsAutoLoopPlaying then break end
             if not IsCharacterReady() then
                 -- Skip ke replay berikutnya jika karakter tidak ready
+                print("⏭️ Skip replay " .. CurrentLoopIndex .. " - karakter tidak ready")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #replayList then
+                if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
                 end
                 task.wait(2)
                 continue
             end
             
-            -- PLAY CURRENT RECORDING
-            local recordedRig = GetRecordingRigType(recording)
-            local currentRig = DetectAdvancedRigType()
-            local playbackCompleted = false
+            -- Mainkan replay saat ini
+            local success = PlaySingleRecording(recordingName)
             
-            SaveHumanoidState()
-            DisableJump()
-            
-            local framePlaybackStart = tick()
-            local framePausedTime = 0
-            local framePauseStart = 0
-            local currentFrame = 1
-            
-            -- Reset smooth playback variables
-            local char = player.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                lastPlaybackCFrame = char.HumanoidRootPart.CFrame
-                lastPlaybackVelocity = Vector3.new(0, 0, 0)
-            end
-            
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording do
-                if IsPaused then
-                    if framePauseStart == 0 then
-                        framePauseStart = tick()
-                        RestoreHumanoidState()
-                        if ShiftLockEnabled then ApplyVisibleShiftLock() end
-                        UpdatePauseMarker()
-                    end
-                    task.wait(0.1)
-                    continue
-                else
-                    if framePauseStart > 0 then
-                        framePausedTime = framePausedTime + (tick() - framePauseStart)
-                        framePauseStart = 0
-                        SaveHumanoidState()
-                        DisableJump()
-                        UpdatePauseMarker()
-                    end
-                end
-                
-                local char = player.Character
-                if not char or not char:FindFirstChild("HumanoidRootPart") then
-                    -- PERBAIKAN: Jika karakter hilang/mati selama playback, break dan lanjut ke berikutnya
-                    break
-                end
-                
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if not hum or not hrp then
-                    break
-                end
-                
-                local currentTime = tick()
-                local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
-                
-                -- FRAME PROGRESSION with smoothness limit
-                while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                    currentFrame = currentFrame + 1
-                    if currentFrame % 5 == 0 then
-                        break
-                    end
-                end
-                
-                if currentFrame >= #recording then
-                    playbackCompleted = true
-                    break
-                end
-                
-                local targetFrame = recording[currentFrame]
-                if targetFrame then
-                    pcall(function()
-                        local targetCFrame = GetFrameCFrame(targetFrame, recordedRig, currentRig)
-                        local targetVelocity = GetFrameVelocity(targetFrame, recordedRig, currentRig) * CurrentSpeed
-                        
-                        -- Apply smooth interpolation
-                        local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
-                        local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
-                        
-                        hrp.CFrame = smoothCFrame
-                        hrp.AssemblyLinearVelocity = smoothVelocity
-                        
-                        lastPlaybackCFrame = smoothCFrame
-                        lastPlaybackVelocity = smoothVelocity
-                        
-                        hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-                        
-                        local moveState = targetFrame.MoveState
-                        if moveState ~= lastPlaybackState then
-                            lastPlaybackState = moveState
-                            
-                            if moveState == "Climbing" then
-                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            elseif moveState == "Jumping" then
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            elseif moveState == "Falling" then
-                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                            end
-                        end
-                        
-                        if currentFrame % 3 == 0 then
-                            FrameLabel.Text = string.format("Loop: %d/%d | Frame: %d/%d", 
-                                CurrentLoopIndex, #replayList, currentFrame, #recording)
-                        end
-                    end)
-                end
-                
-                task.wait()
-            end
-            
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            
-            if playbackCompleted then
+            if success then
+                print("✅ Replay " .. CurrentLoopIndex .. " selesai")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #replayList then
+                if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
+                    print("🔄 Kembali ke replay pertama")
                 end
-                task.wait(0.5)
             else
-                -- Jika playback tidak completed (karakter mati dll), lanjut ke berikutnya
+                print("❌ Replay " .. CurrentLoopIndex .. " terinterupsi")
                 CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #replayList then
+                if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
                 end
-                task.wait(1)
             end
+            
+            task.wait(0.5) -- Jeda antar replay
         end
     end)
     
@@ -1369,6 +1452,7 @@ local function StartAutoLoopAll()
 end
 
 local function StopAutoLoopAll()
+    print("🛑 Menghentikan AutoLoop")
     AutoLoop = false
     IsAutoLoopPlaying = false
     IsPlaying = false
@@ -1940,6 +2024,11 @@ function UpdateRecordList()
             rigText = rigText .. " ⚠️"
         end
         
+        -- Tampilkan indicator Zepeto
+        if IsZepetoCharacter then
+            rigText = rigText .. " | ZEPETO"
+        end
+        
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
             infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • " .. rigText
@@ -2429,27 +2518,23 @@ LoopBtn.MouseButton1Click:Connect(function()
     AnimateLoop(AutoLoop)
     
     if AutoLoop then
-        -- PERBAIKAN: Auto ceklis semua saat pertama kali aktifkan AutoLoop
-        local hasAnySelected = false
-        for name, isSelected in pairs(SelectedReplays) do
-            if isSelected then
-                hasAnySelected = true
-                break
-            end
-        end
-        
-        if not hasAnySelected then
-            for _, name in ipairs(RecordingOrder) do
+        -- PERBAIKAN: Auto ceklis semua replay yang valid
+        local hasAnyValid = false
+        for _, name in ipairs(RecordingOrder) do
+            if RecordedMovements[name] and #RecordedMovements[name] > 0 then
                 SelectedReplays[name] = true
+                hasAnyValid = true
             end
-            UpdateRecordList()
         end
         
-        if not next(RecordedMovements) then
+        if not hasAnyValid then
             AutoLoop = false
             AnimateLoop(false)
+            PlaySound("Error")
             return
         end
+        
+        UpdateRecordList()
         
         if IsPlaying then
             IsPlaying = false
@@ -2563,21 +2648,21 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AnimateLoop(AutoLoop)
         if AutoLoop then 
             -- Auto ceklis semua saat pertama kali aktifkan dengan F7
-            local hasAnySelected = false
-            for name, isSelected in pairs(SelectedReplays) do
-                if isSelected then
-                    hasAnySelected = true
-                    break
+            local hasAnyValid = false
+            for _, name in ipairs(RecordingOrder) do
+                if RecordedMovements[name] and #RecordedMovements[name] > 0 then
+                    SelectedReplays[name] = true
+                    hasAnyValid = true
                 end
             end
             
-            if not hasAnySelected then
-                for _, name in ipairs(RecordingOrder) do
-                    SelectedReplays[name] = true
-                end
+            if hasAnyValid then
                 UpdateRecordList()
+                StartAutoLoopAll() 
+            else
+                AutoLoop = false
+                AnimateLoop(false)
             end
-            StartAutoLoopAll() 
         else 
             StopAutoLoopAll() 
         end
@@ -2615,6 +2700,12 @@ UpdateRecordList()
 task.spawn(function()
     task.wait(1)
     CurrentRigType = DetectAdvancedRigType()
+    IsZepetoCharacter = DetectZepetoCharacter()
+    
+    if IsZepetoCharacter then
+        print("🎭 ZEPETO/2D CHARACTER DETECTED! Applying special fixes...")
+        ForceZepetoMode = true
+    end
 end)
 
 task.spawn(function()
@@ -2643,6 +2734,12 @@ player.CharacterAdded:Connect(function(character)
     task.wait(1)
     local newRig = DetectAdvancedRigType(character)
     CurrentRigType = newRig
+    IsZepetoCharacter = DetectZepetoCharacter(character)
+    
+    if IsZepetoCharacter then
+        print("🎭 ZEPETO/2D CHARACTER DETECTED! Applying special fixes...")
+        ForceZepetoMode = true
+    end
     
     local humanoid = character:WaitForChild("Humanoid", 5)
     if humanoid then
@@ -2665,9 +2762,18 @@ task.spawn(function()
         task.wait(5)
         if player.Character then
             local currentRig = DetectAdvancedRigType()
+            local wasZepeto = IsZepetoCharacter
+            IsZepetoCharacter = DetectZepetoCharacter()
+            
             if currentRig ~= CurrentRigType then
                 CurrentRigType = currentRig
-                UpdateRecordList() -- Update UI when rig changes
+                UpdateRecordList()
+            end
+            
+            if IsZepetoCharacter and not wasZepeto then
+                print("🎭 ZEPETO/2D CHARACTER DETECTED! Applying special fixes...")
+                ForceZepetoMode = true
+                UpdateRecordList()
             end
         end
     end
@@ -2700,8 +2806,9 @@ print("✅ AutoWalk ByaruL v2.3 - CFrame Mode Loaded!")
 print("🎮 Pure CFrame System = 100% Accurate")
 print("🔧 Smooth Interpolation = No More Lag/Patah-patah")
 print("📏 R15 Tall Mode FIXED = No More Kaki Mendem")
-print("🔄 Auto Loop IMPROVED = Unlimited & Selective Playback")
-print("⚡ Perfect Auto-Detect R6/R15/R15_Tall")
+print("🎭 ZEPETO/2D CHARACTER SUPPORT = Special Height Fix")
+print("🔄 Auto Loop IMPROVED = No More Karakter Diam")
+print("⚡ Perfect Auto-Detect R6/R15/R15_Tall/Zepeto")
 print("")
 print("🎯 HOTKEYS:")
 print("F9 = Record/Stop")
@@ -2717,7 +2824,8 @@ print("F8 = Reset Character")
 print("F11 = Hide/Show GUI")
 print("")
 print("🔄 AUTO LOOP FEATURES:")
-print("- Auto ceklis semua replay saat pertama kali aktif")
+print("- Auto ceklis semua replay yang valid")
 print("- Bisa unceklis manual untuk skip replay tertentu")
 print("- Unlimited loop bahkan jika karakter mati")
 print("- Auto respawn integration")
+print("- Fix karakter tidak diam lagi")
