@@ -92,13 +92,23 @@ local isShiftLockActive = false
 -- ========= CHARACTER TYPE DETECTION SYSTEM =========
 local IsR6Character = false
 local CharacterHeightOffset = 0
-local IsTallCharacter = false
+local CurrentCharacterType = "Unknown"
 local OriginalRecordingCharacterType = "Unknown"
 
 -- ========= ANIMATION SYSTEM VARIABLES =========
 local lastAnimations = {}
 local animationGuiOpen = false
 local isLoadingAnimations = false
+local animationQueue = {}
+local isProcessingAnimation = false
+local lastAnimationUpdateTime = 0
+local ANIMATION_UPDATE_COOLDOWN = 1.0
+
+-- ========= AUTO LOOP SAFEGUARDS =========
+local MAX_RETRIES_PER_RECORDING = 3
+local MAX_TOTAL_RETRIES = 10
+local currentRecordingRetries = 0
+local totalRetries = 0
 
 -- ========= ANIMATIONS DATABASE (GAZE SYSTEM) =========
 local Animations = {
@@ -426,6 +436,7 @@ local function PlaySound(soundType)
         local sound = Instance.new("Sound")
         sound.SoundId = SoundEffects[soundType] or SoundEffects.Click
         sound.Volume = 0.3
+        sound.Name = "TempSound"
         sound.Parent = workspace
         sound:Play()
         game:GetService("Debris"):AddItem(sound, 2)
@@ -459,93 +470,65 @@ local function AnimateButtonClick(button)
     }):Play()
 end
 
--- ========= ADVANCED CHARACTER TYPE DETECTION SYSTEM =========
+-- ========= UNIFIED CHARACTER TYPE DETECTION SYSTEM =========
 local function DetectCharacterType()
     local char = player.Character
     if not char then 
-        return false, 0, false, "Unknown"
+        return "Unknown", 0
     end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
     if not humanoid or not hrp then 
-        return false, 0, false, "Unknown"
+        return "Unknown", 0
     end
     
     local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
     
-    local characterHeight = 0
-    local isTallCharacter = false
+    -- Calculate height from parts
+    local totalHeight = 0
+    local partCount = 0
     
-    if hrp then
-        local head = char:FindFirstChild("Head")
-        if head then
-            characterHeight = (head.Position - hrp.Position).Y + 2.5
-        else
-            local totalHeight = 0
-            local partCount = 0
-            
-            for _, part in pairs(char:GetChildren()) do
-                if part:IsA("BasePart") and part ~= hrp then
-                    totalHeight = totalHeight + part.Size.Y
-                    partCount = partCount + 1
-                end
-            end
-            
-            if partCount > 0 then
-                characterHeight = totalHeight + 1
-            else
-                characterHeight = hrp.Size.Y * 3
-            end
+    for _, part in pairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part ~= hrp then
+            totalHeight = totalHeight + part.Size.Y
+            partCount = partCount + 1
         end
     end
     
-    isTallCharacter = characterHeight > 6.5
+    local isTall = totalHeight > 7
+    local charType = isR6 and (isTall and "R6_Tall" or "R6_Normal") or (isTall and "R15_Tall" or "R15_Normal")
+    local heightOffset = isTall and -2.0 or (isR6 and 1.5 or 0)
     
-    local heightOffset = 0
-    if isTallCharacter then
-        heightOffset = - (characterHeight - 5.5)
-    elseif isR6 and not isTallCharacter then
-        heightOffset = 1.5
-    end
-    
-    local characterType = "Unknown"
-    if isR6 then
-        characterType = isTallCharacter and "R6_Tall" or "R6_Normal"
-    else
-        characterType = isTallCharacter and "R15_Tall" or "R15_Normal"
-    end
-    
-    return isR6, heightOffset, isTallCharacter, characterType
+    return charType, heightOffset
 end
 
--- ========= RECORDING CHARACTER TYPE DETECTION =========
-local function DetectRecordingCharacterType()
-    local char = player.Character
-    if not char then return "Unknown" end
+-- ========= SIMPLIFIED POSITION ADJUSTMENT SYSTEM =========
+local CHARACTER_HEIGHT_MAP = {
+    ["R6_Normal"] = 5.5,
+    ["R6_Tall"] = 8.0,
+    ["R15_Normal"] = 5.5,
+    ["R15_Tall"] = 8.0,
+    ["Unknown"] = 5.5
+}
+
+local function GetAdjustedPosition(frame, currentCharacterType, recordingCharacterType)
+    local originalPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
     
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return "Unknown" end
+    -- Get height difference
+    local recordingHeight = CHARACTER_HEIGHT_MAP[recordingCharacterType] or 5.5
+    local currentHeight = CHARACTER_HEIGHT_MAP[currentCharacterType] or 5.5
     
-    local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
+    local heightDifference = currentHeight - recordingHeight
     
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local characterHeight = 0
+    -- Simple adjustment
+    local adjustedY = originalPos.Y - heightDifference
     
-    if hrp then
-        local head = char:FindFirstChild("Head")
-        if head then
-            characterHeight = (head.Position - hrp.Position).Y + 2.5
-        else
-            characterHeight = hrp.Size.Y * 3
-        end
-    end
+    warn(string.format("🔄 Height Adjustment: %.2f (Recording: %s → Current: %s)", 
+        -heightDifference, recordingCharacterType, currentCharacterType))
     
-    local isTall = characterHeight > 6.5
-    local recordingType = isR6 and (isTall and "R6_Tall" or "R6_Normal") or (isTall and "R15_Tall" or "R15_Normal")
-    
-    return recordingType
+    return Vector3.new(originalPos.X, adjustedY, originalPos.Z)
 end
 
 -- ========= AUTO RESPAWN FUNCTION =========
@@ -570,7 +553,7 @@ local function WaitForRespawn()
         end
     until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
     
-    IsR6Character, CharacterHeightOffset, IsTallCharacter, _ = DetectCharacterType()
+    CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
     
     task.wait(1)
     return true
@@ -704,7 +687,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM =========
+-- ========= IMPROVED NON-BLOCKING ANIMATION SYSTEM =========
 local function RefreshCharacter()
     local character = player.Character
     if character then
@@ -715,60 +698,101 @@ local function RefreshCharacter()
     end
 end
 
-local function SetAnimation(animType, animId)
-    local character = player.Character
-    if not character then return end
+local function ProcessAnimationQueue()
+    if isProcessingAnimation or #animationQueue == 0 then return end
     
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
+    isProcessingAnimation = true
+    local animData = table.remove(animationQueue, 1)
     
-    if animType == "Idle" and animate:FindFirstChild("idle") then
-        if type(animId) == "table" and #animId == 2 then
-            task.wait(0.3)
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-            lastAnimations.Idle = animId
+    task.spawn(function()
+        local success = pcall(function()
+            local character = player.Character
+            if not character then return false end
+            
+            local animate = character:FindFirstChild("Animate")
+            if not animate then return false end
+            
+            if animData.type == "Idle" and animate:FindFirstChild("idle") then
+                if type(animData.id) == "table" and #animData.id == 2 then
+                    animate.idle.Animation1.AnimationId = "rbxassetid://" .. animData.id[1]
+                    animate.idle.Animation2.AnimationId = "rbxassetid://" .. animData.id[2]
+                    lastAnimations.Idle = animData.id
+                    return true
+                end
+            elseif animData.type == "Walk" and animate:FindFirstChild("walk") then
+                if animate.walk:FindFirstChild("WalkAnim") then
+                    animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animData.id
+                    lastAnimations.Walk = animData.id
+                    return true
+                end
+            elseif animData.type == "Run" and animate:FindFirstChild("run") then
+                if animate.run:FindFirstChild("RunAnim") then
+                    animate.run.RunAnim.AnimationId = "rbxassetid://" .. animData.id
+                    lastAnimations.Run = animData.id
+                    return true
+                end
+            elseif animData.type == "Jump" and animate:FindFirstChild("jump") then
+                if animate.jump:FindFirstChild("JumpAnim") then
+                    animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animData.id
+                    lastAnimations.Jump = animData.id
+                    return true
+                end
+            elseif animData.type == "Fall" and animate:FindFirstChild("fall") then
+                if animate.fall:FindFirstChild("FallAnim") then
+                    animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animData.id
+                    lastAnimations.Fall = animData.id
+                    return true
+                end
+            elseif animData.type == "Climb" and animate:FindFirstChild("climb") then
+                if animate.climb:FindFirstChild("ClimbAnim") then
+                    animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animData.id
+                    lastAnimations.Climb = animData.id
+                    return true
+                end
+            end
+            return false
+        end)
+        
+        if success then
+            lastAnimationUpdateTime = tick()
+            
+            -- ASYNC SAVE
+            task.spawn(function()
+                pcall(function()
+                    if writefile then
+                        writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
+                    end
+                end)
+            end)
+            
+            -- DELAYED REFRESH (non-blocking)
+            task.spawn(function()
+                task.wait(animData.type == "Idle" and 0.3 or 0.1)
+                RefreshCharacter()
+            end)
+        end
+        
+        isProcessingAnimation = false
+        
+        -- Process next in queue
+        if #animationQueue > 0 then
             task.wait(0.2)
-        end
-    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-        if animate.walk:FindFirstChild("WalkAnim") then
-            task.wait(0.1)
-            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Walk = animId
-        end
-    elseif animType == "Run" and animate:FindFirstChild("run") then
-        if animate.run:FindFirstChild("RunAnim") then
-            task.wait(0.1)
-            animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Run = animId
-        end
-    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-        if animate.jump:FindFirstChild("JumpAnim") then
-            task.wait(0.1)
-            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Jump = animId
-        end
-    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-        if animate.fall:FindFirstChild("FallAnim") then
-            task.wait(0.1)
-            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Fall = animId
-        end
-    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-        if animate.climb:FindFirstChild("ClimbAnim") then
-            task.wait(0.1)
-            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Climb = animId
-        end
-    end
-    
-    pcall(function()
-        if writefile and readfile and isfile then
-            writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
+            ProcessAnimationQueue()
         end
     end)
+end
+
+local function SetAnimation(animType, animId)
+    -- COOLDOWN CHECK
+    local currentTime = tick()
+    if currentTime - lastAnimationUpdateTime < ANIMATION_UPDATE_COOLDOWN then
+        warn("⏱️ Animation update too fast, please wait...")
+        return false
+    end
     
-    RefreshCharacter()
+    table.insert(animationQueue, {type = animType, id = animId})
+    ProcessAnimationQueue()
+    return true
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
@@ -780,7 +804,6 @@ local function ResetAnimations()
     if not animate then return end
     
     if animate:FindFirstChild("idle") then
-        task.wait(0.3)
         if animate.idle:FindFirstChild("Animation1") then
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
         end
@@ -790,27 +813,22 @@ local function ResetAnimations()
     end
     
     if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
-        task.wait(0.1)
         animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
     end
     
     if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
-        task.wait(0.1)
         animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
     end
     
     if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
-        task.wait(0.1)
         animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
     end
     
     if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
-        task.wait(0.1)
         animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
     end
     
     if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
-        task.wait(0.1)
         animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
     end
     
@@ -857,55 +875,28 @@ local function LoadSavedAnimations()
                     return
                 end
                 
-                if savedData.Climb and animate:FindFirstChild("climb") then
-                    local climb = animate.climb
-                    if climb:FindFirstChild("ClimbAnim") then
-                        task.wait(0.1)
-                        climb.ClimbAnim.AnimationId = "rbxassetid://" .. savedData.Climb
-                    end
+                if savedData.Climb then
+                    SetAnimation("Climb", savedData.Climb)
                 end
                 
-                if savedData.Fall and animate:FindFirstChild("fall") then
-                    local fall = animate.fall
-                    if fall:FindFirstChild("FallAnim") then
-                        task.wait(0.1)
-                        fall.FallAnim.AnimationId = "rbxassetid://" .. savedData.Fall
-                    end
+                if savedData.Fall then
+                    SetAnimation("Fall", savedData.Fall)
                 end
                 
-                if savedData.Jump and animate:FindFirstChild("jump") then
-                    local jump = animate.jump
-                    if jump:FindFirstChild("JumpAnim") then
-                        task.wait(0.1)
-                        jump.JumpAnim.AnimationId = "rbxassetid://" .. savedData.Jump
-                    end
+                if savedData.Jump then
+                    SetAnimation("Jump", savedData.Jump)
                 end
                 
-                if savedData.Run and animate:FindFirstChild("run") then
-                    local run = animate.run
-                    if run:FindFirstChild("RunAnim") then
-                        task.wait(0.1)
-                        run.RunAnim.AnimationId = "rbxassetid://" .. savedData.Run
-                    end
+                if savedData.Run then
+                    SetAnimation("Run", savedData.Run)
                 end
                 
-                if savedData.Walk and animate:FindFirstChild("walk") then
-                    local walk = animate.walk
-                    if walk:FindFirstChild("WalkAnim") then
-                        task.wait(0.1)
-                        walk.WalkAnim.AnimationId = "rbxassetid://" .. savedData.Walk
-                    end
+                if savedData.Walk then
+                    SetAnimation("Walk", savedData.Walk)
                 end
                 
-                if savedData.Idle and animate:FindFirstChild("idle") then
-                    local idle = animate.idle
-                    if type(savedData.Idle) == "table" and #savedData.Idle == 2 then
-                        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                            task.wait(0.4)
-                            idle.Animation1.AnimationId = "rbxassetid://" .. savedData.Idle[1]
-                            idle.Animation2.AnimationId = "rbxassetid://" .. savedData.Idle[2]
-                        end
-                    end
+                if savedData.Idle and type(savedData.Idle) == "table" and #savedData.Idle == 2 then
+                    SetAnimation("Idle", savedData.Idle)
                 end
                 
                 lastAnimations = savedData
@@ -1562,33 +1553,26 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= ADVANCED POSITION ADJUSTMENT SYSTEM =========
-local function GetAdjustedPosition(frame, currentCharacterType, recordingCharacterType)
-    local originalPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+-- ========= MEMORY CLEANUP SYSTEM =========
+local function SafeCleanup()
+    -- Clean all visual parts
+    ClearPathVisualization()
     
-    if recordingCharacterType == "Unknown" then
-        return Vector3.new(
-            originalPos.X,
-            originalPos.Y + CharacterHeightOffset,
-            originalPos.Z
-        )
+    -- Clean up temporary sounds
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj:IsA("Sound") and obj.Name == "TempSound" then
+            obj:Destroy()
+        end
     end
     
-    local adjustedY = originalPos.Y
+    -- Clear animation queue
+    animationQueue = {}
+    isProcessingAnimation = false
     
-    if recordingCharacterType == "R6_Normal" and currentCharacterType == "R6_Tall" then
-        adjustedY = originalPos.Y - 2.0
-    elseif recordingCharacterType == "R6_Tall" and currentCharacterType == "R6_Normal" then
-        adjustedY = originalPos.Y + 2.0
-    elseif recordingCharacterType == "R15_Normal" and currentCharacterType == "R6_Tall" then
-        adjustedY = originalPos.Y - 1.5
-    elseif recordingCharacterType == "R15_Tall" and currentCharacterType == "R6_Normal" then
-        adjustedY = originalPos.Y + 1.5
-    else
-        adjustedY = originalPos.Y + CharacterHeightOffset
-    end
-    
-    return Vector3.new(originalPos.X, adjustedY, originalPos.Z)
+    -- Force garbage collection
+    pcall(function()
+        game:GetService("GC"):CollectGarbage()
+    end)
 end
 
 -- ========= GUI SETUP =========
@@ -2258,7 +2242,8 @@ function StartRecording()
     lastRecordPos = nil
     lastFrameTime = 0
     
-    OriginalRecordingCharacterType = DetectRecordingCharacterType()
+    CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
+    OriginalRecordingCharacterType = CurrentCharacterType
     
     RecordBtnBig.Text = "STOP RECORDING"
     RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10)
@@ -2350,7 +2335,7 @@ function PlayRecording(name)
         return
     end
 
-    IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+    CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
     CharacterLabel.Text = "Char: " .. CurrentCharacterType
 
     IsPlaying = true
@@ -2492,7 +2477,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM - PERMANENT ACTIVE =========
+-- ========= IMPROVED AUTO LOOP SYSTEM WITH SAFEGUARDS =========
 function StartAutoLoopAll()
     if not AutoLoop then 
         return 
@@ -2507,11 +2492,13 @@ function StartAutoLoopAll()
     
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
+    currentRecordingRetries = 0
+    totalRetries = 0
     lastPlaybackState = nil
     lastStateChangeTime = 0
     
     loopConnection = task.spawn(function()
-        while AutoLoop and IsAutoLoopPlaying do
+        while AutoLoop and IsAutoLoopPlaying and totalRetries < MAX_TOTAL_RETRIES do
             if not AutoLoop then
                 break
             end
@@ -2520,11 +2507,22 @@ function StartAutoLoopAll()
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
+                warn("⚠️ Empty recording, skipping...")
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
                 end
                 task.wait(1)
+                continue
+            end
+            
+            if currentRecordingRetries >= MAX_RETRIES_PER_RECORDING then
+                warn("⚠️ Skipping problematic recording after " .. MAX_RETRIES_PER_RECORDING .. " retries")
+                currentRecordingRetries = 0
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
                 continue
             end
             
@@ -2565,7 +2563,7 @@ function StartAutoLoopAll()
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+            CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
             CharacterLabel.Text = "Char: " .. CurrentCharacterType
             
             local playbackCompleted = false
@@ -2587,6 +2585,14 @@ function StartAutoLoopAll()
                 
                 if not IsCharacterReady() then
                     deathRetryCount = deathRetryCount + 1
+                    currentRecordingRetries = currentRecordingRetries + 1
+                    totalRetries = totalRetries + 1
+                    
+                    if totalRetries >= MAX_TOTAL_RETRIES then
+                        warn("🚨 Emergency stop: Too many total retries")
+                        StopAutoLoopAll()
+                        break
+                    end
                     
                     if AutoRespawn then
                         ResetCharacter()
@@ -2596,7 +2602,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+                            CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
                             CharacterLabel.Text = "Char: " .. CurrentCharacterType
                             
                             currentFrame = 1
@@ -2634,7 +2640,7 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+                        CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
                         CharacterLabel.Text = "Char: " .. CurrentCharacterType
                         
                         currentFrame = 1
@@ -2752,6 +2758,7 @@ function StartAutoLoopAll()
             
             if playbackCompleted then
                 PlaySound("Success")
+                currentRecordingRetries = 0
                 
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
@@ -2784,6 +2791,8 @@ function StopAutoLoopAll()
     IsPaused = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    currentRecordingRetries = 0
+    totalRetries = 0
     
     if loopConnection then
         task.cancel(loopConnection)
@@ -3116,16 +3125,19 @@ CloseButton.MouseButton1Click:Connect(function()
     if ShiftLockEnabled then DisableVisibleShiftLock() end
     if InfiniteJump then DisableInfiniteJump() end
     CleanupConnections()
-    ClearPathVisualization()
+    SafeCleanup()
     ShowJumpButton()
     ScreenGui:Destroy()
 end)
 
 -- ========= AUTO-LOAD ANIMATIONS SYSTEM =========
 player.CharacterAdded:Connect(function(character)
+    -- CLEANUP PATH VISUALIZATION
+    SafeCleanup()
+    
     task.wait(2)
     
-    IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+    CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
     CharacterLabel.Text = "Char: " .. CurrentCharacterType
     
     if player.Character == character and next(lastAnimations) then
@@ -3138,7 +3150,7 @@ task.spawn(function()
     if player.Character then
         task.wait(2)
         
-        IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+        CurrentCharacterType, CharacterHeightOffset = DetectCharacterType()
         CharacterLabel.Text = "Char: " .. CurrentCharacterType
         
         pcall(function()
@@ -3151,6 +3163,13 @@ task.spawn(function()
                 end
             end
         end)
+    end
+end)
+
+-- ========= REGULAR MEMORY CLEANUP =========
+RunService.Heartbeat:Connect(function()
+    if tick() % 30 < 0.1 then -- Every 30 seconds
+        SafeCleanup()
     end
 end)
 
