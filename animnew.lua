@@ -74,9 +74,10 @@ local originalJumpButtonEnabled = true
 -- ========= PLAYBACK STATE TRACKING =========
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
-local STATE_CHANGE_COOLDOWN = 0.15  -- 150ms minimum antara state changes
+local STATE_CHANGE_COOLDOWN = 0.15
 
 -- ========= AUTO LOOP VARIABLES =========
+local AutoLoop = false
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
@@ -88,9 +89,11 @@ local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
 
--- ========= CHARACTER TYPE DETECTION =========
+-- ========= CHARACTER TYPE DETECTION SYSTEM =========
 local IsR6Character = false
 local CharacterHeightOffset = 0
+local IsTallCharacter = false
+local OriginalRecordingCharacterType = "Unknown"
 
 -- ========= ANIMATION SYSTEM VARIABLES =========
 local lastAnimations = {}
@@ -456,38 +459,110 @@ local function AnimateButtonClick(button)
     }):Play()
 end
 
--- ========= CHARACTER TYPE DETECTION SYSTEM =========
+-- ========= ADVANCED CHARACTER TYPE DETECTION SYSTEM =========
 local function DetectCharacterType()
     local char = player.Character
-    if not char then return false, 0 end
+    if not char then 
+        return false, 0, false, "Unknown"
+    end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
-    if not humanoid or not hrp then return false, 0 end
+    if not humanoid or not hrp then 
+        return false, 0, false, "Unknown"
+    end
     
     -- Deteksi R6 vs R15
     local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
     
-    -- Deteksi tinggi karakter untuk Zepeto/Itboy/Santa
+    -- Deteksi tinggi karakter yang lebih akurat
     local characterHeight = 0
+    local isTallCharacter = false
+    
     if hrp then
-        -- Estimasi tinggi karakter berdasarkan posisi HRP
+        -- Method 1: Hitung dari HRP ke kepala
         local head = char:FindFirstChild("Head")
         if head then
-            characterHeight = (head.Position - hrp.Position).Y + 2
+            characterHeight = (head.Position - hrp.Position).Y + 2.5
         else
-            characterHeight = hrp.Size.Y * 2
+            -- Method 2: Estimasi berdasarkan part sizes
+            local totalHeight = 0
+            local partCount = 0
+            
+            for _, part in pairs(char:GetChildren()) do
+                if part:IsA("BasePart") and part ~= hrp then
+                    totalHeight = totalHeight + part.Size.Y
+                    partCount = partCount + 1
+                end
+            end
+            
+            if partCount > 0 then
+                characterHeight = totalHeight + 1
+            else
+                -- Method 3: Default estimation
+                characterHeight = hrp.Size.Y * 3
+            end
         end
     end
     
-    -- Jika karakter sangat tinggi (Zepeto/Itboy/Santa), set offset
+    -- Tentukan apakah karakter tinggi (Zepeto/Itboy/Santa)
+    isTallCharacter = characterHeight > 6.5
+    
+    -- Hitung height offset yang diperlukan
     local heightOffset = 0
-    if characterHeight > 6 then -- Karakter tinggi seperti Zepeto/Itboy
-        heightOffset = characterHeight - 5.5 -- Normalize ke tinggi standar
+    if isTallCharacter then
+        -- Karakter tinggi perlu offset negatif agar tidak mengambang
+        heightOffset = - (characterHeight - 5.5)  -- Normalize ke tinggi standar R6
+    elseif isR6 and not isTallCharacter then
+        -- Karakter R6 pendek perlu offset positif agar tidak mendem
+        heightOffset = 1.5
     end
     
-    return isR6, heightOffset
+    local characterType = "Unknown"
+    if isR6 then
+        characterType = isTallCharacter and "R6_Tall" or "R6_Normal"
+    else
+        characterType = isTallCharacter and "R15_Tall" or "R15_Normal"
+    end
+    
+    warn("🔍 Character Detection:")
+    warn("   Type: " .. characterType)
+    warn("   Height: " .. string.format("%.2f", characterHeight))
+    warn("   Height Offset: " .. string.format("%.2f", heightOffset))
+    warn("   Is Tall: " .. tostring(isTallCharacter))
+    
+    return isR6, heightOffset, isTallCharacter, characterType
+end
+
+-- ========= RECORDING CHARACTER TYPE DETECTION =========
+local function DetectRecordingCharacterType()
+    local char = player.Character
+    if not char then return "Unknown" end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return "Unknown" end
+    
+    local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
+    
+    -- Deteksi tinggi saat recording
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local characterHeight = 0
+    
+    if hrp then
+        local head = char:FindFirstChild("Head")
+        if head then
+            characterHeight = (head.Position - hrp.Position).Y + 2.5
+        else
+            characterHeight = hrp.Size.Y * 3
+        end
+    end
+    
+    local isTall = characterHeight > 6.5
+    local recordingType = isR6 and (isTall and "R6_Tall" or "R6_Normal") or (isTall and "R15_Tall" or "R15_Normal")
+    
+    warn("🎥 Recording Character Type: " .. recordingType)
+    return recordingType
 end
 
 -- ========= AUTO RESPAWN FUNCTION =========
@@ -513,7 +588,7 @@ local function WaitForRespawn()
     until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
     
     -- Deteksi ulang tipe karakter setelah respawn
-    IsR6Character, CharacterHeightOffset = DetectCharacterType()
+    IsR6Character, CharacterHeightOffset, IsTallCharacter, _ = DetectCharacterType()
     
     task.wait(1)
     return true
@@ -647,7 +722,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM (FIXED IDLE ANIMATION) =========
+-- ========= IMPROVED ANIMATION SYSTEM =========
 local function RefreshCharacter()
     local character = player.Character
     if character then
@@ -665,11 +740,11 @@ local function SetAnimation(animType, animId)
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
-    -- ✅ PERBAIKAN KHUSUS: Idle animation memerlukan delay lebih lama untuk network sync
+    -- PERBAIKAN KHUSUS: Idle animation memerlukan delay lebih lama untuk network sync
     if animType == "Idle" and animate:FindFirstChild("idle") then
         if type(animId) == "table" and #animId == 2 then
             -- Delay lebih lama untuk idle animation agar network sync sempurna
-            task.wait(0.3) -- Increased from 0.05 to 0.3 for better sync
+            task.wait(0.3)
             
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
             animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
@@ -710,14 +785,14 @@ local function SetAnimation(animType, animId)
         end
     end
     
-    -- ✅ Save config
+    -- Save config
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
     
-    -- ✅ Smooth refresh (optional)
+    -- Smooth refresh
     RefreshCharacter()
 end
 
@@ -729,9 +804,9 @@ local function ResetAnimations()
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
-    -- ✅ PERBAIKAN: Extra delay untuk reset idle animation
+    -- PERBAIKAN: Extra delay untuk reset idle animation
     if animate:FindFirstChild("idle") then
-        task.wait(0.3) -- Extra delay untuk idle
+        task.wait(0.3)
         if animate.idle:FindFirstChild("Animation1") then
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
         end
@@ -770,7 +845,7 @@ local function ResetAnimations()
         animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
     end
     
-    -- ✅ Clear saved data
+    -- Clear saved data
     lastAnimations = {}
     pcall(function()
         if delfile and isfile and isfile("AnimHub_Saved.json") then
@@ -778,14 +853,14 @@ local function ResetAnimations()
         end
     end)
     
-    -- ✅ Smooth refresh
+    -- Smooth refresh
     RefreshCharacter()
     
-    -- ✅ Notify user
+    -- Notify user
     PlaySound("Success")
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS (IMPROVED IDLE SYNC) =========
+-- ========= ADVANCED LOAD SAVED ANIMATIONS =========
 local function LoadSavedAnimations()
     if isLoadingAnimations then 
         return 
@@ -806,7 +881,7 @@ local function LoadSavedAnimations()
             return 
         end
         
-        task.wait(0.5) -- Increased initial wait
+        task.wait(0.5)
         
         local success, result = pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
@@ -817,8 +892,7 @@ local function LoadSavedAnimations()
                     return
                 end
                 
-                -- ✅ PERBAIKAN: Load animasi dengan urutan yang benar dan delay optimal
-                -- Load Climb terlebih dahulu
+                -- Load animasi dengan urutan yang benar dan delay optimal
                 if savedData.Climb and animate:FindFirstChild("climb") then
                     local climb = animate.climb
                     if climb:FindFirstChild("ClimbAnim") then
@@ -827,7 +901,6 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                -- Load Fall
                 if savedData.Fall and animate:FindFirstChild("fall") then
                     local fall = animate.fall
                     if fall:FindFirstChild("FallAnim") then
@@ -836,7 +909,6 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                -- Load Jump
                 if savedData.Jump and animate:FindFirstChild("jump") then
                     local jump = animate.jump
                     if jump:FindFirstChild("JumpAnim") then
@@ -845,7 +917,6 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                -- Load Run
                 if savedData.Run and animate:FindFirstChild("run") then
                     local run = animate.run
                     if run:FindFirstChild("RunAnim") then
@@ -854,7 +925,6 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                -- Load Walk
                 if savedData.Walk and animate:FindFirstChild("walk") then
                     local walk = animate.walk
                     if walk:FindFirstChild("WalkAnim") then
@@ -863,12 +933,12 @@ local function LoadSavedAnimations()
                     end
                 end
                 
-                -- ✅ PERBAIKAN PENTING: Load Idle animation TERAKHIR dengan delay lebih lama
+                -- Load Idle animation TERAKHIR dengan delay lebih lama
                 if savedData.Idle and animate:FindFirstChild("idle") then
                     local idle = animate.idle
                     if type(savedData.Idle) == "table" and #savedData.Idle == 2 then
                         if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                            task.wait(0.4) -- Extra long delay untuk idle animation sync
+                            task.wait(0.4)
                             idle.Animation1.AnimationId = "rbxassetid://" .. savedData.Idle[1]
                             idle.Animation2.AnimationId = "rbxassetid://" .. savedData.Idle[2]
                         end
@@ -877,7 +947,7 @@ local function LoadSavedAnimations()
                 
                 lastAnimations = savedData
                 
-                task.wait(0.3) -- Final wait untuk memastikan semua animasi terload
+                task.wait(0.3)
                 RefreshCharacter()
             end
         end)
@@ -886,7 +956,7 @@ local function LoadSavedAnimations()
     end)
 end
 
--- ========= ANIMATION GUI 200x200 =========
+-- ========= ANIMATION GUI =========
 local function OpenAnimationGUI()
     if animationGuiOpen then return end
     animationGuiOpen = true
@@ -909,7 +979,6 @@ local function OpenAnimationGUI()
     MainCorner.CornerRadius = UDim.new(0, 8)
     MainCorner.Parent = MainFrame
     
-    -- Header (Lebar 200, Tinggi 35)
     local Header = Instance.new("Frame")
     Header.Size = UDim2.new(1, 0, 0, 35)
     Header.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -920,7 +989,6 @@ local function OpenAnimationGUI()
     HeaderCorner.CornerRadius = UDim.new(0, 8)
     HeaderCorner.Parent = Header
     
-    -- Load Button (Kiri)
     local LoadBtn = Instance.new("TextButton")
     LoadBtn.Size = UDim2.new(0, 25, 0, 25)
     LoadBtn.Position = UDim2.new(0, 5, 0.5, -12.5)
@@ -935,7 +1003,6 @@ local function OpenAnimationGUI()
     LoadCorner.CornerRadius = UDim.new(0, 4)
     LoadCorner.Parent = LoadBtn
     
-    -- Reset Button (Kanan Load)
     local ResetBtn = Instance.new("TextButton")
     ResetBtn.Size = UDim2.new(0, 25, 0, 25)
     ResetBtn.Position = UDim2.new(0, 35, 0.5, -12.5)
@@ -950,7 +1017,6 @@ local function OpenAnimationGUI()
     ResetCorner.CornerRadius = UDim.new(0, 4)
     ResetCorner.Parent = ResetBtn
     
-    -- Search Box (Tengah)
     local SearchBox = Instance.new("TextBox")
     SearchBox.Size = UDim2.new(0, 80, 0, 25)
     SearchBox.Position = UDim2.new(0, 65, 0.5, -12.5)
@@ -973,7 +1039,6 @@ local function OpenAnimationGUI()
     SearchPadding.PaddingLeft = UDim.new(0, 8)
     SearchPadding.Parent = SearchBox
     
-    -- Close Button (Kanan)
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 25, 0, 25)
     CloseBtn.Position = UDim2.new(1, -30, 0.5, -12.5)
@@ -988,7 +1053,6 @@ local function OpenAnimationGUI()
     CloseCorner.CornerRadius = UDim.new(0, 4)
     CloseCorner.Parent = CloseBtn
     
-    -- Animation List (Compact)
     local AnimationList = Instance.new("ScrollingFrame")
     AnimationList.Size = UDim2.new(1, -10, 1, -40)
     AnimationList.Position = UDim2.new(0, 5, 0, 40)
@@ -1003,7 +1067,6 @@ local function OpenAnimationGUI()
     ListCorner.CornerRadius = UDim.new(0, 6)
     ListCorner.Parent = AnimationList
     
-    -- Populate animation list
     local buttons = {}
     local yPos = 0
     
@@ -1033,7 +1096,6 @@ local function OpenAnimationGUI()
             PlaySound("Success")
         end)
         
-        -- Hover effects
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.2), {
                 BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1050,8 +1112,6 @@ local function OpenAnimationGUI()
         yPos = yPos + 28
     end
     
-    -- Populate all animations dengan urutan yang benar
-    -- Climb, Fall, Jump, Run, Walk, Idle (TERAKHIR)
     for name, id in pairs(Animations.Climb) do
         addButton(name, "Climb", id)
     end
@@ -1071,10 +1131,8 @@ local function OpenAnimationGUI()
         addButton(name, "Idle", ids)
     end
     
-    -- Update canvas size
     AnimationList.CanvasSize = UDim2.new(0, 0, 0, yPos)
     
-    -- Button functionality
     LoadBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoadBtn)
         LoadSavedAnimations()
@@ -1093,7 +1151,6 @@ local function OpenAnimationGUI()
         PlaySound("Click")
     end)
     
-    -- Search functionality
     SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = SearchBox.Text:lower()
         local pos = 0
@@ -1109,7 +1166,6 @@ local function OpenAnimationGUI()
         AnimationList.CanvasSize = UDim2.new(0, 0, 0, pos)
     end)
     
-    -- Draggable functionality
     local dragging, dragInput, dragStart, startPos
     MainFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1543,6 +1599,51 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
+-- ========= ADVANCED POSITION ADJUSTMENT SYSTEM =========
+local function GetAdjustedPosition(frame, currentCharacterType, recordingCharacterType)
+    local originalPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+    
+    -- Jika tidak ada informasi recording type, gunakan height offset biasa
+    if recordingCharacterType == "Unknown" then
+        return Vector3.new(
+            originalPos.X,
+            originalPos.Y + CharacterHeightOffset,
+            originalPos.Z
+        )
+    end
+    
+    -- Sistem adjustment yang lebih cerdas berdasarkan kombinasi karakter
+    local adjustedY = originalPos.Y
+    
+    -- Case 1: Recording R6_Normal, Current R6_Tall (Zepeto/Itboy)
+    if recordingCharacterType == "R6_Normal" and currentCharacterType == "R6_Tall" then
+        adjustedY = originalPos.Y - 2.0  -- Karakter tinggi perlu turun
+        warn("🔄 Position Adjustment: R6_Normal → R6_Tall (Offset: -2.0)")
+    
+    -- Case 2: Recording R6_Tall, Current R6_Normal  
+    elseif recordingCharacterType == "R6_Tall" and currentCharacterType == "R6_Normal" then
+        adjustedY = originalPos.Y + 2.0  -- Karakter pendek perlu naik
+        warn("🔄 Position Adjustment: R6_Tall → R6_Normal (Offset: +2.0)")
+    
+    -- Case 3: Recording R15_Normal, Current R6_Tall
+    elseif recordingCharacterType == "R15_Normal" and currentCharacterType == "R6_Tall" then
+        adjustedY = originalPos.Y - 1.5
+        warn("🔄 Position Adjustment: R15_Normal → R6_Tall (Offset: -1.5)")
+    
+    -- Case 4: Recording R15_Tall, Current R6_Normal
+    elseif recordingCharacterType == "R15_Tall" and currentCharacterType == "R6_Normal" then
+        adjustedY = originalPos.Y + 1.5
+        warn("🔄 Position Adjustment: R15_Tall → R6_Normal (Offset: +1.5)")
+    
+    -- Default: Gunakan height offset detection biasa
+    else
+        adjustedY = originalPos.Y + CharacterHeightOffset
+        warn("🔄 Position Adjustment: Default (Offset: " .. string.format("%.2f", CharacterHeightOffset) .. ")")
+    end
+    
+    return Vector3.new(originalPos.X, adjustedY, originalPos.Z)
+end
+
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -1554,7 +1655,6 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- MainFrame diperbesar untuk scroll yang lebih baik
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(250, 350) 
 MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
@@ -1597,6 +1697,16 @@ FrameLabel.TextColor3 = Color3.fromRGB(255,255,255)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 9
 FrameLabel.Parent = Header
+
+local CharacterLabel = Instance.new("TextLabel")
+CharacterLabel.Size = UDim2.new(0, 80, 1, 0)
+CharacterLabel.Position = UDim2.new(0, 80, 0, 0)
+CharacterLabel.BackgroundTransparency = 1
+CharacterLabel.Text = "Char: Unknown"
+CharacterLabel.TextColor3 = Color3.fromRGB(255,255,255)
+CharacterLabel.Font = Enum.Font.GothamBold
+CharacterLabel.TextSize = 8
+CharacterLabel.Parent = Header
 
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(25, 25)
@@ -1641,12 +1751,11 @@ local ResizeCorner = Instance.new("UICorner")
 ResizeCorner.CornerRadius = UDim.new(0, 8)
 ResizeCorner.Parent = ResizeButton
 
--- Content frame diperbesar untuk scroll yang lebih baik
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
 Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
-Content.ScrollBarThickness = 6 -- Dipertebal scrollbar
+Content.ScrollBarThickness = 6
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 Content.ScrollingDirection = Enum.ScrollingDirection.Y
 Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1670,7 +1779,7 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- Enhanced Button Creation with Powerful Animations
+-- Enhanced Button Creation
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -1776,7 +1885,6 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
--- Baris 1: Recording dan Animation Button bersebelahan
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 local AnimationBtnBig = CreateButton("ANIMATIONS", 127, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 
@@ -1784,12 +1892,10 @@ local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 11
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
--- Toggle layout: Kiri=AutoLoop, Tengah=InfiniteJump, Kanan=ShiftLock
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
 
--- Baris kedua: Auto Respawn
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
@@ -1834,13 +1940,12 @@ local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(
 local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- RecordList diperbesar dan diperbaiki scroll-nya
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 180) -- Diperbesar tinggi nya
+RecordList.Size = UDim2.new(1, 0, 0, 180)
 RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 6 -- Dipertebal
+RecordList.ScrollBarThickness = 6
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
 RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1912,7 +2017,7 @@ UserInputService.InputChanged:Connect(function(input)
             local delta = currentMousePos - StartMousePos
             
             local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
-            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600) -- Diperbesar max height
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600)
             
             MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
             
@@ -1950,7 +2055,6 @@ UserInputService.InputChanged:Connect(function(input)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
             
-            -- Update RecordList size when resizing
             RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
         end
     end
@@ -2009,7 +2113,6 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
-        -- TextBox untuk custom nama dengan fungsi save yang benar
         local nameBox = Instance.new("TextBox")
         nameBox.Size = UDim2.new(1, -130, 0, 18)
         nameBox.Position = UDim2.new(0, 8, 0, 4)
@@ -2028,7 +2131,6 @@ function UpdateRecordList()
         nameBoxCorner.CornerRadius = UDim.new(0, 3)
         nameBoxCorner.Parent = nameBox
         
-        -- Save nama ketika selesai edit
         nameBox.FocusLost:Connect(function()
             local newName = nameBox.Text
             if newName and newName ~= "" then
@@ -2142,7 +2244,6 @@ function UpdateRecordList()
         yPos = yPos + 43
     end
     
-    -- CanvasSize diupdate dengan benar untuk scroll yang smooth
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
@@ -2209,6 +2310,9 @@ function StartRecording()
     lastRecordTime = 0
     lastRecordPos = nil
     lastFrameTime = 0
+    
+    -- Deteksi tipe karakter saat recording
+    OriginalRecordingCharacterType = DetectRecordingCharacterType()
     
     RecordBtnBig.Text = "STOP RECORDING"
     RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10)
@@ -2284,7 +2388,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH CHARACTER HEIGHT ADJUSTMENT =========
+-- ========= IMPROVED PLAYBACK SYSTEM WITH SMART POSITION ADJUSTMENT =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2301,7 +2405,8 @@ function PlayRecording(name)
     end
 
     -- Deteksi tipe karakter sebelum playback
-    IsR6Character, CharacterHeightOffset = DetectCharacterType()
+    IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+    CharacterLabel.Text = "Char: " .. CurrentCharacterType
 
     IsPlaying = true
     IsPaused = false
@@ -2398,18 +2503,8 @@ function PlayRecording(name)
         end
 
         pcall(function()
-            -- PERBAIKAN: Adjust position untuk karakter tinggi (Zepeto/Itboy/Santa)
-            local originalPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-            local adjustedPos = originalPos
-            
-            -- Jika karakter tinggi, adjust Y position untuk menghindari "mendem ke tanah"
-            if CharacterHeightOffset > 0 then
-                adjustedPos = Vector3.new(
-                    originalPos.X,
-                    originalPos.Y + CharacterHeightOffset,
-                    originalPos.Z
-                )
-            end
+            -- PERBAIKAN PENTING: Gunakan sistem adjustment yang cerdas
+            local adjustedPos = GetAdjustedPosition(frame, CurrentCharacterType, OriginalRecordingCharacterType)
             
             hrp.CFrame = CFrame.lookAt(adjustedPos, adjustedPos + Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]))
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
@@ -2457,15 +2552,14 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM WITH CHARACTER DETECTION =========
-local AutoLoop = false
-
+-- ========= FIXED AUTO LOOP SYSTEM - PERMANENT ACTIVE =========
 function StartAutoLoopAll()
-    if not AutoLoop then return end
+    if not AutoLoop then 
+        warn("🛑 AutoLoop is false, cannot start")
+        return 
+    end
     
     if #RecordingOrder == 0 then
-        AutoLoop = false
-        AnimateLoop(false)
         PlaySound("Error")
         return
     end
@@ -2479,16 +2573,15 @@ function StartAutoLoopAll()
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            -- ✅ CHECK: Jika Auto Loop dimatikan, stop
-            if not AutoLoop or not IsAutoLoopPlaying then
-                warn("🛑 Auto Loop manually stopped")
+            -- PERIKSA: Jika AutoLoop dimatikan manual, stop
+            if not AutoLoop then
+                warn("🛑 AutoLoop manually disabled")
                 break
             end
             
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
-            -- ✅ SKIP jika recording tidak valid
             if not recording or #recording == 0 then
                 warn("⚠️ Recording empty: " .. tostring(recordingName))
                 CurrentLoopIndex = CurrentLoopIndex + 1
@@ -2499,7 +2592,7 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- ✅ AUTO RESPAWN: HANYA jika di awal loop cycle DAN toggle auto respawn aktif
+            -- AUTO RESPAWN hanya jika di awal loop cycle DAN toggle aktif
             if CurrentLoopIndex == 1 and AutoRespawn then
                 warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
@@ -2512,11 +2605,11 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
-            -- ✅ WAIT FOR CHARACTER READY (dengan timeout yang reasonable)
+            -- WAIT FOR CHARACTER READY
             if not IsCharacterReady() then
                 warn("⏳ Character not ready, waiting...")
                 local waitAttempts = 0
-                local maxWaitAttempts = 60 -- 30 detik (0.5s per attempt)
+                local maxWaitAttempts = 60
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     waitAttempts = waitAttempts + 1
@@ -2524,7 +2617,6 @@ function StartAutoLoopAll()
                     if waitAttempts >= maxWaitAttempts then
                         warn("⚠️ Character not ready after 30s")
                         
-                        -- ✅ HANYA force respawn jika Auto Respawn aktif
                         if AutoRespawn then
                             warn("🔄 Force respawn (Auto Respawn ON)")
                             ResetCharacter()
@@ -2532,9 +2624,8 @@ function StartAutoLoopAll()
                             task.wait(1.5)
                             break
                         else
-                            -- ✅ Jika Auto Respawn OFF, tunggu manual respawn
                             warn("⏸️ Waiting for manual respawn (Auto Respawn OFF)...")
-                            waitAttempts = 0 -- Reset counter
+                            waitAttempts = 0
                         end
                     end
                     
@@ -2549,17 +2640,18 @@ function StartAutoLoopAll()
             
             warn("▶️ Playing: " .. (checkpointNames[recordingName] or recordingName))
             
-            -- ✅ Deteksi tipe karakter sebelum playback
-            IsR6Character, CharacterHeightOffset = DetectCharacterType()
+            -- Deteksi tipe karakter
+            IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+            CharacterLabel.Text = "Char: " .. CurrentCharacterType
             
-            -- ✅ PLAYBACK VARIABLES
+            -- PLAYBACK VARIABLES
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
             local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
-            local maxDeathRetries = 999999 -- Infinite retries
+            local maxDeathRetries = 999999
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2568,17 +2660,15 @@ function StartAutoLoopAll()
             DisableJump()
             HideJumpButton()
             
-            -- ✅ PLAYBACK LOOP WITH DEATH HANDLING
+            -- PLAYBACK LOOP WITH DEATH HANDLING
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
-                -- ✅ DEATH DETECTION
+                -- DEATH DETECTION - TIDAK MENONAKTIFKAN AUTO LOOP
                 if not IsCharacterReady() then
                     warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
                     deathRetryCount = deathRetryCount + 1
                     
-                    -- ✅ DECISION BASED ON AUTO RESPAWN TOGGLE
                     if AutoRespawn then
-                        -- ✅ AUTO RESPAWN: Langsung respawn dan retry
                         warn("🔄 Auto Respawn ON - Respawning...")
                         ResetCharacter()
                         local success = WaitForRespawn()
@@ -2588,10 +2678,11 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            -- ✅ Deteksi ulang tipe karakter setelah respawn
-                            IsR6Character, CharacterHeightOffset = DetectCharacterType()
+                            -- Deteksi ulang tipe karakter
+                            IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+                            CharacterLabel.Text = "Char: " .. CurrentCharacterType
                             
-                            -- ✅ RESET playback untuk retry recording ini
+                            -- RESET playback untuk retry
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2603,26 +2694,24 @@ function StartAutoLoopAll()
                             DisableJump()
                             HideJumpButton()
                             
-                            continue -- Retry recording dari awal
+                            continue
                         else
                             warn("⚠️ Respawn failed, retrying...")
                             task.wait(2)
                             continue
                         end
                     else
-                        -- ✅ AUTO RESPAWN OFF: Tunggu manual respawn
                         warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
                         
                         local manualRespawnWait = 0
-                        local maxManualWait = 120 -- 60 detik (0.5s per check)
+                        local maxManualWait = 120
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 1
                             
                             if manualRespawnWait >= maxManualWait then
-                                warn("⚠️ No manual respawn after 60s, pausing loop...")
-                                warn("💡 Enable Auto Respawn or respawn manually to continue")
-                                manualRespawnWait = 0 -- Reset dan tunggu terus
+                                warn("⚠️ No manual respawn after 60s, still waiting...")
+                                manualRespawnWait = 0
                             end
                             
                             task.wait(0.5)
@@ -2634,10 +2723,11 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        -- ✅ Deteksi ulang tipe karakter setelah respawn
-                        IsR6Character, CharacterHeightOffset = DetectCharacterType()
+                        -- Deteksi ulang tipe karakter
+                        IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+                        CharacterLabel.Text = "Char: " .. CurrentCharacterType
                         
-                        -- ✅ RESET playback untuk retry recording ini
+                        -- RESET playback untuk retry
                         currentFrame = 1
                         playbackStart = tick()
                         playbackPausedTime = 0
@@ -2649,11 +2739,11 @@ function StartAutoLoopAll()
                         DisableJump()
                         HideJumpButton()
                         
-                        continue -- Retry recording dari awal
+                        continue
                     end
                 end
                 
-                -- ✅ PAUSE HANDLING
+                -- PAUSE HANDLING
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2704,18 +2794,8 @@ function StartAutoLoopAll()
                     local frame = recording[currentFrame]
                     if frame then
                         pcall(function()
-                            -- PERBAIKAN: Adjust position untuk karakter tinggi
-                            local originalPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-                            local adjustedPos = originalPos
-                            
-                            -- Jika karakter tinggi, adjust Y position
-                            if CharacterHeightOffset > 0 then
-                                adjustedPos = Vector3.new(
-                                    originalPos.X,
-                                    originalPos.Y + CharacterHeightOffset,
-                                    originalPos.Z
-                                )
-                            end
+                            -- Gunakan sistem adjustment yang cerdas
+                            local adjustedPos = GetAdjustedPosition(frame, CurrentCharacterType, OriginalRecordingCharacterType)
                             
                             hrp.CFrame = CFrame.lookAt(adjustedPos, adjustedPos + Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]))
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
@@ -2765,7 +2845,7 @@ function StartAutoLoopAll()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
-            -- ✅ DECISION: Move to next recording HANYA jika completed
+            -- DECISION: Move to next recording HANYA jika completed
             if playbackCompleted then
                 warn("✅ Recording completed!")
                 PlaySound("Success")
@@ -2778,20 +2858,16 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
-                -- ✅ Playback tidak completed - check kenapa
                 if not AutoLoop or not IsAutoLoopPlaying then
                     warn("🛑 Loop stopped manually")
                     break
                 else
-                    -- ✅ Character issue - retry sama recording
                     warn("⚠️ Playback incomplete, retrying same recording...")
                     task.wait(1)
-                    -- CurrentLoopIndex TIDAK DIUBAH
                 end
             end
         end
         
-        -- ✅ CLEANUP
         warn("🛑 Auto Loop stopped")
         IsAutoLoopPlaying = false
         IsPaused = false
@@ -2908,8 +2984,9 @@ local function SaveToObfuscatedJSON()
             Version = "2.0",
             Obfuscated = true,
             Checkpoints = {},
-            RecordingOrder = RecordingOrder, -- Simpan urutan recording
-            CheckpointNames = checkpointNames -- Simpan custom names
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames,
+            RecordingCharacterType = OriginalRecordingCharacterType
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -2949,8 +3026,9 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {} -- Load urutan
-        checkpointNames = saveData.CheckpointNames or {} -- Load custom names
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        OriginalRecordingCharacterType = saveData.RecordingCharacterType or "Unknown"
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2961,7 +3039,6 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    -- Pastikan nama ada di RecordingOrder jika tidak ada
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -3018,7 +3095,7 @@ local function VisualizeAllPaths()
     end
 end
 
--- ========= BUTTON EVENTS WITH ENHANCED ANIMATIONS =========
+-- ========= BUTTON EVENTS =========
 RecordBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(RecordBtnBig)
     if IsRecording then 
@@ -3028,7 +3105,6 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     end
 end)
 
--- ANIMATION GUI BUTTON
 AnimationBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(AnimationBtnBig)
     OpenAnimationGUI()
@@ -3146,35 +3222,33 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========= AUTO-LOAD ANIMATIONS SYSTEM (MANUAL ONLY AFTER FIRST USE) =========
+-- ========= AUTO-LOAD ANIMATIONS SYSTEM =========
 player.CharacterAdded:Connect(function(character)
     task.wait(2)
     
     -- Deteksi tipe karakter ketika karakter baru muncul
-    IsR6Character, CharacterHeightOffset = DetectCharacterType()
+    IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+    CharacterLabel.Text = "Char: " .. CurrentCharacterType
     
-    -- ✅ HANYA load jika user SUDAH PERNAH pilih animasi sebelumnya
     if player.Character == character and next(lastAnimations) then
         LoadSavedAnimations()
     end
 end)
 
--- === INITIAL LOAD ON SCRIPT EXECUTION (MANUAL FIRST TIME) ===
--- Only auto-load if user has previously saved animations
+-- === INITIAL LOAD ON SCRIPT EXECUTION ===
 task.spawn(function()
     if player.Character then
         task.wait(2)
         
         -- Deteksi tipe karakter awal
-        IsR6Character, CharacterHeightOffset = DetectCharacterType()
+        IsR6Character, CharacterHeightOffset, IsTallCharacter, CurrentCharacterType = DetectCharacterType()
+        CharacterLabel.Text = "Char: " .. CurrentCharacterType
         
-        -- ✅ Cek apakah ada saved animations
         pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
                 local savedData = HttpService:JSONDecode(fileContent)
                 
-                -- ✅ HANYA load jika file ada DAN tidak kosong
                 if savedData and next(savedData) then
                     LoadSavedAnimations()
                 end
@@ -3222,10 +3296,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ========= INITIAL SETUP =========
--- Initialize the record list
 UpdateRecordList()
 
--- Auto-load any saved recordings on script start
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
@@ -3234,7 +3306,6 @@ task.spawn(function()
     end
 end)
 
--- Character cleanup on removal
 player.CharacterRemoving:Connect(function()
     if IsRecording then
         StopRecording()
@@ -3246,10 +3317,9 @@ end)
 
 -- ========= FINAL INITIALIZATION =========
 warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
-warn("✨ Improved Animation System with Better Idle Sync")
-warn("📏 Character Height Detection for Zepeto/Itboy/Santa Support")
+warn("✨ Advanced Character Detection System Activated")
+warn("🔄 Permanent Auto Loop System Ready")
 
--- Ensure proper cleanup on script termination
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
         CleanupConnections()
