@@ -321,7 +321,7 @@ end
 local function GetRigHeightOffset(recordedRig, currentRig)
     -- SPECIAL HANDLING UNTUK ZEPETO
     if IsZepetoCharacter or ForceZepetoMode then
-        return 5.0-- Boost besar untuk Zepeto
+        return 7.0-- Boost besar untuk Zepeto
     end
     
     local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
@@ -896,7 +896,7 @@ local function GetFrameCFrame(frame, recordedRig, currentRig)
     -- SPECIAL FIX UNTUK ZEPETO/2D CHARACTER
     if IsZepetoCharacter or ForceZepetoMode then
         -- BOOST TINGGI BESAR UNTUK ZEPETO
-        pos = pos + Vector3.new(0, 6.0, 0)  -- 4 STUD BOOST!
+        pos = pos + Vector3.new(0, 8.0, 0)  -- 4 STUD BOOST!
         print("🔧 ZEPETO MODE: Height boosted +4 studs")
     else
         -- NORMAL CHARACTER HANDLING
