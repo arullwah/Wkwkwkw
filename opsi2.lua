@@ -1,5 +1,4 @@
-ByarulLv2.4
-
+-- ByaruL AutoWalk v2.4 - FIXED VERSION
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -8,6 +7,7 @@ local HttpService = game:GetService("HttpService")
 local StarterGui = game:GetService("StarterGui")
 local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
+
 wait(1)
 
 -- ========= CONFIGURATION =========
@@ -17,11 +17,10 @@ local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 15
-local MAX_FRAME_JUMP = 30
 
 -- ========= REAL-TIME PLAYBACK CONFIG =========
 local INTERPOLATION_ENABLED = true
-local INTERPOLATION_ALPHA = 0.45 -- Smoothing factor
+local INTERPOLATION_ALPHA = 0.45
 local MIN_INTERPOLATION_DISTANCE = 0.3
 
 -- ========= ADVANCED RIG TYPE CONFIGURATION =========
@@ -149,8 +148,6 @@ local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
 local SelectedReplaysList = {}
-local CurrentLoopRecording = nil
-local LoopPlaybackConnection = nil
 
 -- ========= VISIBLE SHIFTLOCK SYSTEM =========
 local shiftLockConnection = nil
@@ -184,10 +181,6 @@ local function CleanupConnections()
     if loopConnection then
         loopConnection:Disconnect()
         loopConnection = nil
-    end
-    if LoopPlaybackConnection then
-        LoopPlaybackConnection:Disconnect()
-        LoopPlaybackConnection = nil
     end
     if shiftLockConnection then
         shiftLockConnection:Disconnect()
@@ -276,12 +269,6 @@ local function DetectZepetoCharacter(character)
         if headSize > 1.0 and torsoSize < 0.8 then
             return true
         end
-        
-        -- Check for specific Zepeto body proportions
-        local leftArm = character:FindFirstChild("LeftUpperArm") or character:FindFirstChild("Left Arm")
-        if leftArm and leftArm.Size.Y < 0.5 then
-            return true
-        end
     end
     
     -- Check player name for Zepeto indicators
@@ -293,9 +280,7 @@ local function DetectZepetoCharacter(character)
        string.find(playerName, "itboy") or 
        string.find(displayName, "itboy") or
        string.find(playerName, "2d") or 
-       string.find(displayName, "2d") or
-       string.find(playerName, "flat") or
-       string.find(displayName, "flat") then
+       string.find(displayName, "2d") then
         return true
     end
     
@@ -387,7 +372,9 @@ local function AnimateButtonClick(button)
     PlaySound("Click")
     
     local originalSize = button.Size
-    TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    local tweenInfo = TweenInfo.new(0.08, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    
+    TweenService:Create(button, tweenInfo, {
         Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 4)
     }):Play()
     
@@ -737,28 +724,6 @@ local function UpdatePauseMarker()
     end
 end
 
-local function VisualizeRecordingPath(recording, name)
-    ClearPathVisualization()
-    
-    if not recording or #recording < 2 then return end
-    
-    local previousPos = Vector3.new(
-        recording[1].Position[1],
-        recording[1].Position[2], 
-        recording[1].Position[3]
-    )
-    
-    for i = 2, #recording, 3 do
-        local frame = recording[i]
-        local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-        
-        if (currentPos - previousPos).Magnitude > 0.5 then
-            CreatePathSegment(previousPos, currentPos)
-            previousPos = currentPos
-        end
-    end
-end
-
 -- ========= OBFUSCATION FUNCTIONS =========
 local function ObfuscateRecordingData(recordingData)
     local obfuscated = {}
@@ -897,7 +862,7 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
--- ========= ADVANCED FRAME DATA FUNCTIONS WITH RIG COMPATIBILITY =========
+-- ========= ADVANCED FRAME DATA FUNCTIONS =========
 local function GetFramePosition(frame)
     return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
 end
@@ -922,13 +887,7 @@ local function GetFrameCFrame(frame, recordedRig, currentRig)
     else
         -- NORMAL CHARACTER HANDLING
         local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
-        
-        if R15TallMode and recordedRig == "R6" and currentRig == "R15_Tall" then
-            -- Special handling for R6 to R15 Tall conversion
-            pos = pos + Vector3.new(0, heightOffset, 0)
-        else
-            pos = pos + Vector3.new(0, heightOffset, 0)
-        end
+        pos = pos + Vector3.new(0, heightOffset, 0)
     end
     
     return CFrame.lookAt(pos, pos + look, up)
@@ -1189,7 +1148,9 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
             currentPlaybackFrame = currentFrame
             
             -- Update frame counter
-            FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
+            if FrameLabel then
+                FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
+            end
         end)
     end)
     
@@ -1214,20 +1175,16 @@ end
 local function PlaySingleRecording(recordingName)
     local recording = RecordedMovements[recordingName]
     if not recording or #recording == 0 then 
-        print("❌ Replay kosong: " .. recordingName)
         return false 
     end
     
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then 
-        print("❌ Karakter tidak ready")
         return false 
     end
     
     local recordedRig = GetRecordingRigType(recording)
     local currentRig = DetectAdvancedRigType()
-    
-    print("🎮 Memulai playback: " .. recordingName .. " (" .. #recording .. " frames)")
     
     SaveHumanoidState()
     DisableJump()
@@ -1345,10 +1302,6 @@ local function PlaySingleRecording(recordingName)
                     hum:ChangeState(Enum.HumanoidStateType.Running)
                 end
             end
-            
-            -- REAL-TIME FRAME COUNTER
-            FrameLabel.Text = string.format("Loop: %d/%d | Frame: %d/%d", 
-                CurrentLoopIndex, #SelectedReplaysList, currentFrame, #recording)
         end)
     end)
     
@@ -1358,7 +1311,6 @@ local function PlaySingleRecording(recordingName)
     local startWait = tick()
     while AutoLoop and IsAutoLoopPlaying and not playbackCompleted do
         if tick() - startWait > 120 then -- Timeout 120 detik
-            print("⏰ Timeout playback: " .. recordingName)
             break
         end
         task.wait(0.1)
@@ -1367,30 +1319,25 @@ local function PlaySingleRecording(recordingName)
     singlePlaybackConnection:Disconnect()
     RestoreFullUserControl()
     
-    print("✅ Playback selesai: " .. recordingName .. " - " .. tostring(playbackCompleted))
     return playbackCompleted
 end
 
 local function StartAutoLoopAll()
     if IsAutoLoopPlaying then 
-        print("🔄 AutoLoop sudah berjalan")
         return 
     end
     
     if not AutoLoop then 
-        print("❌ AutoLoop tidak aktif")
         return 
     end
     
     SelectedReplaysList = GetSelectedReplaysList()
     
     if #SelectedReplaysList == 0 then
-        print("❌ Tidak ada replay yang valid untuk di-loop")
         PlaySound("Error")
         return
     end
     
-    print("🔄 Memulai AutoLoop dengan " .. #SelectedReplaysList .. " replay")
     PlaySound("Play")
     
     CurrentLoopIndex = 1
@@ -1410,7 +1357,6 @@ local function StartAutoLoopAll()
         -- Loop melalui semua replay
         while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #SelectedReplaysList do
             local recordingName = SelectedReplaysList[CurrentLoopIndex]
-            print("🎮 Memutar replay: " .. recordingName .. " (" .. CurrentLoopIndex .. "/" .. #SelectedReplaysList .. ")")
             
             -- Tunggu karakter ready dengan retry system
             local maxRetries = 3
@@ -1436,7 +1382,6 @@ local function StartAutoLoopAll()
                 retryCount = retryCount + 1
                 
                 if not characterReady and retryCount < maxRetries then
-                    print("🔄 Retry karakter: " .. retryCount)
                     task.wait(1)
                 end
             end
@@ -1445,7 +1390,6 @@ local function StartAutoLoopAll()
             
             if not characterReady then
                 -- Skip replay jika karakter tidak ready
-                print("⏭️ Skip replay " .. CurrentLoopIndex .. " - karakter tidak ready")
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
@@ -1458,14 +1402,11 @@ local function StartAutoLoopAll()
             local success = PlaySingleRecording(recordingName)
             
             if success then
-                print("✅ Replay " .. CurrentLoopIndex .. " selesai")
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
-                    print("🔄 Kembali ke replay pertama")
                 end
             else
-                print("❌ Replay " .. CurrentLoopIndex .. " terinterupsi")
                 -- Tetap lanjut ke replay berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
@@ -1481,7 +1422,6 @@ local function StartAutoLoopAll()
 end
 
 local function StopAutoLoopAll()
-    print("🛑 Menghentikan AutoLoop")
     AutoLoop = false
     IsAutoLoopPlaying = false
     IsPlaying = false
@@ -1491,11 +1431,6 @@ local function StopAutoLoopAll()
     if loopConnection then
         loopConnection:Disconnect()
         loopConnection = nil
-    end
-    
-    if LoopPlaybackConnection then
-        LoopPlaybackConnection:Disconnect()
-        LoopPlaybackConnection = nil
     end
     
     RestoreFullUserControl()
@@ -1511,10 +1446,15 @@ end
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
 ScreenGui.ResetOnSpawn = false
-if player:FindFirstChild("PlayerGui") then
-    ScreenGui.Parent = player.PlayerGui
+
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = game:GetService("CoreGui")
+elseif gethui then
+    ScreenGui.Parent = gethui()
+elseif game:GetService("CoreGui"):FindFirstChild("RobloxGui") then
+    ScreenGui.Parent = game:GetService("CoreGui")
 else
-    wait(2)
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
@@ -1588,21 +1528,6 @@ CloseButton.Parent = Header
 local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 6)
 CloseCorner.Parent = CloseButton
-
-local ResizeButton = Instance.new("TextButton")
-ResizeButton.Size = UDim2.fromOffset(24, 24)
-ResizeButton.Position = UDim2.new(1, -24, 1, -24)
-ResizeButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-ResizeButton.Text = "↖️"
-ResizeButton.TextColor3 = Color3.new(1, 1, 1)
-ResizeButton.Font = Enum.Font.GothamBold
-ResizeButton.TextSize = 20
-ResizeButton.ZIndex = 2
-ResizeButton.Parent = MainFrame
-
-local ResizeCorner = Instance.new("UICorner")
-ResizeCorner.CornerRadius = UDim.new(0, 8)
-ResizeCorner.Parent = ResizeButton
 
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
@@ -2354,11 +2279,10 @@ local function SaveToObfuscatedJSON()
     filename = filename .. ".json"
     
     local hasSelected = false
-    local selectedCount = 0
     for name, isSelected in pairs(SelectedReplays) do
         if isSelected then
             hasSelected = true
-            selectedCount = selectedCount + 1
+            break
         end
     end
     
@@ -2800,4 +2724,4 @@ task.spawn(function()
     end
 end)
 
-print("✅ AutoWalk ByaruL v2.4 - REAL-TIME CFrame Mode Loaded!")
+print("✅ AutoWalk ByaruL v2.4 - FIXED REAL-TIME CFrame Mode Loaded!")
