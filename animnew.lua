@@ -40,7 +40,7 @@ local RIG_PROFILES = {
         VelocityMultiplier = 1.0,
         JumpPower = 50,
         GroundOffset = 0.0,
-        HeightCompensation = 0.0,
+        HeightCompensation = 0.75,
         TorsoName = "UpperTorso",
         HeadOffset = 0.65
     },
@@ -50,7 +50,7 @@ local RIG_PROFILES = {
         VelocityMultiplier = 1.15,
         JumpPower = 50,
         GroundOffset = 0.5,
-        HeightCompensation = 1.0,
+        HeightCompensation = 1.5,
         TorsoName = "UpperTorso",
         HeadOffset = 0.8
     }
@@ -251,11 +251,20 @@ local function CalculateRigCompatibilityMultiplier(recordedRig, currentRig)
     return currentProfile.VelocityMultiplier / recordedProfile.VelocityMultiplier
 end
 
+-- ========= PERBAIKAN R15 TALL MODE - FIX KAKI MENDEM =========
 local function GetRigHeightOffset(recordedRig, currentRig)
     local recordedProfile = RIG_PROFILES[recordedRig] or RIG_PROFILES["R15"]
     local currentProfile = RIG_PROFILES[currentRig] or RIG_PROFILES["R15"]
     
-    return currentProfile.HeightCompensation - recordedProfile.HeightCompensation
+    -- PERBAIKAN: Gunakan perbedaan HipHeight yang sebenarnya
+    local hipHeightDiff = currentProfile.HipHeight - recordedProfile.HipHeight
+    
+    -- Tambahkan offset ekstra untuk R15 Tall
+    if currentRig == "R15_Tall" and recordedRig == "R6" then
+        hipHeightDiff = hipHeightDiff + 0.8  -- Extra lift untuk tall character
+    end
+    
+    return hipHeightDiff
 end
 
 local function GetRecordingRigType(recording)
@@ -807,21 +816,32 @@ local function GetFramePosition(frame)
     return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
 end
 
+-- ========= PERBAIKAN R15 TALL MODE - FIX KAKI MENDEM =========
 local function GetFrameCFrame(frame, recordedRig, currentRig)
     local pos = GetFramePosition(frame)
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
     local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
     
-    -- Apply R15 Tall Mode conversion
+    -- PERBAIKAN: Height adjustment yang lebih aggressive untuk R15 Tall Mode
+    local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
+    
+    -- Special handling untuk R6 → R15 Tall conversion
     if R15TallMode and recordedRig == "R6" and currentRig == "R15_Tall" then
         local tallProfile = RIG_PROFILES["R15_Tall"]
         local r6Profile = RIG_PROFILES["R6"]
         
-        -- Scale height difference
+        -- Height difference yang lebih signifikan
         local heightDiff = tallProfile.Height - r6Profile.Height
-        pos = pos + Vector3.new(0, heightDiff * 0.3, 0)
+        pos = pos + Vector3.new(0, heightDiff * 0.5, 0)  -- 50% height difference
+        
+        -- Tambahkan HipHeight compensation
+        local hipHeightDiff = tallProfile.HipHeight - r6Profile.HipHeight
+        pos = pos + Vector3.new(0, hipHeightDiff * 0.7, 0)
+        
+        -- Extra lift untuk pastikan tidak mendem
+        pos = pos + Vector3.new(0, 0.5, 0)
     else
-        local heightOffset = GetRigHeightOffset(recordedRig, currentRig)
+        -- Normal height adjustment
         pos = pos + Vector3.new(0, heightOffset, 0)
     end
     
@@ -1089,29 +1109,41 @@ local function PlayRecordingWithCFrame(recording, startFrame, recordedRig, curre
     AddConnection(playbackConnection)
 end
 
--- ========= PERFECT AUTO LOOP SYSTEM =========
+-- ========= PERBAIKAN AUTO LOOP SYSTEM - UNLIMITED & SELECTIVE =========
 local function GetSelectedReplaysList()
     local selectedList = {}
     
-    -- Check if any replays are selected
-    local hasSelected = false
-    for name, isSelected in pairs(SelectedReplays) do
-        if isSelected then
-            hasSelected = true
-            break
+    -- PERBAIKAN: Auto ceklis semua saat AutoLoop aktif TAPI tetap respect manual selection
+    if AutoLoop then
+        -- Jika ada yang dicentang manual, gunakan yang manual
+        local hasManualSelection = false
+        for name, isSelected in pairs(SelectedReplays) do
+            if isSelected then
+                hasManualSelection = true
+                break
+            end
         end
-    end
-    
-    if hasSelected then
-        -- Use only selected replays in order
+        
+        if hasManualSelection then
+            -- Gunakan hanya yang dicentang manual
+            for _, name in ipairs(RecordingOrder) do
+                if SelectedReplays[name] then
+                    table.insert(selectedList, name)
+                end
+            end
+        else
+            -- Auto ceklis semua jika tidak ada manual selection
+            for _, name in ipairs(RecordingOrder) do
+                table.insert(selectedList, name)
+            end
+        end
+    else
+        -- Normal mode: hanya yang dicentang
         for _, name in ipairs(RecordingOrder) do
             if SelectedReplays[name] then
                 table.insert(selectedList, name)
             end
         end
-    else
-        -- Use all replays in order
-        selectedList = RecordingOrder
     end
     
     return selectedList
@@ -1124,10 +1156,21 @@ local function StartAutoLoopAll()
     local replayList = GetSelectedReplaysList()
     
     if #replayList == 0 then
-        AutoLoop = false
-        AnimateLoop(false)
-        PlaySound("Error")
-        return
+        -- PERBAIKAN: Auto ceklis semua jika tidak ada yang terpilih
+        for _, name in ipairs(RecordingOrder) do
+            if not SelectedReplays[name] then
+                SelectedReplays[name] = true
+            end
+        end
+        UpdateRecordList()
+        
+        replayList = GetSelectedReplaysList()
+        if #replayList == 0 then
+            AutoLoop = false
+            AnimateLoop(false)
+            PlaySound("Error")
+            return
+        end
     end
     
     PlaySound("Play")
@@ -1155,28 +1198,42 @@ local function StartAutoLoopAll()
                 continue
             end
             
-            -- WAIT FOR CHARACTER TO BE READY
-            if not IsCharacterReady() then
+            -- PERBAIKAN: UNLIMITED LOOP - Terus coba bahkan jika karakter mati
+            local maxRetries = 10
+            local retryCount = 0
+            
+            while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying and retryCount < maxRetries do
                 if AutoRespawn then
                     ResetCharacter()
-                    local success = WaitForRespawn()
-                    if not success then
-                        task.wait(2)
-                        continue
-                    end
-                else
-                    local waitStart = tick()
-                    while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                        if tick() - waitStart > 30 then
-                            break
-                        end
-                        task.wait(0.5)
-                    end
                 end
-                task.wait(1.5)
+                
+                local waitStart = tick()
+                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                    if tick() - waitStart > 15 then -- Timeout 15 detik
+                        break
+                    end
+                    task.wait(0.5)
+                end
+                
+                retryCount = retryCount + 1
+                if retryCount >= maxRetries then
+                    warn("AutoLoop: Max retries reached for character respawn")
+                    break
+                end
+                
+                task.wait(1)
             end
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
+            if not IsCharacterReady() then
+                -- Skip ke replay berikutnya jika karakter tidak ready
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #replayList then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(2)
+                continue
+            end
             
             -- PLAY CURRENT RECORDING
             local recordedRig = GetRecordingRigType(recording)
@@ -1220,6 +1277,7 @@ local function StartAutoLoopAll()
                 
                 local char = player.Character
                 if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    -- PERBAIKAN: Jika karakter hilang/mati selama playback, break dan lanjut ke berikutnya
                     break
                 end
                 
@@ -1297,7 +1355,12 @@ local function StartAutoLoopAll()
                 end
                 task.wait(0.5)
             else
-                break
+                -- Jika playback tidak completed (karakter mati dll), lanjut ke berikutnya
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #replayList then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(1)
             end
         end
     end)
@@ -2366,6 +2429,22 @@ LoopBtn.MouseButton1Click:Connect(function()
     AnimateLoop(AutoLoop)
     
     if AutoLoop then
+        -- PERBAIKAN: Auto ceklis semua saat pertama kali aktifkan AutoLoop
+        local hasAnySelected = false
+        for name, isSelected in pairs(SelectedReplays) do
+            if isSelected then
+                hasAnySelected = true
+                break
+            end
+        end
+        
+        if not hasAnySelected then
+            for _, name in ipairs(RecordingOrder) do
+                SelectedReplays[name] = true
+            end
+            UpdateRecordList()
+        end
+        
         if not next(RecordedMovements) then
             AutoLoop = false
             AnimateLoop(false)
@@ -2482,7 +2561,26 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F7 then
         AutoLoop = not AutoLoop
         AnimateLoop(AutoLoop)
-        if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
+        if AutoLoop then 
+            -- Auto ceklis semua saat pertama kali aktifkan dengan F7
+            local hasAnySelected = false
+            for name, isSelected in pairs(SelectedReplays) do
+                if isSelected then
+                    hasAnySelected = true
+                    break
+                end
+            end
+            
+            if not hasAnySelected then
+                for _, name in ipairs(RecordingOrder) do
+                    SelectedReplays[name] = true
+                end
+                UpdateRecordList()
+            end
+            StartAutoLoopAll() 
+        else 
+            StopAutoLoopAll() 
+        end
     elseif input.KeyCode == Enum.KeyCode.F6 then
         SaveToObfuscatedJSON()
     elseif input.KeyCode == Enum.KeyCode.F5 then
@@ -2532,7 +2630,11 @@ player.CharacterRemoving:Connect(function()
         StopRecording()
     end
     if IsPlaying or AutoLoop then
-        StopPlayback()
+        -- Jangan stop AutoLoop saat karakter mati, biarkan continue
+        if IsPlaying then
+            IsPlaying = false
+            IsPaused = false
+        end
     end
 end)
 
@@ -2597,13 +2699,14 @@ end)
 print("✅ AutoWalk ByaruL v2.3 - CFrame Mode Loaded!")
 print("🎮 Pure CFrame System = 100% Accurate")
 print("🔧 Smooth Interpolation = No More Lag/Patah-patah")
-print("📏 R15 Tall Mode = Convert R6 → R15 Tall (F1)")
+print("📏 R15 Tall Mode FIXED = No More Kaki Mendem")
+print("🔄 Auto Loop IMPROVED = Unlimited & Selective Playback")
 print("⚡ Perfect Auto-Detect R6/R15/R15_Tall")
 print("")
 print("🎯 HOTKEYS:")
 print("F9 = Record/Stop")
-print("F10 = Play/Stop")
-print("F7 = Auto Loop")
+print("F10 = Play/Stop") 
+print("F7 = Auto Loop (Auto ceklis semua)")
 print("F6 = Save File")
 print("F5 = Auto Respawn")
 print("F4 = Show/Hide Path")
@@ -2612,3 +2715,9 @@ print("F2 = Infinite Jump")
 print("F1 = R15 Tall Mode")
 print("F8 = Reset Character")
 print("F11 = Hide/Show GUI")
+print("")
+print("🔄 AUTO LOOP FEATURES:")
+print("- Auto ceklis semua replay saat pertama kali aktif")
+print("- Bisa unceklis manual untuk skip replay tertentu")
+print("- Unlimited loop bahkan jika karakter mati")
+print("- Auto respawn integration")
