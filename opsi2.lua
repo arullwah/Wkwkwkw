@@ -59,9 +59,9 @@ local SoundService = game:GetService("SoundService")
 local player = Players.LocalPlayer
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 120 -- Ditingkatkan untuk smoother recording
-local MAX_FRAMES = 50000 -- Ditingkatkan limit
-local MIN_DISTANCE_THRESHOLD = 0.01 -- Dikurangi untuk detail lebih baik
+local RECORDING_FPS = 120
+local MAX_FRAMES = 50000
+local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 15
@@ -72,7 +72,7 @@ local USE_FORCED_MOVEMENT = true
 
 -- ========= R15 TALL SUPPORT =========
 local R15TallMode = false
-local R15TallOffset = Vector3.new(0, 0.5, 0) -- Offset untuk R15 Tall
+local R15TallOffset = Vector3.new(0, 0.5, 0)
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -100,14 +100,14 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
--- ========= ENHANCED PERFORMANCE OPTIMIZATION =========
+-- ========= PERFORMANCE OPTIMIZATION =========
 local FrameBuffer = {}
 local LastProcessedFrame = 0
 local UseFrameInterpolation = true
-local InterpolationSmoothing = 0.15 -- Dikurangi untuk smoother
-local PlaybackFPS = 144 -- Target FPS untuk playback
+local InterpolationSmoothing = 0.15
+local PlaybackFPS = 144
 local LastPlaybackFrame = 0
-local FrameCache = {} -- Cache untuk frame yang sering diakses
+local FrameCache = {}
 
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
@@ -124,7 +124,7 @@ local prePauseSit = false
 -- ========= PLAYBACK STATE TRACKING =========
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
-local STATE_CHANGE_COOLDOWN = 0.1 -- Dikurangi untuk responsiveness lebih baik
+local STATE_CHANGE_COOLDOWN = 0.1
 
 -- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
@@ -159,26 +159,11 @@ local function CleanupConnections()
     end
     activeConnections = {}
     
-    if recordConnection then
-        recordConnection:Disconnect()
-        recordConnection = nil
-    end
-    if playbackConnection then
-        playbackConnection:Disconnect()
-        playbackConnection = nil
-    end
-    if loopConnection then
-        loopConnection:Disconnect()
-        loopConnection = nil
-    end
-    if shiftLockConnection then
-        shiftLockConnection:Disconnect()
-        shiftLockConnection = nil
-    end
-    if jumpConnection then
-        jumpConnection:Disconnect()
-        jumpConnection = nil
-    end
+    if recordConnection then recordConnection:Disconnect() recordConnection = nil end
+    if playbackConnection then playbackConnection:Disconnect() playbackConnection = nil end
+    if loopConnection then loopConnection:Disconnect() loopConnection = nil end
+    if shiftLockConnection then shiftLockConnection:Disconnect() shiftLockConnection = nil end
+    if jumpConnection then jumpConnection:Disconnect() jumpConnection = nil end
 end
 
 -- ========= SOUND EFFECTS =========
@@ -212,7 +197,8 @@ local function SerializeRecordings()
         R15TallMode = R15TallMode,
         Recordings = {},
         RecordingOrder = RecordingOrder,
-        CheckpointNames = checkpointNames
+        CheckpointNames = checkpointNames,
+        SelectedReplays = SelectedReplays
     }
     
     for name, frames in pairs(RecordedMovements) do
@@ -290,24 +276,24 @@ local function LoadConfigFromFile(configName)
         return false, data
     end
     
-    -- Clear current recordings
     RecordedMovements = {}
     RecordingOrder = {}
     checkpointNames = {}
     SelectedReplays = {}
     
-    -- Load recordings
     for name, frames in pairs(data.Recordings) do
         RecordedMovements[name] = frames
     end
     
     RecordingOrder = data.RecordingOrder or {}
     checkpointNames = data.CheckpointNames or {}
+    SelectedReplays = data.SelectedReplays or {}
     R15TallMode = data.R15TallMode or false
     
-    -- Rebuild selected replays
     for _, name in ipairs(RecordingOrder) do
-        SelectedReplays[name] = false
+        if SelectedReplays[name] == nil then
+            SelectedReplays[name] = false
+        end
     end
     
     CurrentConfigName = configName
@@ -768,7 +754,7 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ========= ENHANCED SMOOTH PLAYBACK SYSTEM =========
+-- ========= FRAME INTERPOLATION =========
 local function InterpolateFrame(frame1, frame2, alpha)
     local pos1 = GetFramePosition(frame1)
     local pos2 = GetFramePosition(frame2)
@@ -815,9 +801,9 @@ local function PlayRecordingWithSmoothCFrame(recording, startFrame)
         if not IsPlaying then
             playbackConnection:Disconnect()
             RestoreFullUserControl()
-            return end
+            return
+        end
         
-        -- PAUSE HANDLING
         if IsPaused then
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
@@ -836,7 +822,6 @@ local function PlayRecordingWithSmoothCFrame(recording, startFrame)
             end
         end
 
-        -- CHARACTER SAFETY CHECK
         char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
@@ -854,24 +839,20 @@ local function PlayRecordingWithSmoothCFrame(recording, startFrame)
             return
         end
 
-        -- FPS THROTTLING untuk smooth playback
         local currentTime = tick()
         if currentTime - lastFrameUpdate < frameTime then
             return
         end
         lastFrameUpdate = currentTime
 
-        -- TIME CALCULATION
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- SMOOTH FRAME PROGRESSION dengan interpolation
         local nextFrameIndex = currentFrame + 1
         while nextFrameIndex < #recording and GetFrameTimestamp(recording[nextFrameIndex]) <= effectiveTime do
             currentFrame = nextFrameIndex
             nextFrameIndex = currentFrame + 1
         end
 
-        -- AUTO STOP
         if currentFrame >= #recording then
             IsPlaying = false
             IsPaused = false
@@ -900,7 +881,6 @@ local function PlayRecordingWithSmoothCFrame(recording, startFrame)
         local currentFrameData = recording[currentFrame]
         if not currentFrameData then return end
 
-        -- INTERPOLATION untuk smooth movement
         local interpolatedData = currentFrameData
         if nextFrameIndex <= #recording and UseFrameInterpolation then
             local nextFrameData = recording[nextFrameIndex]
@@ -915,24 +895,20 @@ local function PlayRecordingWithSmoothCFrame(recording, startFrame)
             end
         end
 
-        -- APPLY SMOOTH MOVEMENT
         pcall(function()
             local targetCFrame = type(interpolatedData.CFrame) == "CFrame" and interpolatedData.CFrame or GetFrameCFrame(currentFrameData)
             local targetVelocity = type(interpolatedData.Velocity) == "Vector3" and interpolatedData.Velocity or GetFrameVelocity(currentFrameData)
             local targetWalkSpeed = interpolatedData.WalkSpeed or GetFrameWalkSpeed(currentFrameData)
             local moveState = interpolatedData.MoveState or currentFrameData.MoveState
             
-            -- Apply R15 Tall adjustment
             if R15TallMode then
                 targetCFrame = targetCFrame + R15TallOffset
             end
             
-            -- SMOOTH CFRAME APPLICATION
             hrp.CFrame = targetCFrame
             hrp.AssemblyLinearVelocity = targetVelocity * CurrentSpeed
             hum.WalkSpeed = targetWalkSpeed * CurrentSpeed
             
-            -- STATE MANAGEMENT
             if moveState ~= lastPlaybackState then
                 lastPlaybackState = moveState
                 
@@ -989,7 +965,6 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             return
         end
         
-        -- PAUSE HANDLING
         if IsPaused then
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
@@ -1008,7 +983,6 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             end
         end
 
-        -- CHARACTER SAFETY CHECK
         char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
@@ -1026,24 +1000,20 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             return
         end
 
-        -- FPS THROTTLING
         local currentTime = tick()
         if currentTime - lastFrameUpdate < frameTime then
             return
         end
         lastFrameUpdate = currentTime
 
-        -- TIME CALCULATION
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- SMOOTH FRAME PROGRESSION
         local nextFrameIndex = currentFrame + 1
         while nextFrameIndex < #recording and GetFrameTimestamp(recording[nextFrameIndex]) <= effectiveTime do
             currentFrame = nextFrameIndex
             nextFrameIndex = currentFrame + 1
         end
 
-        -- AUTO STOP
         if currentFrame >= #recording then
             IsPlaying = false
             IsPaused = false
@@ -1072,7 +1042,6 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
         local currentFrameData = recording[currentFrame]
         if not currentFrameData then return end
 
-        -- INTERPOLATION
         local interpolatedData = currentFrameData
         if nextFrameIndex <= #recording and UseFrameInterpolation then
             local nextFrameData = recording[nextFrameIndex]
@@ -1087,7 +1056,6 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             end
         end
 
-        -- APPLY SMOOTH FORCED MOVEMENT
         pcall(function()
             local targetPos = type(interpolatedData.Position) == "Vector3" and interpolatedData.Position or GetFramePosition(currentFrameData)
             local targetCFrame = type(interpolatedData.CFrame) == "CFrame" and interpolatedData.CFrame or GetFrameCFrame(currentFrameData)
@@ -1095,7 +1063,6 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             local targetWalkSpeed = interpolatedData.WalkSpeed or GetFrameWalkSpeed(currentFrameData)
             local moveState = interpolatedData.MoveState or currentFrameData.MoveState
             
-            -- Apply R15 Tall adjustment
             if R15TallMode then
                 targetPos = targetPos + R15TallOffset
                 targetCFrame = targetCFrame + R15TallOffset
@@ -1106,33 +1073,24 @@ local function PlayRecordingWithSmoothForcedMovement(recording, startFrame)
             local distance = direction.Magnitude
             local directionUnit = distance > 0 and direction.Unit or Vector3.new(0, 0, 0)
             
-            -- ADAPTIVE MOVEMENT based on distance
             if distance > 15.0 then
-                -- VERY FAR: Teleport
                 hrp.CFrame = targetCFrame
                 hrp.AssemblyLinearVelocity = targetVelocity * CurrentSpeed
-                
             elseif distance > 3.0 then
-                -- MEDIUM: Velocity movement
                 local speed = targetWalkSpeed * CurrentSpeed * 1.5
                 hrp.AssemblyLinearVelocity = directionUnit * speed + Vector3.new(0, targetVelocity.Y, 0)
                 hrp.CFrame = CFrame.new(currentPos, targetPos)
-                
             elseif distance > 0.5 then
-                -- CLOSE: Precise velocity
                 local speed = targetWalkSpeed * CurrentSpeed
                 hrp.AssemblyLinearVelocity = directionUnit * speed + Vector3.new(0, targetVelocity.Y, 0)
                 hrp.CFrame = targetCFrame
-                
             else
-                -- VERY CLOSE: Exact positioning
                 hrp.CFrame = targetCFrame
                 hrp.AssemblyLinearVelocity = targetVelocity * CurrentSpeed
             end
             
             hum.WalkSpeed = targetWalkSpeed * CurrentSpeed
             
-            -- STATE MANAGEMENT
             if moveState ~= lastPlaybackState then
                 lastPlaybackState = moveState
                 
@@ -1213,7 +1171,7 @@ function StartRecording()
     lastRecordTime = 0
     lastRecordPos = nil
     lastFrameTime = 0
-    FrameCache = {} -- Clear cache
+    FrameCache = {}
     
     PlaySound("RecordStart")
     WindUI:Notify({
@@ -1239,7 +1197,6 @@ function StartRecording()
         local currentVelocity = hrp.AssemblyLinearVelocity
         local moveState = GetCurrentMoveState(hum)
 
-        -- Apply R15 Tall offset during recording
         if R15TallMode then
             currentPos = currentPos - R15TallOffset
         end
@@ -1327,9 +1284,8 @@ function PlayRecording(name)
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
-    FrameCache = {} -- Clear cache for fresh playback
+    FrameCache = {}
     
-    -- SMART ROUTE DETECTION
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
     
@@ -1359,7 +1315,6 @@ function PlayRecording(name)
     DisableJump()
     PlaySound("Play")
 
-    -- Choose playback method
     if UseMoveTo then
         PlayRecordingWithSmoothForcedMovement(recording, currentPlaybackFrame)
     else
@@ -1427,6 +1382,160 @@ function StopPlayback()
     })
 end
 
+-- ========= AUTO LOOP SYSTEM =========
+function PlayAutoLoopAll()
+    if IsAutoLoopPlaying or not AutoLoop then return end
+    
+    SelectedReplaysList = {}
+    for _, name in ipairs(RecordingOrder) do
+        if SelectedReplays[name] then
+            table.insert(SelectedReplaysList, name)
+        end
+    end
+    
+    if #SelectedReplaysList == 0 then
+        PlaySound("Error")
+        WindUI:Notify({
+            Title = "❌ AUTO LOOP ERROR",
+            Content = "No replays selected!",
+            Duration = 2
+        })
+        return
+    end
+    
+    IsAutoLoopPlaying = true
+    CurrentLoopIndex = 1
+    
+    WindUI:Notify({
+        Title = "🔄 AUTO LOOP STARTED",
+        Content = string.format("Playing %d replays in sequence", #SelectedReplaysList),
+        Duration = 3
+    })
+    
+    local function PlayNextInLoop()
+        if not IsAutoLoopPlaying or CurrentLoopIndex > #SelectedReplaysList then
+            IsAutoLoopPlaying = false
+            RestoreFullUserControl()
+            WindUI:Notify({
+                Title = "✅ AUTO LOOP COMPLETE",
+                Content = "All selected replays finished",
+                Duration = 2
+            })
+            return
+        end
+        
+        local replayName = SelectedReplaysList[CurrentLoopIndex]
+        local recording = RecordedMovements[replayName]
+        
+        if not recording then
+            CurrentLoopIndex = CurrentLoopIndex + 1
+            PlayNextInLoop()
+            return
+        end
+        
+        WindUI:Notify({
+            Title = "▶️ LOOP PLAYBACK",
+            Content = string.format("Playing %d/%d: %s", CurrentLoopIndex, #SelectedReplaysList, checkpointNames[replayName] or replayName),
+            Duration = 2
+        })
+        
+        IsPlaying = true
+        IsPaused = false
+        
+        PlayRecording(replayName)
+        
+        task.wait(recording[#recording].Timestamp / CurrentSpeed + 1)
+        
+        IsPlaying = false
+        CurrentLoopIndex = CurrentLoopIndex + 1
+        
+        task.wait(0.5)
+        PlayNextInLoop()
+    end
+    
+    PlayNextInLoop()
+end
+
+function StopAutoLoopAll()
+    if not IsAutoLoopPlaying then return end
+    
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    IsPaused = false
+    
+    if playbackConnection then
+        playbackConnection:Disconnect()
+        playbackConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    
+    PlaySound("Stop")
+    WindUI:Notify({
+        Title = "⏹ AUTO LOOP STOPPED",
+        Content = "Loop playback cancelled",
+        Duration = 2
+    })
+end
+
+-- ========= RENAME RECORDING FUNCTION =========
+local function RenameRecording(oldName, newName)
+    if not RecordedMovements[oldName] then
+        return false, "Recording not found"
+    end
+    
+    if newName == "" or not newName then
+        return false, "New name cannot be empty"
+    end
+    
+    if RecordedMovements[newName] then
+        return false, "A recording with that name already exists"
+    end
+    
+    RecordedMovements[newName] = RecordedMovements[oldName]
+    RecordedMovements[oldName] = nil
+    
+    for i, name in ipairs(RecordingOrder) do
+        if name == oldName then
+            RecordingOrder[i] = newName
+            break
+        end
+    end
+    
+    if checkpointNames[oldName] then
+        checkpointNames[newName] = checkpointNames[oldName]
+        checkpointNames[oldName] = nil
+    end
+    
+    if SelectedReplays[oldName] ~= nil then
+        SelectedReplays[newName] = SelectedReplays[oldName]
+        SelectedReplays[oldName] = nil
+    end
+    
+    return true, "Recording renamed successfully"
+end
+
+-- ========= DELETE RECORDING FUNCTION =========
+local function DeleteRecording(name)
+    if not RecordedMovements[name] then
+        return false, "Recording not found"
+    end
+    
+    RecordedMovements[name] = nil
+    
+    for i, recordName in ipairs(RecordingOrder) do
+        if recordName == name then
+            table.remove(RecordingOrder, i)
+            break
+        end
+    end
+    
+    checkpointNames[name] = nil
+    SelectedReplays[name] = nil
+    
+    return true, "Recording deleted successfully"
+end
+
 -- ========= WINDUI INTERFACE =========
 
 -- TAB MAIN CONTROLS
@@ -1479,9 +1588,35 @@ MainTab:Button({
 
 MainTab:Space()
 
-MainTab:Label({
-    Title = "📊 PLAYBACK INFO",
-    Desc = "Status and frame counter"
+MainTab:Toggle({
+    Title = "🔄 AUTO LOOP",
+    Desc = "Enable auto loop for selected replays",
+    Default = false,
+    Callback = function(state)
+        AutoLoop = state
+        PlaySound("Toggle")
+        WindUI:Notify({
+            Title = state and "✅ AUTO LOOP ON" or "❌ AUTO LOOP OFF",
+            Content = state and "Will loop selected replays" or "Single playback mode",
+            Duration = 2
+        })
+    end
+})
+
+MainTab:Button({
+    Title = "🔄 START AUTO LOOP",
+    Desc = "Play all selected replays in order",
+    Callback = function()
+        PlayAutoLoopAll()
+    end
+})
+
+MainTab:Button({
+    Title = "⏹ STOP AUTO LOOP",
+    Desc = "Stop loop playback",
+    Callback = function()
+        StopAutoLoopAll()
+    end
 })
 
 -- TAB SETTINGS
@@ -1666,8 +1801,6 @@ local ConfigTab = Window:Tab({
     Icon = "folder",
 })
 
-local ConfigNameInput = nil
-
 ConfigTab:Input({
     Title = "Config Name",
     Desc = "Enter name for saving/loading",
@@ -1702,7 +1835,7 @@ ConfigTab:Button({
             PlaySound("Success")
             WindUI:Notify({
                 Title = "✅ CONFIG SAVED",
-                Content = string.format("'%s' saved successfully!", CurrentConfigName),
+                Content = string.format("'%s' saved with %d recordings!", CurrentConfigName, #RecordingOrder),
                 Duration = 3
             })
         else
@@ -1753,8 +1886,6 @@ ConfigTab:Button({
 
 ConfigTab:Space()
 
-local AllConfigsDropdown = nil
-
 ConfigTab:Dropdown({
     Title = "All Configs",
     Desc = "Select existing configs",
@@ -1785,7 +1916,6 @@ ConfigTab:Button({
             Content = string.format("Found %d configs", #configs),
             Duration = 2
         })
-        -- Note: WindUI might need manual dropdown update
     end
 })
 
@@ -1848,7 +1978,7 @@ VisualTab:Toggle({
                 
                 local previousPos = GetFramePosition(recording[1])
                 
-                for i = 2, #recording, 5 do -- Skip frames for performance
+                for i = 2, #recording, 5 do
                     local frame = recording[i]
                     local currentPos = GetFramePosition(frame)
                     
@@ -1933,7 +2063,7 @@ VisualTab:Button({
     end
 })
 
--- TAB RECORDINGS
+-- TAB RECORDINGS (WITH FULL FEATURES)
 local RecordingsTab = Window:Tab({
     Title = "RECORDINGS",
     Icon = "list",
@@ -1942,7 +2072,6 @@ local RecordingsTab = Window:Tab({
 local recordingList = {}
 
 local function UpdateRecordingList()
-    -- Clear existing list
     for _, child in pairs(recordingList) do
         if child and child.Remove then
             pcall(function() child:Remove() end)
@@ -1959,7 +2088,6 @@ local function UpdateRecordingList()
         return
     end
     
-    -- Add recordings
     for index, name in ipairs(RecordingOrder) do
         local rec = RecordedMovements[name]
         if not rec then continue end
@@ -1967,36 +2095,107 @@ local function UpdateRecordingList()
         local duration = rec[#rec] and rec[#rec].Timestamp or 0
         local displayName = checkpointNames[name] or ("Recording " .. index)
         
-        local recordingButton = RecordingsTab:Button({
-            Title = string.format("▶️ %s", displayName),
-            Desc = string.format("📊 %d frames • ⏱️ %.1fs • 📏 %.1f studs", 
-                #rec, 
-                duration,
-                rec[1] and rec[#rec] and (GetFramePosition(rec[1]) - GetFramePosition(rec[#rec])).Magnitude or 0
-            ),
+        -- TOGGLE for selecting replay
+        local toggleElement = RecordingsTab:Toggle({
+            Title = string.format("☑️ %s", displayName),
+            Desc = string.format("Select for auto loop | %d frames | %.1fs", #rec, duration),
+            Default = SelectedReplays[name] or false,
+            Callback = function(state)
+                SelectedReplays[name] = state
+                PlaySound("Toggle")
+                WindUI:Notify({
+                    Title = state and "✅ SELECTED" or "❌ DESELECTED",
+                    Content = displayName,
+                    Duration = 1
+                })
+            end
+        })
+        table.insert(recordingList, toggleElement)
+        
+        -- INPUT for renaming
+        local renameInput = RecordingsTab:Input({
+            Title = "✏️ Rename",
+            Desc = "Enter new name for this recording",
+            Value = {
+                Default = displayName,
+                Placeholder = "Enter new name..."
+            },
+            Callback = function(newName)
+                if newName and newName ~= "" and newName ~= displayName then
+                    checkpointNames[name] = newName
+                    PlaySound("Success")
+                    WindUI:Notify({
+                        Title = "✅ RENAMED",
+                        Content = string.format("'%s' → '%s'", displayName, newName),
+                        Duration = 2
+                    })
+                    UpdateRecordingList()
+                end
+            end
+        })
+        table.insert(recordingList, renameInput)
+        
+        -- PLAY BUTTON
+        local playButton = RecordingsTab:Button({
+            Title = "▶️ PLAY",
+            Desc = "Play this recording",
             Callback = function()
                 PlayRecording(name)
             end
         })
+        table.insert(recordingList, playButton)
         
-        table.insert(recordingList, recordingButton)
+        -- DELETE BUTTON
+        local deleteButton = RecordingsTab:Button({
+            Title = "🗑️ DELETE",
+            Desc = "Remove this recording",
+            Callback = function()
+                local success, message = DeleteRecording(name)
+                if success then
+                    PlaySound("Success")
+                    WindUI:Notify({
+                        Title = "✅ DELETED",
+                        Content = string.format("'%s' removed", displayName),
+                        Duration = 2
+                    })
+                    UpdateRecordingList()
+                else
+                    PlaySound("Error")
+                    WindUI:Notify({
+                        Title = "❌ DELETE ERROR",
+                        Content = message,
+                        Duration = 2
+                    })
+                end
+            end
+        })
+        table.insert(recordingList, deleteButton)
+        
+        -- SPACER
+        local spacer = RecordingsTab:Space()
+        table.insert(recordingList, spacer)
     end
     
-    -- Add summary
+    -- SUMMARY
     local totalFrames = 0
     local totalDuration = 0
+    local selectedCount = 0
     for _, name in ipairs(RecordingOrder) do
         local rec = RecordedMovements[name]
         if rec then
             totalFrames = totalFrames + #rec
             totalDuration = totalDuration + (rec[#rec] and rec[#rec].Timestamp or 0)
         end
+        if SelectedReplays[name] then
+            selectedCount = selectedCount + 1
+        end
     end
     
     local summaryLabel = RecordingsTab:Label({
         Title = "📊 SUMMARY",
-        Desc = string.format("%d recordings • %d total frames • %.1f total seconds", 
+        Desc = string.format("%d recordings | %d selected | %d frames | %.1fs total", 
             #RecordingOrder, 
+            selectedCount,
             totalFrames, 
             totalDuration
         )
@@ -2013,6 +2212,42 @@ RecordingsTab:Button({
         WindUI:Notify({
             Title = "🔄 LIST UPDATED",
             Content = string.format("Showing %d recordings", #RecordingOrder),
+            Duration = 2
+        })
+    end
+})
+
+RecordingsTab:Space()
+
+RecordingsTab:Button({
+    Title = "☑️ SELECT ALL",
+    Desc = "Select all recordings for loop",
+    Callback = function()
+        for _, name in ipairs(RecordingOrder) do
+            SelectedReplays[name] = true
+        end
+        UpdateRecordingList()
+        PlaySound("Success")
+        WindUI:Notify({
+            Title = "✅ ALL SELECTED",
+            Content = string.format("%d recordings selected", #RecordingOrder),
+            Duration = 2
+        })
+    end
+})
+
+RecordingsTab:Button({
+    Title = "❌ DESELECT ALL",
+    Desc = "Deselect all recordings",
+    Callback = function()
+        for _, name in ipairs(RecordingOrder) do
+            SelectedReplays[name] = false
+        end
+        UpdateRecordingList()
+        PlaySound("Click")
+        WindUI:Notify({
+            Title = "❌ ALL DESELECTED",
+            Content = "No recordings selected",
             Duration = 2
         })
     end
@@ -2125,20 +2360,30 @@ AdvancedTab:Button({
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         
+        local selectedCount = 0
+        for _, selected in pairs(SelectedReplays) do
+            if selected then selectedCount = selectedCount + 1 end
+        end
+        
         local info = string.format(
-            "FPS: %.1f\nRecording: %s\nPlaying: %s\nFrames: %d\nConfigs: %d\nPaths: %d",
+            "FPS: %.1f\nRecording: %s\nPlaying: %s\nAuto Loop: %s\nCurrent Frames: %d\nTotal Recordings: %d\nSelected: %d\nConfigs: %d\nPath Segments: %d\nR15 Tall: %s",
             workspace:GetRealPhysicsFPS(),
             IsRecording and "YES" or "NO",
             IsPlaying and "YES" or "NO",
+            AutoLoop and "ENABLED" or "DISABLED",
             #(CurrentRecording.Frames or {}),
+            #RecordingOrder,
+            selectedCount,
             #GetAllConfigs(),
-            #PathVisualization
+            #PathVisualization,
+            R15TallMode and "ENABLED" or "DISABLED"
         )
         
+        PlaySound("Click")
         WindUI:Notify({
             Title = "📊 PERFORMANCE INFO",
             Content = info,
-            Duration = 5
+            Duration = 7
         })
     end
 })
@@ -2235,31 +2480,32 @@ local AboutTab = Window:Tab({
 
 AboutTab:Label({
     Title = "📱 AUTOWALK BYARUL",
-    Desc = "Advanced Movement Recorder v2.0"
+    Desc = "Advanced Movement Recorder v2.0 Complete"
 })
 
 AboutTab:Space()
 
 AboutTab:Label({
     Title = "✨ FEATURES",
-    Desc = "• High FPS recording (60-240 FPS)\n• Smooth interpolated playback\n• JSON save/load system\n• R15 Tall avatar support\n• Smart route detection\n• Path visualization\n• Frame caching system"
+    Desc = "• High FPS recording (60-240 FPS)\n• Ultra smooth interpolated playback\n• JSON save/load config system\n• R15 Tall avatar support\n• Auto loop selected replays\n• Smart route detection\n• Path visualization\n• Frame caching system\n• Individual recording management\n• Rename/Delete recordings\n• Toggle selection for loop"
 })
 
 AboutTab:Space()
 
 AboutTab:Label({
     Title = "🎮 CONTROLS",
-    Desc = "• Record: Start/Stop recording button\n• Playback: Select recording and play\n• Pause: Keep playback paused, control character\n• Config: Save/load multiple recording sets"
+    Desc = "• Record: Start/Stop recording\n• Select: Toggle recordings for loop\n• Rename: Click textbox to rename\n• Play: Individual or auto loop\n• Pause: Control character while paused\n• Config: Save/load all recordings"
 })
 
 AboutTab:Space()
 
 AboutTab:Label({
     Title = "⚙️ OPTIMIZATION",
-    Desc = string.format("• Recording FPS: %d\n• Playback FPS: %d\n• Frame interpolation: %s\n• Cache enabled: YES", 
+    Desc = string.format("• Recording FPS: %d\n• Playback FPS: %d\n• Frame interpolation: %s\n• Cache enabled: YES\n• Total recordings: %d", 
         RECORDING_FPS, 
         PlaybackFPS,
-        UseFrameInterpolation and "ON" or "OFF"
+        UseFrameInterpolation and "ON" or "OFF",
+        #RecordingOrder
     )
 })
 
@@ -2269,7 +2515,7 @@ AboutTab:Button({
     Title = "📋 COPY DISCORD",
     Desc = "Get support and updates",
     Callback = function()
-        setclipboard("discord.gg/example") -- Replace with your actual Discord
+        setclipboard("discord.gg/yourserver") -- Ganti dengan Discord Anda
         PlaySound("Success")
         WindUI:Notify({
             Title = "✅ COPIED!",
@@ -2356,28 +2602,28 @@ task.spawn(function()
     end
 end)
 
--- Performance monitor (debug)
+-- Performance monitor
 task.spawn(function()
     while task.wait(1) do
         if IsPlaying then
             local fps = workspace:GetRealPhysicsFPS()
             if fps < 30 then
-                warn("[AutoWalk] Low FPS detected: " .. fps .. " - Consider reducing playback FPS or disabling interpolation")
+                warn("[AutoWalk] Low FPS detected: " .. fps .. " - Consider reducing playback FPS")
             end
         end
     end
 end)
 
--- Final initialization notification
+-- Final initialization
 PlaySound("Success")
 WindUI:Notify({
     Title = "✅ AUTOWALK BYARUL LOADED",
-    Content = string.format("v2.0 Enhanced • Recording: %d FPS • Playback: %d FPS", RECORDING_FPS, PlaybackFPS),
+    Content = string.format("v2.0 Complete | Recording: %d FPS | Playback: %d FPS", RECORDING_FPS, PlaybackFPS),
     Duration = 5
 })
 
-print("=" .. string.rep("=", 60))
-print("  AUTOWALK BYARUL - ENHANCED EDITION v2.0")
-print("  Features: High FPS, Smooth Playback, JSON Config, R15 Tall Support")
-print("  Status: ✅ LOADED SUCCESSFULLY")
-print("=" .. string.rep("=", 60))
+print("=" .. string.rep("=", 70))
+print("  AUTOWALK BYARUL - COMPLETE EDITION v2.0")
+print("  Features: JSON Config, Auto Loop, Rename, Select, R15 Tall, Smooth Playback")
+print("  Status: ✅ FULLY LOADED")
+print("=" .. string.rep("=", 70))
