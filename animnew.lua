@@ -1245,8 +1245,8 @@ local function PausePlayback()
 end
 
 -- Save/Load System
-local function SaveToObfuscatedJSON()
-    local filename = "MyReplays"
+local function SaveToObfuscatedJSON(filename)
+    if filename == "" then filename = "MyReplays" end
     filename = filename .. ".json"
     
     local hasSelected = false
@@ -1320,8 +1320,9 @@ local function SaveToObfuscatedJSON()
     end
 end
 
-local function LoadFromObfuscatedJSON()
-    local filename = "MyReplays.json"
+local function LoadFromObfuscatedJSON(filename)
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
     
     local success, err = pcall(function()
         if not isfile(filename) then
@@ -1521,6 +1522,168 @@ local Window = WindUI:CreateWindow({
     }
 })
 
+-- Global variables untuk UI elements
+local ReplayListContainer
+local FilenameInput
+
+-- Function to update replay list in WindUI
+function UpdateRecordList()
+    if not ReplayListContainer then return end
+    
+    -- Clear existing replay list
+    for _, child in pairs(ReplayListContainer:GetChildren()) do
+        if child:IsA("TextLabel") or child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    
+    if #RecordingOrder == 0 then
+        local noReplaysLabel = Instance.new("TextLabel")
+        noReplaysLabel.Size = UDim2.new(1, 0, 0, 30)
+        noReplaysLabel.BackgroundTransparency = 1
+        noReplaysLabel.Text = "No replays recorded yet"
+        noReplaysLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        noReplaysLabel.Font = Enum.Font.Gotham
+        noReplaysLabel.TextSize = 12
+        noReplaysLabel.Parent = ReplayListContainer
+        return
+    end
+    
+    local yPosition = 0
+    for index, name in ipairs(RecordingOrder) do
+        local rec = RecordedMovements[name]
+        if not rec then continue end
+        
+        if SelectedReplays[name] == nil then
+            SelectedReplays[name] = false
+        end
+        
+        local recordingRigType = GetRecordingRigType(rec)
+        local currentRigType = GetRigType()
+        local rigMismatch = recordingRigType ~= currentRigType
+        
+        local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
+        local minutes = math.floor(totalSeconds / 60)
+        local seconds = math.floor(totalSeconds % 60)
+        local durationText = string.format("%d:%02d", minutes, seconds)
+        
+        -- Create replay item frame
+        local itemFrame = Instance.new("Frame")
+        itemFrame.Size = UDim2.new(1, -10, 0, 60)
+        itemFrame.Position = UDim2.new(0, 5, 0, yPosition)
+        itemFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        itemFrame.BorderSizePixel = 0
+        itemFrame.Parent = ReplayListContainer
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = itemFrame
+        
+        -- Checkbox
+        local checkbox = Instance.new("TextButton")
+        checkbox.Size = UDim2.new(0, 20, 0, 20)
+        checkbox.Position = UDim2.new(0, 5, 0, 5)
+        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
+        checkbox.Text = SelectedReplays[name] and "✓" or ""
+        checkbox.TextColor3 = Color3.new(1, 1, 1)
+        checkbox.Font = Enum.Font.GothamBold
+        checkbox.TextSize = 14
+        checkbox.Parent = itemFrame
+        
+        local checkboxCorner = Instance.new("UICorner")
+        checkboxCorner.CornerRadius = UDim.new(0, 4)
+        checkboxCorner.Parent = checkbox
+        
+        -- Replay name
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(0.6, -30, 0, 20)
+        nameLabel.Position = UDim2.new(0, 30, 0, 5)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = checkpointNames[name] or name
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 12
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = itemFrame
+        
+        -- Replay info
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(0.6, -30, 0, 16)
+        infoLabel.Position = UDim2.new(0, 30, 0, 25)
+        infoLabel.BackgroundTransparency = 1
+        local rigText = recordingRigType
+        if rigMismatch then
+            rigText = rigText .. " ⚠️→" .. currentRigType
+        end
+        infoLabel.Text = durationText .. " • " .. #rec .. "f • " .. rigText
+        infoLabel.TextColor3 = rigMismatch and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(200, 200, 200)
+        infoLabel.Font = Enum.Font.Gotham
+        infoLabel.TextSize = 10
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = itemFrame
+        
+        -- Play button
+        local playBtn = Instance.new("TextButton")
+        playBtn.Size = UDim2.new(0, 50, 0, 25)
+        playBtn.Position = UDim2.new(0.7, 5, 0, 5)
+        playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        playBtn.Text = "PLAY"
+        playBtn.TextColor3 = Color3.new(1, 1, 1)
+        playBtn.Font = Enum.Font.GothamBold
+        playBtn.TextSize = 10
+        playBtn.Parent = itemFrame
+        
+        local playCorner = Instance.new("UICorner")
+        playCorner.CornerRadius = UDim.new(0, 4)
+        playCorner.Parent = playBtn
+        
+        -- Delete button
+        local deleteBtn = Instance.new("TextButton")
+        deleteBtn.Size = UDim2.new(0, 50, 0, 25)
+        deleteBtn.Position = UDim2.new(0.7, 5, 0, 30)
+        deleteBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+        deleteBtn.Text = "DELETE"
+        deleteBtn.TextColor3 = Color3.new(1, 1, 1)
+        deleteBtn.Font = Enum.Font.GothamBold
+        deleteBtn.TextSize = 10
+        deleteBtn.Parent = itemFrame
+        
+        local deleteCorner = Instance.new("UICorner")
+        deleteCorner.CornerRadius = UDim.new(0, 4)
+        deleteCorner.Parent = deleteBtn
+        
+        -- Checkbox click event
+        checkbox.MouseButton1Click:Connect(function()
+            SelectedReplays[name] = not SelectedReplays[name]
+            checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
+            checkbox.Text = SelectedReplays[name] and "✓" or ""
+            PlaySound("Toggle")
+        end)
+        
+        -- Play button click event
+        playBtn.MouseButton1Click:Connect(function()
+            if not IsPlaying then 
+                PlayRecording(name)
+            end
+        end)
+        
+        -- Delete button click event
+        deleteBtn.MouseButton1Click:Connect(function()
+            RecordedMovements[name] = nil
+            checkpointNames[name] = nil
+            SelectedReplays[name] = nil
+            local idx = table.find(RecordingOrder, name)
+            if idx then table.remove(RecordingOrder, idx) end
+            UpdateRecordList()
+        end)
+        
+        yPosition = yPosition + 65
+    end
+    
+    -- Update container size
+    ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+end
+
 -- */  Profile Section  /* --
 local ProfileSection = Window:Section({
     Title = "User Profile",
@@ -1594,6 +1757,19 @@ do
         Title = "Main Controls",
         Icon = "settings",
     })
+    
+    -- File name input
+    FilenameInput = ControlsTab:Input({
+        Title = "File Name",
+        Desc = "Custom name for save/load files",
+        Value = "MyReplays",
+        Placeholder = "Enter file name...",
+        Callback = function(value)
+            -- File name is stored in variable for save/load functions
+        end
+    })
+    
+    ControlsTab:Space()
     
     -- Recording Controls
     local RecordBtn = ControlsTab:Button({
@@ -1776,7 +1952,8 @@ do
         Color = Color3.fromHex("#10b981"),
         Icon = "download",
         Callback = function()
-            SaveToObfuscatedJSON()
+            local filename = FilenameInput:Get()
+            SaveToObfuscatedJSON(filename)
         end
     })
     
@@ -1785,7 +1962,8 @@ do
         Color = Color3.fromHex("#3b82f6"),
         Icon = "upload",
         Callback = function()
-            LoadFromObfuscatedJSON()
+            local filename = FilenameInput:Get()
+            LoadFromObfuscatedJSON(filename)
         end
     })
     
@@ -1810,51 +1988,212 @@ do
         Icon = "list",
     })
     
-    -- Function to update replay list in WindUI
-    function UpdateRecordList()
-        -- Clear existing replay list UI elements
-        -- This would need custom implementation based on WindUI's capabilities
-        
-        for index, name in ipairs(RecordingOrder) do
-            local rec = RecordedMovements[name]
-            if not rec then continue end
-            
-            if SelectedReplays[name] == nil then
-                SelectedReplays[name] = false
-            end
-            
-            local recordingRigType = GetRecordingRigType(rec)
-            local currentRigType = GetRigType()
-            local rigMismatch = recordingRigType ~= currentRigType
-            
-            -- Create replay item (this is simplified - would need actual WindUI elements)
-            local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
-            local minutes = math.floor(totalSeconds / 60)
-            local seconds = math.floor(totalSeconds % 60)
-            local durationText = string.format("%d:%02d", minutes, seconds)
-            
-            local frameCount = #rec
-            local rigText = recordingRigType
-            if rigMismatch then
-                rigText = rigText .. " ⚠️→" .. currentRigType
-            end
-            
-            -- Here you would create actual WindUI elements for each replay
-            -- This is a placeholder for the concept
-        end
+    -- Create scrolling frame for replay list
+    local ReplayListFrame = Instance.new("ScrollingFrame")
+    ReplayListFrame.Size = UDim2.new(1, -20, 0, 300)
+    ReplayListFrame.Position = UDim2.new(0, 10, 0, 10)
+    ReplayListFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    ReplayListFrame.BorderSizePixel = 0
+    ReplayListFrame.ScrollBarThickness = 6
+    ReplayListFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+    ReplayListFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ReplayListFrame.Parent = ReplayTab.Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = ReplayListFrame
+    
+    ReplayListContainer = ReplayListFrame
+    
+    -- Info label
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, -20, 0, 20)
+    infoLabel.Position = UDim2.new(0, 10, 0, 320)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.Text = "Total Replays: 0"
+    infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.TextSize = 12
+    infoLabel.Parent = ReplayTab.Content
+    
+    -- Function to update info label
+    local function UpdateInfoLabel()
+        infoLabel.Text = string.format("Total Replays: %d | Selected: %d", #RecordingOrder, GetSelectedCount())
     end
     
-    -- Placeholder for replay list display
-    ReplayTab:Section({
-        Title = "Replay Management",
-        Desc = "Use the controls above to manage your replays",
-    })
+    -- Function to get selected count
+    local function GetSelectedCount()
+        local count = 0
+        for _, selected in pairs(SelectedReplays) do
+            if selected then
+                count = count + 1
+            end
+        end
+        return count
+    end
     
-    ReplayTab:Section({
-        Title = "Total Replays: " .. (#RecordingOrder),
-        TextSize = 14,
-        TextTransparency = 0.3,
-    })
+    -- Update both list and info
+    function UpdateRecordList()
+        -- Update the visual list
+        if ReplayListContainer then
+            for _, child in pairs(ReplayListContainer:GetChildren()) do
+                if child:IsA("Frame") then
+                    child:Destroy()
+                end
+            end
+            
+            if #RecordingOrder == 0 then
+                local noReplaysLabel = Instance.new("TextLabel")
+                noReplaysLabel.Size = UDim2.new(1, 0, 1, 0)
+                noReplaysLabel.BackgroundTransparency = 1
+                noReplaysLabel.Text = "No replays recorded yet\nClick RECORD to start"
+                noReplaysLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+                noReplaysLabel.Font = Enum.Font.Gotham
+                noReplaysLabel.TextSize = 14
+                noReplaysLabel.TextYAlignment = Enum.TextYAlignment.Center
+                noReplaysLabel.Parent = ReplayListContainer
+                ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+            else
+                local yPosition = 0
+                for index, name in ipairs(RecordingOrder) do
+                    local rec = RecordedMovements[name]
+                    if not rec then continue end
+                    
+                    if SelectedReplays[name] == nil then
+                        SelectedReplays[name] = false
+                    end
+                    
+                    local recordingRigType = GetRecordingRigType(rec)
+                    local currentRigType = GetRigType()
+                    local rigMismatch = recordingRigType ~= currentRigType
+                    
+                    local totalSeconds = #rec > 0 and rec[#rec].Timestamp or 0
+                    local minutes = math.floor(totalSeconds / 60)
+                    local seconds = math.floor(totalSeconds % 60)
+                    local durationText = string.format("%d:%02d", minutes, seconds)
+                    
+                    -- Create replay item
+                    local itemFrame = Instance.new("Frame")
+                    itemFrame.Size = UDim2.new(1, -10, 0, 60)
+                    itemFrame.Position = UDim2.new(0, 5, 0, yPosition)
+                    itemFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                    itemFrame.BorderSizePixel = 0
+                    itemFrame.Parent = ReplayListContainer
+                    
+                    local corner = Instance.new("UICorner")
+                    corner.CornerRadius = UDim.new(0, 6)
+                    corner.Parent = itemFrame
+                    
+                    -- Checkbox
+                    local checkbox = Instance.new("TextButton")
+                    checkbox.Size = UDim2.new(0, 20, 0, 20)
+                    checkbox.Position = UDim2.new(0, 5, 0, 5)
+                    checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
+                    checkbox.Text = SelectedReplays[name] and "✓" or ""
+                    checkbox.TextColor3 = Color3.new(1, 1, 1)
+                    checkbox.Font = Enum.Font.GothamBold
+                    checkbox.TextSize = 14
+                    checkbox.Parent = itemFrame
+                    
+                    local checkboxCorner = Instance.new("UICorner")
+                    checkboxCorner.CornerRadius = UDim.new(0, 4)
+                    checkboxCorner.Parent = checkbox
+                    
+                    -- Replay name
+                    local nameLabel = Instance.new("TextLabel")
+                    nameLabel.Size = UDim2.new(0.6, -30, 0, 20)
+                    nameLabel.Position = UDim2.new(0, 30, 0, 5)
+                    nameLabel.BackgroundTransparency = 1
+                    nameLabel.Text = checkpointNames[name] or name
+                    nameLabel.TextColor3 = Color3.new(1, 1, 1)
+                    nameLabel.Font = Enum.Font.GothamBold
+                    nameLabel.TextSize = 12
+                    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    nameLabel.Parent = itemFrame
+                    
+                    -- Replay info
+                    local infoLabel = Instance.new("TextLabel")
+                    infoLabel.Size = UDim2.new(0.6, -30, 0, 16)
+                    infoLabel.Position = UDim2.new(0, 30, 0, 25)
+                    infoLabel.BackgroundTransparency = 1
+                    local rigText = recordingRigType
+                    if rigMismatch then
+                        rigText = rigText .. " ⚠️→" .. currentRigType
+                    end
+                    infoLabel.Text = durationText .. " • " .. #rec .. "f • " .. rigText
+                    infoLabel.TextColor3 = rigMismatch and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(200, 200, 200)
+                    infoLabel.Font = Enum.Font.Gotham
+                    infoLabel.TextSize = 10
+                    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    infoLabel.Parent = itemFrame
+                    
+                    -- Play button
+                    local playBtn = Instance.new("TextButton")
+                    playBtn.Size = UDim2.new(0, 50, 0, 25)
+                    playBtn.Position = UDim2.new(0.7, 5, 0, 5)
+                    playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+                    playBtn.Text = "PLAY"
+                    playBtn.TextColor3 = Color3.new(1, 1, 1)
+                    playBtn.Font = Enum.Font.GothamBold
+                    playBtn.TextSize = 10
+                    playBtn.Parent = itemFrame
+                    
+                    local playCorner = Instance.new("UICorner")
+                    playCorner.CornerRadius = UDim.new(0, 4)
+                    playCorner.Parent = playBtn
+                    
+                    -- Delete button
+                    local deleteBtn = Instance.new("TextButton")
+                    deleteBtn.Size = UDim2.new(0, 50, 0, 25)
+                    deleteBtn.Position = UDim2.new(0.7, 5, 0, 30)
+                    deleteBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+                    deleteBtn.Text = "DELETE"
+                    deleteBtn.TextColor3 = Color3.new(1, 1, 1)
+                    deleteBtn.Font = Enum.Font.GothamBold
+                    deleteBtn.TextSize = 10
+                    deleteBtn.Parent = itemFrame
+                    
+                    local deleteCorner = Instance.new("UICorner")
+                    deleteCorner.CornerRadius = UDim.new(0, 4)
+                    deleteCorner.Parent = deleteBtn
+                    
+                    -- Checkbox click event
+                    checkbox.MouseButton1Click:Connect(function()
+                        SelectedReplays[name] = not SelectedReplays[name]
+                        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(60, 60, 70)
+                        checkbox.Text = SelectedReplays[name] and "✓" or ""
+                        PlaySound("Toggle")
+                        UpdateInfoLabel()
+                    end)
+                    
+                    -- Play button click event
+                    playBtn.MouseButton1Click:Connect(function()
+                        if not IsPlaying then 
+                            PlayRecording(name)
+                        end
+                    end)
+                    
+                    -- Delete button click event
+                    deleteBtn.MouseButton1Click:Connect(function()
+                        RecordedMovements[name] = nil
+                        checkpointNames[name] = nil
+                        SelectedReplays[name] = nil
+                        local idx = table.find(RecordingOrder, name)
+                        if idx then table.remove(RecordingOrder, idx) end
+                        UpdateRecordList()
+                        UpdateInfoLabel()
+                    end)
+                    
+                    yPosition = yPosition + 65
+                end
+                
+                ReplayListContainer.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+            end
+        end
+        
+        -- Update info label
+        UpdateInfoLabel()
+    end
 end
 
 -- ========= HOTKEY SYSTEM =========
@@ -1868,7 +2207,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
         AutoLoop = not AutoLoop
         if AutoLoop then StartAutoLoopAll() else StopAutoLoopAll() end
     elseif input.KeyCode == Enum.KeyCode.F6 then
-        SaveToObfuscatedJSON()
+        local filename = FilenameInput and FilenameInput:Get() or "MyReplays"
+        SaveToObfuscatedJSON(filename)
     elseif input.KeyCode == Enum.KeyCode.F5 then
         AutoRespawn = not AutoRespawn
     elseif input.KeyCode == Enum.KeyCode.F4 then
@@ -1897,7 +2237,7 @@ task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
     if isfile and readfile and isfile(filename) then
-        LoadFromObfuscatedJSON()
+        LoadFromObfuscatedJSON("MyReplays")
     end
 end)
 
