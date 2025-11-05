@@ -2418,7 +2418,9 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- 🔧 FIXED: AUTO LOOP YANG TIDAK AKAN OFF MESKIPUN MATI
+-- 🔧 FIX #1 & #2: IMPROVED AUTO LOOP WITH INTERPOLATION AND PROPER GROUND DETECTION
+local AutoLoop = false
+
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2438,9 +2440,8 @@ function StartAutoLoopAll()
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            -- ✅ CRITICAL: Check loop status di awal setiap cycle
-            if not AutoLoop then
-                warn("🛑 Auto Loop disabled by user")
+            if not AutoLoop or not IsAutoLoopPlaying then
+                warn("🛑 Auto Loop manually stopped")
                 break
             end
             
@@ -2457,7 +2458,6 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Auto Respawn di awal cycle (jika enabled)
             if CurrentLoopIndex == 1 and AutoRespawn then
                 warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
@@ -2470,15 +2470,17 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
-            -- Wait for character ready
             if not IsCharacterReady() then
                 warn("⏳ Character not ready, waiting...")
                 local waitAttempts = 0
+                local maxWaitAttempts = 60
                 
-                while not IsCharacterReady() and AutoLoop do
+                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     waitAttempts = waitAttempts + 1
                     
-                    if waitAttempts >= 60 then
+                    if waitAttempts >= maxWaitAttempts then
+                        warn("⚠️ Character not ready after 30s")
+                        
                         if AutoRespawn then
                             warn("🔄 Force respawn (Auto Respawn ON)")
                             ResetCharacter()
@@ -2486,7 +2488,7 @@ function StartAutoLoopAll()
                             task.wait(1.5)
                             break
                         else
-                            warn("⏸️ Waiting for manual respawn...")
+                            warn("⏸️ Waiting for manual respawn (Auto Respawn OFF)...")
                             waitAttempts = 0
                         end
                     end
@@ -2494,30 +2496,15 @@ function StartAutoLoopAll()
                     task.wait(0.5)
                 end
                 
-                if not AutoLoop then break end
+                if not AutoLoop or not IsAutoLoopPlaying then break end
                 task.wait(1.0)
             end
             
-            if not AutoLoop then break end
+            if not AutoLoop or not IsAutoLoopPlaying then break end
             
             warn("▶️ Playing: " .. (checkpointNames[recordingName] or recordingName))
             
             IsR6Character = DetectCharacterType()
-            
-            -- 🔧 NEW: Get Hip Height Adjustment untuk scaling characters
-            local hipHeightAdjustment = 0
-            local char = player.Character
-            if char then
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    -- Deteksi hip height (standard R15 = 2, R6 = 2.5)
-                    local currentHipHeight = humanoid.HipHeight
-                    local standardHipHeight = IsR6Character and 2.5 or 2
-                    hipHeightAdjustment = currentHipHeight - standardHipHeight
-                    
-                    warn("📏 Hip Height Adjustment: " .. hipHeightAdjustment)
-                end
-            end
             
             local playbackCompleted = false
             local playbackStart = tick()
@@ -2525,7 +2512,7 @@ function StartAutoLoopAll()
             local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
-            local maxDeathRetries = 999999 -- ✅ Infinite retries
+            local maxDeathRetries = 999999
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2534,38 +2521,24 @@ function StartAutoLoopAll()
             DisableJump()
             HideJumpButton()
             
-            -- ✅ MAIN PLAYBACK LOOP (Tidak akan stop auto loop meskipun mati)
-            while AutoLoop and currentFrame <= #recording do
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
-                -- ✅ DEATH HANDLING (Retry tanpa stop auto loop)
                 if not IsCharacterReady() then
+                    warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
                     deathRetryCount = deathRetryCount + 1
-                    warn("💀 Character died during playback! (Retry: " .. deathRetryCount .. ")")
                     
                     if AutoRespawn then
-                        warn("🔄 Auto Respawn - Respawning...")
+                        warn("🔄 Auto Respawn ON - Respawning...")
                         ResetCharacter()
                         local success = WaitForRespawn()
                         
                         if success then
-                            warn("✅ Respawned! Restarting this recording...")
+                            warn("✅ Respawned! Restarting recording...")
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
                             IsR6Character = DetectCharacterType()
                             
-                            -- Reset hip height adjustment
-                            char = player.Character
-                            if char then
-                                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                                if humanoid then
-                                    local currentHipHeight = humanoid.HipHeight
-                                    local standardHipHeight = IsR6Character and 2.5 or 2
-                                    hipHeightAdjustment = currentHipHeight - standardHipHeight
-                                end
-                            end
-                            
-                            -- ✅ RESTART recording dari frame 1
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2577,46 +2550,37 @@ function StartAutoLoopAll()
                             DisableJump()
                             HideJumpButton()
                             
-                            continue -- Retry recording
+                            continue
                         else
                             warn("⚠️ Respawn failed, retrying...")
                             task.wait(2)
                             continue
                         end
                     else
-                        -- Manual respawn wait
                         warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
                         
                         local manualRespawnWait = 0
-                        while not IsCharacterReady() and AutoLoop do
+                        local maxManualWait = 120
+                        
+                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 1
                             
-                            if manualRespawnWait >= 120 then
-                                warn("⏳ Still waiting for manual respawn...")
+                            if manualRespawnWait >= maxManualWait then
+                                warn("⚠️ No manual respawn after 60s, pausing loop...")
+                                warn("💡 Enable Auto Respawn or respawn manually to continue")
                                 manualRespawnWait = 0
                             end
                             
                             task.wait(0.5)
                         end
                         
-                        if not AutoLoop then break end
+                        if not AutoLoop or not IsAutoLoopPlaying then break end
                         
                         warn("✅ Manual respawn detected! Restarting recording...")
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
                         IsR6Character = DetectCharacterType()
-                        
-                        -- Reset hip height adjustment
-                        char = player.Character
-                        if char then
-                            local humanoid = char:FindFirstChildOfClass("Humanoid")
-                            if humanoid then
-                                local currentHipHeight = humanoid.HipHeight
-                                local standardHipHeight = IsR6Character and 2.5 or 2
-                                hipHeightAdjustment = currentHipHeight - standardHipHeight
-                            end
-                        end
                         
                         currentFrame = 1
                         playbackStart = tick()
@@ -2633,7 +2597,6 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                -- Pause handling
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2656,6 +2619,7 @@ function StartAutoLoopAll()
                     
                     local char = player.Character
                     if not char or not char:FindFirstChild("HumanoidRootPart") then
+                        warn("⚠️ Character/HRP missing!")
                         task.wait(0.5)
                         break
                     end
@@ -2663,6 +2627,7 @@ function StartAutoLoopAll()
                     local hum = char:FindFirstChildOfClass("Humanoid")
                     local hrp = char:FindFirstChild("HumanoidRootPart")
                     if not hum or not hrp then
+                        warn("⚠️ Humanoid/HRP missing!")
                         task.wait(0.5)
                         break
                     end
@@ -2674,16 +2639,12 @@ function StartAutoLoopAll()
                         currentFrame = currentFrame + 1
                     end
                     
-                    -- Handle last frame
+                    -- 🔧 FIX #1: Handle last frame properly
                     if currentFrame >= #recording then
                         local lastFrame = recording[#recording]
                         
                         pcall(function()
-                            local targetPos = Vector3.new(
-                                lastFrame.Position[1], 
-                                lastFrame.Position[2] + hipHeightAdjustment, -- ✅ APPLY ADJUSTMENT
-                                lastFrame.Position[3]
-                            )
+                            local targetPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
                             local targetLook = Vector3.new(lastFrame.LookVector[1], lastFrame.LookVector[2], lastFrame.LookVector[3])
                             
                             hrp.CFrame = CFrame.lookAt(targetPos, targetPos + targetLook)
@@ -2704,14 +2665,10 @@ function StartAutoLoopAll()
                     local frame = recording[currentFrame]
                     if frame then
                         pcall(function()
-                            local targetPos = Vector3.new(
-                                frame.Position[1], 
-                                frame.Position[2] + hipHeightAdjustment, -- ✅ APPLY ADJUSTMENT
-                                frame.Position[3]
-                            )
+                            local targetPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
                             local targetLook = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
                             
-                            -- Apply interpolation
+                            -- 🔧 FIX #1: Apply interpolation
                             if USE_INTERPOLATION and currentFrame < #recording - 1 then
                                 local currentPos = hrp.Position
                                 local lerpedPos = currentPos:Lerp(targetPos, INTERPOLATION_ALPHA)
@@ -2767,7 +2724,6 @@ function StartAutoLoopAll()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
-            -- ✅ Move to next recording (HANYA jika completed)
             if playbackCompleted then
                 warn("✅ Recording completed!")
                 PlaySound("Success")
@@ -2780,19 +2736,16 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
-                -- Playback tidak completed
-                if not AutoLoop then
-                    warn("🛑 Loop stopped by user")
+                if not AutoLoop or not IsAutoLoopPlaying then
+                    warn("🛑 Loop stopped manually")
                     break
                 else
-                    -- Retry sama recording (karena character issue)
-                    warn("⚠️ Playback incomplete, retrying...")
+                    warn("⚠️ Playback incomplete, retrying same recording...")
                     task.wait(1)
                 end
             end
         end
         
-        -- Cleanup
         warn("🛑 Auto Loop stopped")
         IsAutoLoopPlaying = false
         IsPaused = false
@@ -3050,21 +3003,15 @@ PauseBtnBig.MouseButton1Click:Connect(function()
     PausePlayback()
 end)
 
--- ✅ FIXED: Ambil animate function dari CreateToggle
-local _, AnimateLoopFunc = LoopBtn, AnimateLoop
-local _, AnimateJumpFunc = JumpBtn, AnimateJump
-local _, AnimateShiftLockFunc = ShiftLockBtn, AnimateShiftLock
-local _, AnimateRespawnFunc = RespawnBtn, AnimateRespawn
-
 LoopBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoopBtn)
     AutoLoop = not AutoLoop
-    AnimateLoopFunc(AutoLoop) -- Use the function returned from CreateToggle
+    AnimateLoop(AutoLoop)
     
     if AutoLoop then
         if not next(RecordedMovements) then
             AutoLoop = false
-            AnimateLoopFunc(false)
+            AnimateLoop(false)
             return
         end
         
@@ -3083,20 +3030,20 @@ end)
 ShiftLockBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(ShiftLockBtn)
     ToggleVisibleShiftLock()
-    AnimateShiftLockFunc(ShiftLockEnabled)
+    AnimateShiftLock(ShiftLockEnabled)
 end)
 
 RespawnBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RespawnBtn)
     AutoRespawn = not AutoRespawn
-    AnimateRespawnFunc(AutoRespawn)
+    AnimateRespawn(AutoRespawn)
     PlaySound("Toggle")
 end)
 
 JumpBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(JumpBtn)
     ToggleInfiniteJump()
-    AnimateJumpFunc(InfiniteJump)
+    AnimateJump(InfiniteJump)
     PlaySound("Toggle")
 end)
 
