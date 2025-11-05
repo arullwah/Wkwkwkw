@@ -91,10 +91,12 @@ local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
 
--- ========= ANIMATION SYSTEM VARIABLES =========
+-- ========= IMPROVED ANIMATION SYSTEM VARIABLES =========
 local lastAnimations = {}
 local animationGuiOpen = false
 local isLoadingAnimations = false
+local originalAnimations = {}
+local animationTracks = {}
 
 -- ========= FIXED ADAPTIVE CHARACTER SYSTEM =========
 local function GetCurrentCharacterData(char)
@@ -103,7 +105,7 @@ local function GetCurrentCharacterData(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not humanoid then return nil end
     
-    -- FIXED: Safe number conversion dengan pcall untuk menghindari arithmetic error
+    -- Safe number conversion dengan pcall
     local hipHeight = 2.0
     local bodyHeightScale = 1.0
     local bodyDepthScale = 1.0
@@ -118,10 +120,10 @@ local function GetCurrentCharacterData(char)
         headScale = humanoid.HeadScale or 1.0
     end)
     
-    -- FIXED: Simple height calculation tanpa multiplication dengan Instance
+    -- Simple height calculation
     local height = 5.0 -- Default R6 height
     if humanoid.RigType == Enum.HumanoidRigType.R15 then
-        height = 6.0 -- Base R15 height (tidak dikalikan dengan BodyHeightScale untuk menghindari error)
+        height = 6.0 -- Base R15 height
     end
     
     -- Enhanced Zepeto detection
@@ -173,13 +175,13 @@ local function CalculateAdaptiveOffset(recordedCharData, currentCharData)
         end
     end
     
-    -- HipHeight compensation dengan safe number conversion
+    -- HipHeight compensation
     local recordedHipHeight = recordedCharData.HipHeight or 2.0
     local currentHipHeight = currentCharData.HipHeight or 2.0
     local hipHeightDiff = currentHipHeight - recordedHipHeight
     offset = offset + (hipHeightDiff * 0.7)
     
-    -- Body scale compensation dengan safe number conversion
+    -- Body scale compensation
     local recordedHeightScale = recordedCharData.BodyHeightScale or 1.0
     local currentHeightScale = currentCharData.BodyHeightScale or 1.0
     local heightScaleDiff = currentHeightScale - recordedHeightScale
@@ -192,7 +194,7 @@ local function CalculateAdaptiveOffset(recordedCharData, currentCharData)
         offset = offset - 0.8
     end
     
-    -- HumanoidRootPart size compensation dengan safe number conversion
+    -- HumanoidRootPart size compensation
     local recordedHRPHeight = recordedCharData.HumanoidRootPartHeight or 2.0
     local currentHRPHeight = currentCharData.HumanoidRootPartHeight or 2.0
     local hrpSizeDiff = currentHRPHeight - recordedHRPHeight
@@ -201,6 +203,7 @@ local function CalculateAdaptiveOffset(recordedCharData, currentCharData)
     return offset
 end
 
+-- ========= FIXED GET ADAPTIVE CFrame =========
 local function GetAdaptiveCFrame(frame, character)
     local originalCF = CFrame.lookAt(
         Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3]),
@@ -208,6 +211,7 @@ local function GetAdaptiveCFrame(frame, character)
         Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
     )
     
+    -- FIX: Disable adaptive offset temporarily for testing
     if not character then return originalCF end
     
     local currentCharData = GetCurrentCharacterData(character)
@@ -226,8 +230,9 @@ local function GetAdaptiveCFrame(frame, character)
     
     local offset = CalculateAdaptiveOffset(recordedCharData, currentCharData)
     
+    -- FIX: Reduce offset effect for better movement
     if offset ~= 0 then
-        local adjustedPos = originalCF.Position + Vector3.new(0, offset, 0)
+        local adjustedPos = originalCF.Position + Vector3.new(0, offset * 0.3, 0) -- Reduced multiplier
         return CFrame.new(adjustedPos, adjustedPos + originalCF.LookVector)
     end
     
@@ -747,14 +752,45 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO FREEZE) =========
-local function RefreshCharacter()
+-- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO KAKU) =========
+local function SaveOriginalAnimations()
     local character = player.Character
-    if character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Landed)
+    if not character then return end
+    
+    local animate = character:FindFirstChild("Animate")
+    if not animate then return end
+    
+    -- Save original animation IDs
+    originalAnimations = {}
+    
+    if animate:FindFirstChild("idle") then
+        local idle = animate.idle
+        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+            originalAnimations.Idle = {
+                idle.Animation1.AnimationId,
+                idle.Animation2.AnimationId
+            }
         end
+    end
+    
+    if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
+        originalAnimations.Walk = animate.walk.WalkAnim.AnimationId
+    end
+    
+    if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
+        originalAnimations.Run = animate.run.RunAnim.AnimationId
+    end
+    
+    if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
+        originalAnimations.Jump = animate.jump.JumpAnim.AnimationId
+    end
+    
+    if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
+        originalAnimations.Fall = animate.fall.FallAnim.AnimationId
+    end
+    
+    if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
+        originalAnimations.Climb = animate.climb.ClimbAnim.AnimationId
     end
 end
 
@@ -762,52 +798,100 @@ local function SetAnimation(animType, animId)
     local character = player.Character
     if not character then return end
     
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
     
-    -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
-    if animType == "Idle" and animate:FindFirstChild("idle") then
-        if type(animId) == "table" and #animId == 2 then
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-            lastAnimations.Idle = animId
-        end
-    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-        if animate.walk:FindFirstChild("WalkAnim") then
-            animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Walk = animId
-        end
-    elseif animType == "Run" and animate:FindFirstChild("run") then
-        if animate.run:FindFirstChild("RunAnim") then
-            animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Run = animId
-        end
-    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-        if animate.jump:FindFirstChild("JumpAnim") then
-            animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Jump = animId
-        end
-    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-        if animate.fall:FindFirstChild("FallAnim") then
-            animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Fall = animId
-        end
-    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-        if animate.climb:FindFirstChild("ClimbAnim") then
-            animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-            lastAnimations.Climb = animId
-        end
+    local animate = character:FindFirstChild("Animate")
+    if not animate then 
+        -- Create Animate script if it doesn't exist
+        animate = Instance.new("Script")
+        animate.Name = "Animate"
+        animate.Parent = character
+        task.wait(0.1)
     end
     
-    -- ✅ Save config
+    -- Stop any existing animation tracks to prevent conflicts
+    for _, track in pairs(animationTracks) do
+        if track then
+            track:Stop()
+        end
+    end
+    animationTracks = {}
+    
+    -- Use AnimationController for smooth animations
+    local animationController = character:FindFirstChildOfClass("AnimationController") or Instance.new("AnimationController")
+    animationController.Parent = character
+    
+    if animType == "Idle" and type(animId) == "table" and #animId == 2 then
+        -- For Idle, we use the default animate system but with custom animations
+        if animate:FindFirstChild("idle") then
+            local idle = animate.idle
+            if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+                idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
+                idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
+            end
+        end
+        lastAnimations.Idle = animId
+        
+    elseif animType == "Walk" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animId
+        local track = humanoid:LoadAnimation(animation)
+        track.Looped = true
+        track.Priority = Enum.AnimationPriority.Core
+        track:Play()
+        animationTracks.Walk = track
+        lastAnimations.Walk = animId
+        
+    elseif animType == "Run" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animId
+        local track = humanoid:LoadAnimation(animation)
+        track.Looped = true
+        track.Priority = Enum.AnimationPriority.Core
+        track:Play()
+        animationTracks.Run = track
+        lastAnimations.Run = animId
+        
+    elseif animType == "Jump" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animId
+        local track = humanoid:LoadAnimation(animation)
+        track.Looped = false
+        track.Priority = Enum.AnimationPriority.Core
+        track:Play()
+        animationTracks.Jump = track
+        lastAnimations.Jump = animId
+        
+    elseif animType == "Fall" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animId
+        local track = humanoid:LoadAnimation(animation)
+        track.Looped = true
+        track.Priority = Enum.AnimationPriority.Core
+        track:Play()
+        animationTracks.Fall = track
+        lastAnimations.Fall = animId
+        
+    elseif animType == "Climb" then
+        local animation = Instance.new("Animation")
+        animation.AnimationId = "rbxassetid://" .. animId
+        local track = humanoid:LoadAnimation(animation)
+        track.Looped = true
+        track.Priority = Enum.AnimationPriority.Core
+        track:Play()
+        animationTracks.Climb = track
+        lastAnimations.Climb = animId
+    end
+    
+    -- Save config
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
     
-    -- ✅ Smooth refresh (optional)
-    RefreshCharacter()
+    PlaySound("Success")
 end
 
 -- ========= RESET ANIMATIONS TO DEFAULT =========
@@ -815,47 +899,49 @@ local function ResetAnimations()
     local character = player.Character
     if not character then return end
     
+    -- Stop all custom animation tracks
+    for _, track in pairs(animationTracks) do
+        if track then
+            track:Stop()
+        end
+    end
+    animationTracks = {}
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
     local animate = character:FindFirstChild("Animate")
-    if not animate then return end
     
-    -- ✅ LANGSUNG RESET TANPA STOP ANIMATIONS
-    
-    -- Reset Idle
-    if animate:FindFirstChild("idle") then
-        if animate.idle:FindFirstChild("Animation1") then
-            animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
+    if animate then
+        -- Reset to original animations if available, otherwise use defaults
+        if originalAnimations.Idle and animate:FindFirstChild("idle") then
+            local idle = animate.idle
+            if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
+                idle.Animation1.AnimationId = originalAnimations.Idle[1]
+                idle.Animation2.AnimationId = originalAnimations.Idle[2]
+            end
         end
-        if animate.idle:FindFirstChild("Animation2") then
-            animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
+        
+        if originalAnimations.Walk and animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
+            animate.walk.WalkAnim.AnimationId = originalAnimations.Walk
+        end
+        
+        if originalAnimations.Run and animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
+            animate.run.RunAnim.AnimationId = originalAnimations.Run
+        end
+        
+        if originalAnimations.Jump and animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
+            animate.jump.JumpAnim.AnimationId = originalAnimations.Jump
+        end
+        
+        if originalAnimations.Fall and animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
+            animate.fall.FallAnim.AnimationId = originalAnimations.Fall
+        end
+        
+        if originalAnimations.Climb and animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
+            animate.climb.ClimbAnim.AnimationId = originalAnimations.Climb
         end
     end
     
-    -- Reset Walk
-    if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
-        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
-    end
-    
-    -- Reset Run
-    if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
-        animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
-    end
-    
-    -- Reset Jump
-    if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
-        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
-    end
-    
-    -- Reset Fall
-    if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
-        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
-    end
-    
-    -- Reset Climb
-    if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
-        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
-    end
-    
-    -- ✅ Clear saved data
+    -- Clear saved data
     lastAnimations = {}
     pcall(function()
         if delfile and isfile and isfile("AnimHub_Saved.json") then
@@ -863,10 +949,6 @@ local function ResetAnimations()
         end
     end)
     
-    -- ✅ Smooth refresh
-    RefreshCharacter()
-    
-    -- ✅ Notify user
     PlaySound("Success")
 end
 
@@ -885,13 +967,9 @@ local function LoadSavedAnimations()
             return 
         end
         
-        local animate = character:WaitForChild("Animate", 10)
-        if not animate then 
-            isLoadingAnimations = false
-            return 
-        end
+        SaveOriginalAnimations()
         
-        task.wait(0.3)
+        task.wait(0.5)
         
         local success, result = pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
@@ -902,50 +980,13 @@ local function LoadSavedAnimations()
                     return
                 end
                 
-                -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
+                -- Apply saved animations
                 for animType, animId in pairs(savedData) do
-                    task.wait(0.05) -- Minimal delay untuk network sync
-                    
-                    if animType == "Idle" and animate:FindFirstChild("idle") then
-                        local idle = animate.idle
-                        if type(animId) == "table" and #animId == 2 then
-                            if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                                idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                                idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                            end
-                        end
-                    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-                        local walk = animate.walk
-                        if walk:FindFirstChild("WalkAnim") then
-                            walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Run" and animate:FindFirstChild("run") then
-                        local run = animate.run
-                        if run:FindFirstChild("RunAnim") then
-                            run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-                        local jump = animate.jump
-                        if jump:FindFirstChild("JumpAnim") then
-                            jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-                        local fall = animate.fall
-                        if fall:FindFirstChild("FallAnim") then
-                            fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-                        local climb = animate.climb
-                        if climb:FindFirstChild("ClimbAnim") then
-                            climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    end
+                    task.wait(0.1) -- Delay for network sync
+                    SetAnimation(animType, animId)
                 end
                 
                 lastAnimations = savedData
-                
-                task.wait(0.1)
-                RefreshCharacter()
             end
         end)
         
@@ -1002,10 +1043,25 @@ local function OpenAnimationGUI()
     LoadCorner.CornerRadius = UDim.new(0, 4)
     LoadCorner.Parent = LoadBtn
     
+    -- Reset Button (Kanan)
+    local ResetBtn = Instance.new("TextButton")
+    ResetBtn.Size = UDim2.new(0, 25, 0, 25)
+    ResetBtn.Position = UDim2.new(0, 35, 0.5, -12.5)
+    ResetBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    ResetBtn.Text = "🔄"
+    ResetBtn.TextColor3 = Color3.new(1, 1, 1)
+    ResetBtn.Font = Enum.Font.GothamBold
+    ResetBtn.TextSize = 14
+    ResetBtn.Parent = Header
+    
+    local ResetCorner = Instance.new("UICorner")
+    ResetCorner.CornerRadius = UDim.new(0, 4)
+    ResetCorner.Parent = ResetBtn
+    
     -- Search Box (Tengah)
     local SearchBox = Instance.new("TextBox")
     SearchBox.Size = UDim2.new(0, 80, 0, 25)
-    SearchBox.Position = UDim2.new(0, 35, 0.5, -12.5)
+    SearchBox.Position = UDim2.new(0, 65, 0.5, -12.5)
     SearchBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     SearchBox.BorderSizePixel = 0
     SearchBox.Text = ""
@@ -1129,6 +1185,12 @@ local function OpenAnimationGUI()
     LoadBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoadBtn)
         LoadSavedAnimations()
+        PlaySound("Success")
+    end)
+    
+    ResetBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(ResetBtn)
+        ResetAnimations()
         PlaySound("Success")
     end)
     
@@ -2356,7 +2418,7 @@ function StopRecording()
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= ENHANCED PLAYBACK WITH ADAPTIVE CHARACTER SYSTEM =========
+-- ========= FIXED PLAYBACK SYSTEM =========
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -2389,7 +2451,10 @@ function PlayRecording(name)
 
     playbackConnection = RunService.Heartbeat:Connect(function()
         if not IsPlaying then
-            playbackConnection:Disconnect()
+            if playbackConnection then
+                playbackConnection:Disconnect()
+                playbackConnection = nil
+            end
             RestoreFullUserControl()
             UpdatePauseMarker()
             lastPlaybackState = nil
@@ -2467,7 +2532,7 @@ function PlayRecording(name)
         end
 
         pcall(function()
-            -- USE ADAPTIVE CFrame INSTEAD OF REGULAR CFrame
+            -- FIXED: Use adaptive CFrame with reduced offset
             hrp.CFrame = GetAdaptiveCFrame(frame, char)
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
@@ -2478,7 +2543,8 @@ function PlayRecording(name)
                 local moveState = frame.MoveState
                 local stateTime = tick()
                 
-                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                -- FIXED: Force humanoid state changes more aggressively
+                if moveState ~= lastPlaybackState or (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                     lastPlaybackState = moveState
                     lastStateChangeTime = stateTime
                     
@@ -2486,21 +2552,15 @@ function PlayRecording(name)
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
                         hum.AutoRotate = false
-                        
                     elseif moveState == "Jumping" then
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        
                     elseif moveState == "Falling" then
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        if currentVelocity.Y < -8 then
-                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        end
-                        
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
                     elseif moveState == "Swimming" then
                         hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                        
                     else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                        -- FIXED: Always force running state for grounded movement
+                        hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
                     end
                 end
             end
@@ -2514,7 +2574,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM - NON-STOP WITH PROPER RESPAWN HANDLING =========
+-- ========= FIXED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2534,7 +2594,6 @@ function StartAutoLoopAll()
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            -- ✅ CHECK: Jika Auto Loop dimatikan, stop
             if not AutoLoop or not IsAutoLoopPlaying then
                 warn("🛑 Auto Loop manually stopped")
                 break
@@ -2543,7 +2602,6 @@ function StartAutoLoopAll()
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
-            -- ✅ SKIP jika recording tidak valid
             if not recording or #recording == 0 then
                 warn("⚠️ Recording empty: " .. tostring(recordingName))
                 CurrentLoopIndex = CurrentLoopIndex + 1
@@ -2554,7 +2612,7 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- ✅ AUTO RESPAWN: HANYA jika di awal loop cycle DAN toggle auto respawn aktif
+            -- Auto Respawn only at start of loop cycle
             if CurrentLoopIndex == 1 and AutoRespawn then
                 warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
@@ -2567,11 +2625,11 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
-            -- ✅ WAIT FOR CHARACTER READY (dengan timeout yang reasonable)
+            -- Wait for character ready
             if not IsCharacterReady() then
                 warn("⏳ Character not ready, waiting...")
                 local waitAttempts = 0
-                local maxWaitAttempts = 60 -- 30 detik (0.5s per attempt)
+                local maxWaitAttempts = 60
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     waitAttempts = waitAttempts + 1
@@ -2579,7 +2637,6 @@ function StartAutoLoopAll()
                     if waitAttempts >= maxWaitAttempts then
                         warn("⚠️ Character not ready after 30s")
                         
-                        -- ✅ HANYA force respawn jika Auto Respawn aktif
                         if AutoRespawn then
                             warn("🔄 Force respawn (Auto Respawn ON)")
                             ResetCharacter()
@@ -2587,9 +2644,8 @@ function StartAutoLoopAll()
                             task.wait(1.5)
                             break
                         else
-                            -- ✅ Jika Auto Respawn OFF, tunggu manual respawn
                             warn("⏸️ Waiting for manual respawn (Auto Respawn OFF)...")
-                            waitAttempts = 0 -- Reset counter
+                            waitAttempts = 0
                         end
                     end
                     
@@ -2604,14 +2660,14 @@ function StartAutoLoopAll()
             
             warn("▶️ Playing: " .. (checkpointNames[recordingName] or recordingName))
             
-            -- ✅ PLAYBACK VARIABLES
+            -- Playback variables
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
             local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
-            local maxDeathRetries = 999999 -- Infinite retries
+            local maxDeathRetries = 999999
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2620,17 +2676,15 @@ function StartAutoLoopAll()
             DisableJump()
             HideJumpButton()
             
-            -- ✅ PLAYBACK LOOP WITH DEATH HANDLING
+            -- Playback loop with death handling
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
-                -- ✅ DEATH DETECTION
+                -- Death detection
                 if not IsCharacterReady() then
                     warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
                     deathRetryCount = deathRetryCount + 1
                     
-                    -- ✅ DECISION BASED ON AUTO RESPAWN TOGGLE
                     if AutoRespawn then
-                        -- ✅ AUTO RESPAWN: Langsung respawn dan retry
                         warn("🔄 Auto Respawn ON - Respawning...")
                         ResetCharacter()
                         local success = WaitForRespawn()
@@ -2640,7 +2694,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            -- ✅ RESET playback untuk retry recording ini
+                            -- Reset playback for retry
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2652,18 +2706,17 @@ function StartAutoLoopAll()
                             DisableJump()
                             HideJumpButton()
                             
-                            continue -- Retry recording dari awal
+                            continue
                         else
                             warn("⚠️ Respawn failed, retrying...")
                             task.wait(2)
                             continue
                         end
                     else
-                        -- ✅ AUTO RESPAWN OFF: Tunggu manual respawn
                         warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
                         
                         local manualRespawnWait = 0
-                        local maxManualWait = 120 -- 60 detik (0.5s per check)
+                        local maxManualWait = 120
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 1
@@ -2671,7 +2724,7 @@ function StartAutoLoopAll()
                             if manualRespawnWait >= maxManualWait then
                                 warn("⚠️ No manual respawn after 60s, pausing loop...")
                                 warn("💡 Enable Auto Respawn or respawn manually to continue")
-                                manualRespawnWait = 0 -- Reset dan tunggu terus
+                                manualRespawnWait = 0
                             end
                             
                             task.wait(0.5)
@@ -2683,7 +2736,7 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        -- ✅ RESET playback untuk retry recording ini
+                        -- Reset playback for retry
                         currentFrame = 1
                         playbackStart = tick()
                         playbackPausedTime = 0
@@ -2695,11 +2748,11 @@ function StartAutoLoopAll()
                         DisableJump()
                         HideJumpButton()
                         
-                        continue -- Retry recording dari awal
+                        continue
                     end
                 end
                 
-                -- ✅ PAUSE HANDLING
+                -- Pause handling
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2750,7 +2803,7 @@ function StartAutoLoopAll()
                     local frame = recording[currentFrame]
                     if frame then
                         pcall(function()
-                            -- USE ADAPTIVE CFrame FOR AUTO LOOP TOO
+                            -- FIXED: Use adaptive CFrame for auto loop
                             hrp.CFrame = GetAdaptiveCFrame(frame, char)
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
@@ -2761,7 +2814,8 @@ function StartAutoLoopAll()
                                 local moveState = frame.MoveState
                                 local stateTime = tick()
                                 
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                -- FIXED: More aggressive state changes
+                                if moveState ~= lastPlaybackState or (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                     lastPlaybackState = moveState
                                     lastStateChangeTime = stateTime
                                     
@@ -2772,14 +2826,12 @@ function StartAutoLoopAll()
                                     elseif moveState == "Jumping" then
                                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
                                     elseif moveState == "Falling" then
-                                        local currentVelocity = hrp.AssemblyLinearVelocity
-                                        if currentVelocity.Y < -8 then
-                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                        end
+                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
                                     elseif moveState == "Swimming" then
                                         hum:ChangeState(Enum.HumanoidStateType.Swimming)
                                     else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                                        -- FIXED: Force running state
+                                        hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
                                     end
                                 end
                             end
@@ -2799,7 +2851,7 @@ function StartAutoLoopAll()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
-            -- ✅ DECISION: Move to next recording HANYA jika completed
+            -- Move to next recording only if completed
             if playbackCompleted then
                 warn("✅ Recording completed!")
                 PlaySound("Success")
@@ -2812,20 +2864,17 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
-                -- ✅ Playback tidak completed - check kenapa
                 if not AutoLoop or not IsAutoLoopPlaying then
                     warn("🛑 Loop stopped manually")
                     break
                 else
-                    -- ✅ Character issue - retry sama recording
                     warn("⚠️ Playback incomplete, retrying same recording...")
                     task.wait(1)
-                    -- CurrentLoopIndex TIDAK DIUBAH
                 end
             end
         end
         
-        -- ✅ CLEANUP
+        -- Cleanup
         warn("🛑 Auto Loop stopped")
         IsAutoLoopPlaying = false
         IsPaused = false
@@ -2942,8 +2991,8 @@ local function SaveToObfuscatedJSON()
             Version = "2.0",
             Obfuscated = true,
             Checkpoints = {},
-            RecordingOrder = RecordingOrder, -- PERBAIKAN: Simpan urutan recording
-            CheckpointNames = checkpointNames -- PERBAIKAN: Simpan custom names
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -2983,8 +3032,8 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {} -- PERBAIKAN: Load urutan
-        checkpointNames = saveData.CheckpointNames or {} -- PERBAIKAN: Load custom names
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2995,7 +3044,6 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    -- PERBAIKAN: Pastikan nama ada di RecordingOrder jika tidak ada
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -3180,29 +3228,32 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========= AUTO-LOAD ANIMATIONS SYSTEM (MANUAL ONLY AFTER FIRST USE) =========
+-- ========= IMPROVED ANIMATION LOADING SYSTEM =========
 player.CharacterAdded:Connect(function(character)
     task.wait(2)
     
-    -- ✅ HANYA load jika user SUDAH PERNAH pilih animasi sebelumnya
+    -- Save original animations when character loads
+    SaveOriginalAnimations()
+    
+    -- Load saved animations only if user has previously selected them
     if player.Character == character and next(lastAnimations) then
         LoadSavedAnimations()
     end
 end)
 
--- === INITIAL LOAD ON SCRIPT EXECUTION (MANUAL FIRST TIME) ===
--- Only auto-load if user has previously saved animations
+-- Initial load on script execution
 task.spawn(function()
     if player.Character then
         task.wait(2)
+        SaveOriginalAnimations()
         
-        -- ✅ Cek apakah ada saved animations
+        -- Check if user has saved animations
         pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
                 local savedData = HttpService:JSONDecode(fileContent)
                 
-                -- ✅ HANYA load jika file ada DAN tidak kosong
+                -- Only load if user has previously saved animations
                 if savedData and next(savedData) then
                     LoadSavedAnimations()
                 end
@@ -3276,6 +3327,8 @@ end)
 warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
 warn("🚀 Enhanced Adaptive Character System: Active")
 warn("📊 Auto-adjustment for R6/R15/Zepeto characters: Enabled")
+warn("✨ Improved Animation System: No more stiffness!")
+warn("🎯 Fixed Playback Movement: Smooth character control")
 
 -- Ensure proper cleanup on script termination
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
