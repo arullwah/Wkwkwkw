@@ -1,4 +1,3 @@
-FIXED AUTOWALK SYSTEM 
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -3003,15 +3002,21 @@ PauseBtnBig.MouseButton1Click:Connect(function()
     PausePlayback()
 end)
 
+-- ✅ FIXED: Ambil animate function dari CreateToggle
+local _, AnimateLoopFunc = LoopBtn, AnimateLoop
+local _, AnimateJumpFunc = JumpBtn, AnimateJump
+local _, AnimateShiftLockFunc = ShiftLockBtn, AnimateShiftLock
+local _, AnimateRespawnFunc = RespawnBtn, AnimateRespawn
+
 LoopBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoopBtn)
     AutoLoop = not AutoLoop
-    AnimateLoop(AutoLoop)
+    AnimateLoopFunc(AutoLoop) -- Use the function returned from CreateToggle
     
     if AutoLoop then
         if not next(RecordedMovements) then
             AutoLoop = false
-            AnimateLoop(false)
+            AnimateLoopFunc(false)
             return
         end
         
@@ -3030,20 +3035,20 @@ end)
 ShiftLockBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(ShiftLockBtn)
     ToggleVisibleShiftLock()
-    AnimateShiftLock(ShiftLockEnabled)
+    AnimateShiftLockFunc(ShiftLockEnabled)
 end)
 
 RespawnBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RespawnBtn)
     AutoRespawn = not AutoRespawn
-    AnimateRespawn(AutoRespawn)
+    AnimateRespawnFunc(AutoRespawn)
     PlaySound("Toggle")
 end)
 
 JumpBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(JumpBtn)
     ToggleInfiniteJump()
-    AnimateJump(InfiniteJump)
+    AnimateJumpFunc(InfiniteJump)
     PlaySound("Toggle")
 end)
 
