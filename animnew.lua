@@ -91,36 +91,67 @@ local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
 
--- ========= ENHANCED ADAPTIVE CHARACTER SYSTEM =========
+-- ========= ANIMATION SYSTEM VARIABLES =========
+local lastAnimations = {}
+local animationGuiOpen = false
+local isLoadingAnimations = false
+
+-- ========= FIXED ADAPTIVE CHARACTER SYSTEM =========
 local function GetCurrentCharacterData(char)
     if not char then return nil end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not humanoid then return nil end
     
-    -- Calculate approximate character height
+    -- FIXED: Safe number conversion dengan pcall untuk menghindari arithmetic error
+    local hipHeight = 2.0
+    local bodyHeightScale = 1.0
+    local bodyDepthScale = 1.0
+    local bodyWidthScale = 1.0
+    local headScale = 1.0
+    
+    pcall(function()
+        hipHeight = humanoid.HipHeight or 2.0
+        bodyHeightScale = humanoid.BodyHeightScale or 1.0
+        bodyDepthScale = humanoid.BodyDepthScale or 1.0
+        bodyWidthScale = humanoid.BodyWidthScale or 1.0
+        headScale = humanoid.HeadScale or 1.0
+    end)
+    
+    -- FIXED: Simple height calculation tanpa multiplication dengan Instance
     local height = 5.0 -- Default R6 height
     if humanoid.RigType == Enum.HumanoidRigType.R15 then
-        height = 6.0 * (humanoid.BodyHeightScale or 1.0)
+        height = 6.0 -- Base R15 height (tidak dikalikan dengan BodyHeightScale untuk menghindari error)
     end
     
-    -- Detect Zepeto characters
+    -- Enhanced Zepeto detection
     local isZepeto = false
-    if char:FindFirstChild("Body Type") or char:FindFirstChild("Zepeto") then
-        isZepeto = true
-        height = 6.5 * (humanoid.BodyHeightScale or 1.0) -- Zepeto tends to be taller
-    end
+    pcall(function()
+        if char:FindFirstChild("Body Type") or char:FindFirstChild("Zepeto") then
+            isZepeto = true
+            height = 6.5 -- Zepeto tends to be taller
+        end
+    end)
+    
+    -- Safe HRP size calculation
+    local hrpSize = 2.0
+    pcall(function()
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrpSize = hrp.Size.Y
+        end
+    end)
     
     return {
         RigType = humanoid.RigType,
-        HipHeight = humanoid.HipHeight,
-        BodyHeightScale = humanoid.BodyHeightScale or 1.0,
-        BodyDepthScale = humanoid.BodyDepthScale or 1.0,
-        BodyWidthScale = humanoid.BodyWidthScale or 1.0,
-        HeadScale = humanoid.HeadScale or 1.0,
+        HipHeight = hipHeight,
+        BodyHeightScale = bodyHeightScale,
+        BodyDepthScale = bodyDepthScale,
+        BodyWidthScale = bodyWidthScale,
+        HeadScale = headScale,
         IsZepeto = isZepeto,
         ApproximateHeight = height,
-        HumanoidRootPartHeight = char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart.Size.Y or 2.0
+        HumanoidRootPartHeight = hrpSize
     }
 end
 
@@ -142,12 +173,16 @@ local function CalculateAdaptiveOffset(recordedCharData, currentCharData)
         end
     end
     
-    -- HipHeight compensation
-    local hipHeightDiff = (currentCharData.HipHeight or 2) - (recordedCharData.HipHeight or 2)
+    -- HipHeight compensation dengan safe number conversion
+    local recordedHipHeight = recordedCharData.HipHeight or 2.0
+    local currentHipHeight = currentCharData.HipHeight or 2.0
+    local hipHeightDiff = currentHipHeight - recordedHipHeight
     offset = offset + (hipHeightDiff * 0.7)
     
-    -- Body scale compensation
-    local heightScaleDiff = (currentCharData.BodyHeightScale or 1) - (recordedCharData.BodyHeightScale or 1)
+    -- Body scale compensation dengan safe number conversion
+    local recordedHeightScale = recordedCharData.BodyHeightScale or 1.0
+    local currentHeightScale = currentCharData.BodyHeightScale or 1.0
+    local heightScaleDiff = currentHeightScale - recordedHeightScale
     offset = offset + (heightScaleDiff * 1.8)
     
     -- Zepeto specific adjustments
@@ -157,8 +192,10 @@ local function CalculateAdaptiveOffset(recordedCharData, currentCharData)
         offset = offset - 0.8
     end
     
-    -- HumanoidRootPart size compensation
-    local hrpSizeDiff = (currentCharData.HumanoidRootPartHeight or 2) - (recordedCharData.HumanoidRootPartHeight or 2)
+    -- HumanoidRootPart size compensation dengan safe number conversion
+    local recordedHRPHeight = recordedCharData.HumanoidRootPartHeight or 2.0
+    local currentHRPHeight = currentCharData.HumanoidRootPartHeight or 2.0
+    local hrpSizeDiff = currentHRPHeight - recordedHRPHeight
     offset = offset + (hrpSizeDiff * 0.3)
     
     return offset
@@ -180,7 +217,7 @@ local function GetAdaptiveCFrame(frame, character)
     if not recordedCharData then
         recordedCharData = {
             RigType = Enum.HumanoidRigType.R6,
-            HipHeight = 2,
+            HipHeight = 2.0,
             BodyHeightScale = 1.0,
             IsZepeto = false,
             HumanoidRootPartHeight = 2.0
@@ -197,103 +234,268 @@ local function GetAdaptiveCFrame(frame, character)
     return originalCF
 end
 
--- ========= ANIMATIONS DATABASE =========
+-- ========= ANIMATIONS DATABASE (GAZE SYSTEM) =========
 local Animations = {
     ["Idle"] = {
         ["2016 Animation (mm2)"] = {"387947158", "387947464"},
+        ["(UGC) Oh Really?"] = {"98004748982532", "98004748982532"},
         ["Astronaut"] = {"891621366", "891633237"},
+        ["Adidas Community"] = {"122257458498464", "102357151005774"},
         ["Bold"] = {"16738333868", "16738334710"},
+        ["(UGC) Slasher"] = {"140051337061095", "140051337061095"},
+        ["(UGC) Retro"] = {"80479383912838", "80479383912838"},
+        ["(UGC) Magician"] = {"139433213852503", "139433213852503"},
+        ["(UGC) John Doe"] = {"72526127498800", "72526127498800"},
+        ["(UGC) Noli"] = {"139360856809483", "139360856809483"},
+        ["(UGC) Coolkid"] = {"95203125292023", "95203125292023"},
+        ["(UGC) Survivor Injured"] = {"73905365652295", "73905365652295"},
+        ["(UGC) Retro Zombie"] = {"90806086002292", "90806086002292"},
+        ["(UGC) 1x1x1x1"] = {"76780522821306", "76780522821306"},
+        ["Borock"] = {"3293641938", "3293642554"},
         ["Bubbly"] = {"910004836", "910009958"},
         ["Cartoony"] = {"742637544", "742638445"},
         ["Confident"] = {"1069977950", "1069987858"},
+        ["Catwalk Glam"] = {"133806214992291","94970088341563"},
         ["Cowboy"] = {"1014390418", "1014398616"},
+        ["Drooling Zombie"] = {"3489171152", "3489171152"},
+        ["Elder"] = {"10921101664", "10921102574"},
         ["Ghost"] = {"616006778","616008087"},
         ["Knight"] = {"657595757", "657568135"},
+        ["Levitation"] = {"616006778", "616008087"},
         ["Mage"] = {"707742142", "707855907"},
+        ["MrToilet"] = {"4417977954", "4417978624"},
         ["Ninja"] = {"656117400", "656118341"},
+        ["NFL"] = {"92080889861410", "74451233229259"},
+        ["OldSchool"] = {"10921230744", "10921232093"},
+        ["Patrol"] = {"1149612882", "1150842221"},
         ["Pirate"] = {"750781874", "750782770"},
+        ["Default Retarget"] = {"95884606664820", "95884606664820"},
+        ["Very Long"] = {"18307781743", "18307781743"},
+        ["Sway"] = {"560832030", "560833564"},
+        ["Popstar"] = {"1212900985", "1150842221"},
+        ["Princess"] = {"941003647", "941013098"},
+        ["R6"] = {"12521158637","12521162526"},
+        ["R15 Reanimated"] = {"4211217646", "4211218409"},
+        ["Realistic"] = {"17172918855", "17173014241"},
         ["Robot"] = {"616088211", "616089559"},
+        ["Sneaky"] = {"1132473842", "1132477671"},
+        ["Sports (Adidas)"] = {"18537376492", "18537371272"},
+        ["Soldier"] = {"3972151362", "3972151362"},
         ["Stylish"] = {"616136790", "616138447"},
+        ["Stylized Female"] = {"4708191566", "4708192150"},
+        ["Superhero"] = {"10921288909", "10921290167"},
         ["Toy"] = {"782841498", "782845736"},
+        ["Udzal"] = {"3303162274", "3303162549"},
         ["Vampire"] = {"1083445855", "1083450166"},
-        ["Zombie"] = {"616158929", "616160636"}
+        ["Werewolf"] = {"1083195517", "1083214717"},
+        ["Wicked (Popular)"] = {"118832222982049", "76049494037641"},
+        ["No Boundaries (Walmart)"] = {"18747067405", "18747063918"},
+        ["Zombie"] = {"616158929", "616160636"},
+        ["(UGC) Zombie"] = {"77672872857991", "77672872857991"},
+        ["(UGC) TailWag"] = {"129026910898635", "129026910898635"}
     },
     ["Walk"] = {
+        ["Gojo"] = "95643163365384",
+        ["Geto"] = "85811471336028",
         ["Astronaut"] = "891667138",
+        ["(UGC) Zombie"] = "113603435314095",
+        ["Adidas Community"] = "122150855457006",
+        ["Bold"] = "16738340646",
         ["Bubbly"] = "910034870",
+        ["(UGC) Smooth"] = "76630051272791",
         ["Cartoony"] = "742640026",
         ["Confident"] = "1070017263",
         ["Cowboy"] = "1014421541",
+        ["(UGC) Retro"] = "107806791584829",
+        ["(UGC) Retro Zombie"] = "140703855480494",
+        ["Catwalk Glam"] = "109168724482748",
+        ["Drooling Zombie"] = "3489174223",
+        ["Elder"] = "10921111375",
         ["Ghost"] = "616013216",
         ["Knight"] = "10921127095",
+        ["Levitation"] = "616013216",
         ["Mage"] = "707897309",
         ["Ninja"] = "656121766",
+        ["NFL"] = "110358958299415",
+        ["OldSchool"] = "10921244891",
+        ["Patrol"] = "1151231493",
         ["Pirate"] = "750785693",
+        ["Default Retarget"] = "115825677624788",
+        ["Popstar"] = "1212980338",
+        ["Princess"] = "941028902",
+        ["R6"] = "12518152696",
+        ["R15 Reanimated"] = "4211223236",
+        ["2016 Animation (mm2)"] = "387947975",
         ["Robot"] = "616095330",
+        ["Sneaky"] = "1132510133",
+        ["Sports (Adidas)"] = "18537392113",
         ["Stylish"] = "616146177",
+        ["Stylized Female"] = "4708193840",
+        ["Superhero"] = "10921298616",
+        ["Toy"] = "10921306285",
+        ["Udzal"] = "3303162967",
         ["Vampire"] = "1083473930",
+        ["Werewolf"] = "1083178339",
+        ["Wicked (Popular)"] = "92072849924640",
+        ["No Boundaries (Walmart)"] = "18747074203",
         ["Zombie"] = "616168032"
     },
     ["Run"] = {
+        ["2016 Animation (mm2)"] = "387947975",
+        ["(UGC) Soccer"] = "116881956670910",
+        ["Adidas Community"] = "82598234841035",
         ["Astronaut"] = "10921039308",
+        ["Bold"] = "16738337225",
         ["Bubbly"] = "10921057244",
         ["Cartoony"] = "10921076136",
+        ["(UGC) Dog"] = "130072963359721",
         ["Confident"] = "1070001516",
+        ["(UGC) Pride"] = "116462200642360",
+        ["(UGC) Retro"] = "107806791584829",
+        ["(UGC) Retro Zombie"] = "140703855480494",
         ["Cowboy"] = "1014401683",
+        ["Catwalk Glam"] = "81024476153754",
+        ["Drooling Zombie"] = "3489173414",
+        ["Elder"] = "10921104374",
         ["Ghost"] = "616013216",
+        ["Heavy Run (Udzal / Borock)"] = "3236836670",
         ["Knight"] = "10921121197",
+        ["Levitation"] = "616010382",
         ["Mage"] = "10921148209",
+        ["MrToilet"] = "4417979645",
         ["Ninja"] = "656118852",
+        ["NFL"] = "117333533048078",
+        ["OldSchool"] = "10921240218",
+        ["Patrol"] = "1150967949",
         ["Pirate"] = "750783738",
+        ["Default Retarget"] = "102294264237491",
+        ["Popstar"] = "1212980348",
+        ["Princess"] = "941015281",
+        ["R6"] = "12518152696",
+        ["R15 Reanimated"] = "4211220381",
         ["Robot"] = "10921250460",
+        ["Sneaky"] = "1132494274",
+        ["Sports (Adidas)"] = "18537384940",
         ["Stylish"] = "10921276116",
+        ["Stylized Female"] = "4708192705",
+        ["Superhero"] = "10921291831",
+        ["Toy"] = "10921306285",
         ["Vampire"] = "10921320299",
+        ["Werewolf"] = "10921336997",
+        ["Wicked (Popular)"] = "72301599441680",
+        ["No Boundaries (Walmart)"] = "18747070484",
         ["Zombie"] = "616163682"
     },
     ["Jump"] = {
         ["Astronaut"] = "891627522",
+        ["Adidas Community"] = "75290611992385",
+        ["Bold"] = "16738336650",
         ["Bubbly"] = "910016857",
         ["Cartoony"] = "742637942",
+        ["Catwalk Glam"] = "116936326516985",
         ["Confident"] = "1069984524",
         ["Cowboy"] = "1014394726",
+        ["Elder"] = "10921107367",
         ["Ghost"] = "616008936",
         ["Knight"] = "910016857",
+        ["Levitation"] = "616008936",
         ["Mage"] = "10921149743",
         ["Ninja"] = "656117878",
+        ["NFL"] = "119846112151352",
+        ["OldSchool"] = "10921242013",
+        ["Patrol"] = "1148811837",
         ["Pirate"] = "750782230",
+        ["(UGC) Retro"] = "139390570947836",
+        ["Default Retarget"] = "117150377950987",
+        ["Popstar"] = "1212954642",
+        ["Princess"] = "941008832",
         ["Robot"] = "616090535",
+        ["R15 Reanimated"] = "4211219390",
+        ["R6"] = "12520880485",
+        ["Sneaky"] = "1132489853",
+        ["Sports (Adidas)"] = "18537380791",
         ["Stylish"] = "616139451",
+        ["Stylized Female"] = "4708188025",
+        ["Superhero"] = "10921294559",
+        ["Toy"] = "10921308158",
         ["Vampire"] = "1083455352",
+        ["Werewolf"] = "1083218792",
+        ["Wicked (Popular)"] = "104325245285198",
+        ["No Boundaries (Walmart)"] = "18747069148",
         ["Zombie"] = "616161997"
     },
     ["Fall"] = {
         ["Astronaut"] = "891617961",
+        ["Adidas Community"] = "98600215928904",
+        ["Bold"] = "16738333171",
         ["Bubbly"] = "910001910",
         ["Cartoony"] = "742637151",
+        ["Catwalk Glam"] = "92294537340807",
         ["Confident"] = "1069973677",
         ["Cowboy"] = "1014384571",
+        ["Elder"] = "10921105765",
+        ["Knight"] = "10921122579",
+        ["Levitation"] = "616005863",
         ["Mage"] = "707829716",
         ["Ninja"] = "656115606",
+        ["NFL"] = "129773241321032",
+        ["OldSchool"] = "10921241244",
+        ["Patrol"] = "1148863382",
+        ["Popstar"] = "1212900995",
+        ["Princess"] = "941000007",
         ["Robot"] = "616087089",
+        ["R15 Reanimated"] = "4211216152",
+        ["R6"] = "12520972571",
+        ["Sneaky"] = "1132469004",
+        ["Sports (Adidas)"] = "18537367238",
         ["Stylish"] = "616134815",
+        ["Stylized Female"] = "4708186162",
+        ["Superhero"] = "10921293373",
+        ["Toy"] = "782846423",
         ["Vampire"] = "1083443587",
+        ["Werewolf"] = "1083189019",
+        ["Wicked (Popular)"] = "121152442762481",
+        ["No Boundaries (Walmart)"] = "18747062535",
         ["Zombie"] = "616157476"
     },
     ["Climb"] = {
         ["Astronaut"] = "10921032124",
+        ["Adidas Community"] = "88763136693023",
+        ["Bold"] = "16738332169",
         ["Cartoony"] = "742636889",
+        ["Catwalk Glam"] = "119377220967554",
         ["Confident"] = "1069946257",
         ["CowBoy"] = "1014380606",
+        ["Elder"] = "845392038",
         ["Ghost"] = "616003713",
+        ["Knight"] = "10921125160",
+        ["Levitation"] = "10921132092",
         ["Mage"] = "707826056",
         ["Ninja"] = "656114359",
+        ["(UGC) Retro"] = "121075390792786",
+        ["NFL"] = "134630013742019",
+        ["OldSchool"] = "10921229866",
+        ["Patrol"] = "1148811837",
+        ["Popstar"] = "1213044953",
+        ["Princess"] = "940996062",
+        ["R6"] = "12520982150",
+        ["Reanimated R15"] = "4211214992",
         ["Robot"] = "616086039",
+        ["Sneaky"] = "1132461372",
+        ["Sports (Adidas)"] = "18537363391",
         ["Stylish"] = "10921271391",
-        ["Vampire"] = "1083439238"
+        ["Stylized Female"] = "4708184253",
+        ["SuperHero"] = "10921286911",
+        ["Toy"] = "10921300839",
+        ["Vampire"] = "1083439238",
+        ["WereWolf"] = "10921329322",
+        ["Wicked (Popular)"] = "131326830509784",
+        ["No Boundaries (Walmart)"] = "18747060903",
+        ["Zombie"] = "616156119"
     }
 }
 
--- ========= DEFAULT ANIMATIONS =========
+-- ========= DEFAULT ANIMATIONS (R15 Standard) =========
 local DefaultAnimations = {
     Idle = {"507766666", "507766951"},
     Walk = "507777826",
@@ -545,7 +747,7 @@ local function ToggleInfiniteJump()
     end
 end
 
--- ========= IMPROVED ANIMATION SYSTEM =========
+-- ========= IMPROVED ANIMATION SYSTEM (FIXED - NO FREEZE) =========
 local function RefreshCharacter()
     local character = player.Character
     if character then
@@ -563,6 +765,7 @@ local function SetAnimation(animType, animId)
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
+    -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
     if animType == "Idle" and animate:FindFirstChild("idle") then
         if type(animId) == "table" and #animId == 2 then
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
@@ -596,12 +799,14 @@ local function SetAnimation(animType, animId)
         end
     end
     
+    -- ✅ Save config
     pcall(function()
         if writefile and readfile and isfile then
             writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
         end
     end)
     
+    -- ✅ Smooth refresh (optional)
     RefreshCharacter()
 end
 
@@ -613,6 +818,9 @@ local function ResetAnimations()
     local animate = character:FindFirstChild("Animate")
     if not animate then return end
     
+    -- ✅ LANGSUNG RESET TANPA STOP ANIMATIONS
+    
+    -- Reset Idle
     if animate:FindFirstChild("idle") then
         if animate.idle:FindFirstChild("Animation1") then
             animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
@@ -622,26 +830,32 @@ local function ResetAnimations()
         end
     end
     
+    -- Reset Walk
     if animate:FindFirstChild("walk") and animate.walk:FindFirstChild("WalkAnim") then
         animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
     end
     
+    -- Reset Run
     if animate:FindFirstChild("run") and animate.run:FindFirstChild("RunAnim") then
         animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
     end
     
+    -- Reset Jump
     if animate:FindFirstChild("jump") and animate.jump:FindFirstChild("JumpAnim") then
         animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
     end
     
+    -- Reset Fall
     if animate:FindFirstChild("fall") and animate.fall:FindFirstChild("FallAnim") then
         animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
     end
     
+    -- Reset Climb
     if animate:FindFirstChild("climb") and animate.climb:FindFirstChild("ClimbAnim") then
         animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
     end
     
+    -- ✅ Clear saved data
     lastAnimations = {}
     pcall(function()
         if delfile and isfile and isfile("AnimHub_Saved.json") then
@@ -649,13 +863,19 @@ local function ResetAnimations()
         end
     end)
     
+    -- ✅ Smooth refresh
     RefreshCharacter()
+    
+    -- ✅ Notify user
     PlaySound("Success")
 end
 
--- ========= ADVANCED LOAD SAVED ANIMATIONS =========
+-- ========= ADVANCED LOAD SAVED ANIMATIONS (IMPROVED) =========
 local function LoadSavedAnimations()
-    if isLoadingAnimations then return end
+    if isLoadingAnimations then 
+        return 
+    end
+    
     isLoadingAnimations = true
     
     task.spawn(function()
@@ -682,8 +902,9 @@ local function LoadSavedAnimations()
                     return
                 end
                 
+                -- ✅ LANGSUNG UPDATE TANPA STOP ANIMATIONS
                 for animType, animId in pairs(savedData) do
-                    task.wait(0.05)
+                    task.wait(0.05) -- Minimal delay untuk network sync
                     
                     if animType == "Idle" and animate:FindFirstChild("idle") then
                         local idle = animate.idle
@@ -722,6 +943,7 @@ local function LoadSavedAnimations()
                 end
                 
                 lastAnimations = savedData
+                
                 task.wait(0.1)
                 RefreshCharacter()
             end
@@ -731,7 +953,7 @@ local function LoadSavedAnimations()
     end)
 end
 
--- ========= ANIMATION GUI =========
+-- ========= ANIMATION GUI 200x200 =========
 local function OpenAnimationGUI()
     if animationGuiOpen then return end
     animationGuiOpen = true
@@ -754,6 +976,7 @@ local function OpenAnimationGUI()
     MainCorner.CornerRadius = UDim.new(0, 8)
     MainCorner.Parent = MainFrame
     
+    -- Header (Lebar 200, Tinggi 35)
     local Header = Instance.new("Frame")
     Header.Size = UDim2.new(1, 0, 0, 35)
     Header.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -764,6 +987,7 @@ local function OpenAnimationGUI()
     HeaderCorner.CornerRadius = UDim.new(0, 8)
     HeaderCorner.Parent = Header
     
+    -- Load Button (Kiri)
     local LoadBtn = Instance.new("TextButton")
     LoadBtn.Size = UDim2.new(0, 25, 0, 25)
     LoadBtn.Position = UDim2.new(0, 5, 0.5, -12.5)
@@ -778,6 +1002,7 @@ local function OpenAnimationGUI()
     LoadCorner.CornerRadius = UDim.new(0, 4)
     LoadCorner.Parent = LoadBtn
     
+    -- Search Box (Tengah)
     local SearchBox = Instance.new("TextBox")
     SearchBox.Size = UDim2.new(0, 80, 0, 25)
     SearchBox.Position = UDim2.new(0, 35, 0.5, -12.5)
@@ -800,6 +1025,7 @@ local function OpenAnimationGUI()
     SearchPadding.PaddingLeft = UDim.new(0, 8)
     SearchPadding.Parent = SearchBox
     
+    -- Close Button (Kanan)
     local CloseBtn = Instance.new("TextButton")
     CloseBtn.Size = UDim2.new(0, 25, 0, 25)
     CloseBtn.Position = UDim2.new(1, -30, 0.5, -12.5)
@@ -814,6 +1040,7 @@ local function OpenAnimationGUI()
     CloseCorner.CornerRadius = UDim.new(0, 4)
     CloseCorner.Parent = CloseBtn
     
+    -- Animation List (Compact)
     local AnimationList = Instance.new("ScrollingFrame")
     AnimationList.Size = UDim2.new(1, -10, 1, -40)
     AnimationList.Position = UDim2.new(0, 5, 0, 40)
@@ -828,6 +1055,7 @@ local function OpenAnimationGUI()
     ListCorner.CornerRadius = UDim.new(0, 6)
     ListCorner.Parent = AnimationList
     
+    -- Populate animation list
     local buttons = {}
     local yPos = 0
     
@@ -857,6 +1085,7 @@ local function OpenAnimationGUI()
             PlaySound("Success")
         end)
         
+        -- Hover effects
         item.MouseEnter:Connect(function()
             TweenService:Create(item, TweenInfo.new(0.2), {
                 BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -873,6 +1102,7 @@ local function OpenAnimationGUI()
         yPos = yPos + 28
     end
     
+    -- Populate all animations
     for name, ids in pairs(Animations.Idle) do
         addButton(name, "Idle", ids)
     end
@@ -892,8 +1122,10 @@ local function OpenAnimationGUI()
         addButton(name, "Climb", id)
     end
     
+    -- Update canvas size
     AnimationList.CanvasSize = UDim2.new(0, 0, 0, yPos)
     
+    -- Button functionality
     LoadBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoadBtn)
         LoadSavedAnimations()
@@ -907,6 +1139,7 @@ local function OpenAnimationGUI()
         PlaySound("Click")
     end)
     
+    -- Search functionality
     SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = SearchBox.Text:lower()
         local pos = 0
@@ -922,6 +1155,7 @@ local function OpenAnimationGUI()
         AnimationList.CanvasSize = UDim2.new(0, 0, 0, pos)
     end)
     
+    -- Draggable functionality
     local dragging, dragInput, dragStart, startPos
     MainFrame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1401,8 +1635,9 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
+-- MainFrame diperbesar untuk scroll yang lebih baik
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 350)
+MainFrame.Size = UDim2.fromOffset(250, 350) 
 MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
@@ -1487,11 +1722,12 @@ local ResizeCorner = Instance.new("UICorner")
 ResizeCorner.CornerRadius = UDim.new(0, 8)
 ResizeCorner.Parent = ResizeButton
 
+-- Content frame diperbesar untuk scroll yang lebih baik
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -10, 1, -42)
 Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
-Content.ScrollBarThickness = 6
+Content.ScrollBarThickness = 6 -- Dipertebal scrollbar
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 Content.ScrollingDirection = Enum.ScrollingDirection.Y
 Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1515,7 +1751,7 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- Enhanced Button Creation
+-- Enhanced Button Creation with Powerful Animations
 local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -1621,6 +1857,7 @@ local function CreateToggle(text, x, y, w, h, default)
 end
 
 -- ========= UI ELEMENTS =========
+-- Baris 1: Recording dan Animation Button bersebelahan
 local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 local AnimationBtnBig = CreateButton("ANIMATIONS", 127, 5, 117, 30, Color3.fromRGB(59, 15, 116))
 
@@ -1628,10 +1865,12 @@ local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 11
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
+-- Toggle layout: Kiri=AutoLoop, Tengah=InfiniteJump, Kanan=ShiftLock
 local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
 local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
 local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 164, 75, 78, 22, false)
 
+-- Baris kedua: Auto Respawn
 local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 0, 102, 117, 22, false)
 
 local FilenameBox = Instance.new("TextBox")
@@ -1676,12 +1915,13 @@ local LoadFileBtn = CreateButton("LOAD FILE", 123, 160, 117, 26, Color3.fromRGB(
 local PathToggleBtn = CreateButton("RUTE", 0, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 123, 191, 117, 26, Color3.fromRGB(59, 15, 116))
 
+-- PERBAIKAN: RecordList diperbesar dan diperbaiki scroll-nya
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 180)
+RecordList.Size = UDim2.new(1, 0, 0, 180) -- Diperbesar tinggi nya
 RecordList.Position = UDim2.fromOffset(0, 222)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 6
+RecordList.ScrollBarThickness = 6 -- Dipertebal
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
 RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1753,7 +1993,7 @@ UserInputService.InputChanged:Connect(function(input)
             local delta = currentMousePos - StartMousePos
             
             local newWidth = math.clamp(StartSize.X.Offset + delta.X, 200, 400)
-            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600)
+            local newHeight = math.clamp(StartSize.Y.Offset + delta.Y, 200, 600) -- Diperbesar max height
             
             MainFrame.Size = UDim2.fromOffset(newWidth, newHeight)
             
@@ -1791,6 +2031,7 @@ UserInputService.InputChanged:Connect(function(input)
             MergeBtn.Size = UDim2.fromOffset(117 * widthScale, 26)
             MergeBtn.Position = UDim2.fromOffset(5 + (117 * widthScale) + 5, 191)
             
+            -- Update RecordList size when resizing
             RecordList.Size = UDim2.new(1, 0, 0, 180 * (newHeight / 450))
         end
     end
@@ -1849,6 +2090,7 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
+        -- PERBAIKAN: TextBox untuk custom nama dengan fungsi save yang benar
         local nameBox = Instance.new("TextBox")
         nameBox.Size = UDim2.new(1, -130, 0, 18)
         nameBox.Position = UDim2.new(0, 8, 0, 4)
@@ -1867,6 +2109,7 @@ function UpdateRecordList()
         nameBoxCorner.CornerRadius = UDim.new(0, 3)
         nameBoxCorner.Parent = nameBox
         
+        -- PERBAIKAN: Save nama ketika selesai edit
         nameBox.FocusLost:Connect(function()
             local newName = nameBox.Text
             if newName and newName ~= "" then
@@ -1980,6 +2223,7 @@ function UpdateRecordList()
         yPos = yPos + 43
     end
     
+    -- PERBAIKAN: CanvasSize diupdate dengan benar untuk scroll yang smooth
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
@@ -2033,7 +2277,6 @@ local function AutoSaveRecording()
     CurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
 end
 
--- ========= ENHANCED RECORDING WITH CHARACTER ADAPTATION =========
 function StartRecording()
     if IsRecording then return end
     local char = player.Character
@@ -2271,7 +2514,7 @@ function PlayRecording(name)
     AddConnection(playbackConnection)
 end
 
--- ========= FIXED AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM - NON-STOP WITH PROPER RESPAWN HANDLING =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2291,6 +2534,7 @@ function StartAutoLoopAll()
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
+            -- ✅ CHECK: Jika Auto Loop dimatikan, stop
             if not AutoLoop or not IsAutoLoopPlaying then
                 warn("🛑 Auto Loop manually stopped")
                 break
@@ -2299,6 +2543,7 @@ function StartAutoLoopAll()
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
+            -- ✅ SKIP jika recording tidak valid
             if not recording or #recording == 0 then
                 warn("⚠️ Recording empty: " .. tostring(recordingName))
                 CurrentLoopIndex = CurrentLoopIndex + 1
@@ -2309,6 +2554,7 @@ function StartAutoLoopAll()
                 continue
             end
             
+            -- ✅ AUTO RESPAWN: HANYA jika di awal loop cycle DAN toggle auto respawn aktif
             if CurrentLoopIndex == 1 and AutoRespawn then
                 warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
@@ -2321,10 +2567,11 @@ function StartAutoLoopAll()
                 task.wait(1.5)
             end
             
+            -- ✅ WAIT FOR CHARACTER READY (dengan timeout yang reasonable)
             if not IsCharacterReady() then
                 warn("⏳ Character not ready, waiting...")
                 local waitAttempts = 0
-                local maxWaitAttempts = 60
+                local maxWaitAttempts = 60 -- 30 detik (0.5s per attempt)
                 
                 while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                     waitAttempts = waitAttempts + 1
@@ -2332,6 +2579,7 @@ function StartAutoLoopAll()
                     if waitAttempts >= maxWaitAttempts then
                         warn("⚠️ Character not ready after 30s")
                         
+                        -- ✅ HANYA force respawn jika Auto Respawn aktif
                         if AutoRespawn then
                             warn("🔄 Force respawn (Auto Respawn ON)")
                             ResetCharacter()
@@ -2339,8 +2587,9 @@ function StartAutoLoopAll()
                             task.wait(1.5)
                             break
                         else
+                            -- ✅ Jika Auto Respawn OFF, tunggu manual respawn
                             warn("⏸️ Waiting for manual respawn (Auto Respawn OFF)...")
-                            waitAttempts = 0
+                            waitAttempts = 0 -- Reset counter
                         end
                     end
                     
@@ -2355,13 +2604,14 @@ function StartAutoLoopAll()
             
             warn("▶️ Playing: " .. (checkpointNames[recordingName] or recordingName))
             
+            -- ✅ PLAYBACK VARIABLES
             local playbackCompleted = false
             local playbackStart = tick()
             local playbackPausedTime = 0
             local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
-            local maxDeathRetries = 999999
+            local maxDeathRetries = 999999 -- Infinite retries
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2370,13 +2620,17 @@ function StartAutoLoopAll()
             DisableJump()
             HideJumpButton()
             
+            -- ✅ PLAYBACK LOOP WITH DEATH HANDLING
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
+                -- ✅ DEATH DETECTION
                 if not IsCharacterReady() then
                     warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
                     deathRetryCount = deathRetryCount + 1
                     
+                    -- ✅ DECISION BASED ON AUTO RESPAWN TOGGLE
                     if AutoRespawn then
+                        -- ✅ AUTO RESPAWN: Langsung respawn dan retry
                         warn("🔄 Auto Respawn ON - Respawning...")
                         ResetCharacter()
                         local success = WaitForRespawn()
@@ -2386,6 +2640,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
+                            -- ✅ RESET playback untuk retry recording ini
                             currentFrame = 1
                             playbackStart = tick()
                             playbackPausedTime = 0
@@ -2397,17 +2652,18 @@ function StartAutoLoopAll()
                             DisableJump()
                             HideJumpButton()
                             
-                            continue
+                            continue -- Retry recording dari awal
                         else
                             warn("⚠️ Respawn failed, retrying...")
                             task.wait(2)
                             continue
                         end
                     else
+                        -- ✅ AUTO RESPAWN OFF: Tunggu manual respawn
                         warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
                         
                         local manualRespawnWait = 0
-                        local maxManualWait = 120
+                        local maxManualWait = 120 -- 60 detik (0.5s per check)
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 1
@@ -2415,7 +2671,7 @@ function StartAutoLoopAll()
                             if manualRespawnWait >= maxManualWait then
                                 warn("⚠️ No manual respawn after 60s, pausing loop...")
                                 warn("💡 Enable Auto Respawn or respawn manually to continue")
-                                manualRespawnWait = 0
+                                manualRespawnWait = 0 -- Reset dan tunggu terus
                             end
                             
                             task.wait(0.5)
@@ -2427,6 +2683,7 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(1.5)
                         
+                        -- ✅ RESET playback untuk retry recording ini
                         currentFrame = 1
                         playbackStart = tick()
                         playbackPausedTime = 0
@@ -2438,10 +2695,11 @@ function StartAutoLoopAll()
                         DisableJump()
                         HideJumpButton()
                         
-                        continue
+                        continue -- Retry recording dari awal
                     end
                 end
                 
+                -- ✅ PAUSE HANDLING
                 if IsPaused then
                     if playbackPauseStart == 0 then
                         playbackPauseStart = tick()
@@ -2541,6 +2799,7 @@ function StartAutoLoopAll()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
+            -- ✅ DECISION: Move to next recording HANYA jika completed
             if playbackCompleted then
                 warn("✅ Recording completed!")
                 PlaySound("Success")
@@ -2553,16 +2812,20 @@ function StartAutoLoopAll()
                 
                 task.wait(0.5)
             else
+                -- ✅ Playback tidak completed - check kenapa
                 if not AutoLoop or not IsAutoLoopPlaying then
                     warn("🛑 Loop stopped manually")
                     break
                 else
+                    -- ✅ Character issue - retry sama recording
                     warn("⚠️ Playback incomplete, retrying same recording...")
                     task.wait(1)
+                    -- CurrentLoopIndex TIDAK DIUBAH
                 end
             end
         end
         
+        -- ✅ CLEANUP
         warn("🛑 Auto Loop stopped")
         IsAutoLoopPlaying = false
         IsPaused = false
@@ -2679,8 +2942,8 @@ local function SaveToObfuscatedJSON()
             Version = "2.0",
             Obfuscated = true,
             Checkpoints = {},
-            RecordingOrder = RecordingOrder,
-            CheckpointNames = checkpointNames
+            RecordingOrder = RecordingOrder, -- PERBAIKAN: Simpan urutan recording
+            CheckpointNames = checkpointNames -- PERBAIKAN: Simpan custom names
         }
         
         for name, frames in pairs(RecordedMovements) do
@@ -2720,8 +2983,8 @@ local function LoadFromObfuscatedJSON()
         local saveData = HttpService:JSONDecode(jsonString)
         
         RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
+        RecordingOrder = saveData.RecordingOrder or {} -- PERBAIKAN: Load urutan
+        checkpointNames = saveData.CheckpointNames or {} -- PERBAIKAN: Load custom names
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2732,6 +2995,7 @@ local function LoadFromObfuscatedJSON()
                 
                 if frames then
                     RecordedMovements[name] = frames
+                    -- PERBAIKAN: Pastikan nama ada di RecordingOrder jika tidak ada
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -2798,6 +3062,7 @@ RecordBtnBig.MouseButton1Click:Connect(function()
     end
 end)
 
+-- ANIMATION GUI BUTTON
 AnimationBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(AnimationBtnBig)
     OpenAnimationGUI()
@@ -2915,25 +3180,29 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========= AUTO-LOAD ANIMATIONS SYSTEM =========
+-- ========= AUTO-LOAD ANIMATIONS SYSTEM (MANUAL ONLY AFTER FIRST USE) =========
 player.CharacterAdded:Connect(function(character)
     task.wait(2)
     
+    -- ✅ HANYA load jika user SUDAH PERNAH pilih animasi sebelumnya
     if player.Character == character and next(lastAnimations) then
         LoadSavedAnimations()
     end
 end)
 
--- === INITIAL LOAD ON SCRIPT EXECUTION ===
+-- === INITIAL LOAD ON SCRIPT EXECUTION (MANUAL FIRST TIME) ===
+-- Only auto-load if user has previously saved animations
 task.spawn(function()
     if player.Character then
         task.wait(2)
         
+        -- ✅ Cek apakah ada saved animations
         pcall(function()
             if isfile and readfile and isfile("AnimHub_Saved.json") then
                 local fileContent = readfile("AnimHub_Saved.json")
                 local savedData = HttpService:JSONDecode(fileContent)
                 
+                -- ✅ HANYA load jika file ada DAN tidak kosong
                 if savedData and next(savedData) then
                     LoadSavedAnimations()
                 end
@@ -2981,8 +3250,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
 end)
 
 -- ========= INITIAL SETUP =========
+-- Initialize the record list
 UpdateRecordList()
 
+-- Auto-load any saved recordings on script start
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
@@ -2991,6 +3262,7 @@ task.spawn(function()
     end
 end)
 
+-- Character cleanup on removal
 player.CharacterRemoving:Connect(function()
     if IsRecording then
         StopRecording()
@@ -3005,6 +3277,7 @@ warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
 warn("🚀 Enhanced Adaptive Character System: Active")
 warn("📊 Auto-adjustment for R6/R15/Zepeto characters: Enabled")
 
+-- Ensure proper cleanup on script termination
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
         CleanupConnections()
