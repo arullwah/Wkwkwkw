@@ -1,13 +1,48 @@
--- ✅ Gaze Animations GUI - Advanced Auto Load System
--- By Arull | Modified with Auto Load on Startup & Respawn
+--[[ 
+    ✅ Gaze Animations GUI – Simple, Smooth, Persistent Close
+    - Executor/client only
+    - 200x200, draggable
+    - Header: Search + X
+    - Close = permanen (disimpan ke file), GUI tidak auto-muncul lagi saat respawn
+    - Auto-load animasi setelah respawn tetap aktif (tanpa GUI)
+    By: Arull | final polish
+]]
 
+-- ====== Services ======
 local Players = game:GetService("Players")
+local ContentProvider = game:GetService("ContentProvider")
+local HttpService = game:GetService("HttpService")
+local UIS = game:GetService("UserInputService")
+
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
-local UIS = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 
--- === ANIMATIONS DATABASE (GAZE SYSTEM) ===
+-- ====== KONFIG (persisten) ======
+local CONFIG_FILE = "AnimHub_Config.json"
+local SAVE_FILE   = "AnimHub_Saved.json"
+
+local Config = { GuiClosed = false }
+
+local function loadConfig()
+    pcall(function()
+        if isfile and isfile(CONFIG_FILE) then
+            local t = HttpService:JSONDecode(readfile(CONFIG_FILE))
+            if typeof(t)=="table" and type(t.GuiClosed)=="boolean" then
+                Config = t
+            end
+        end
+    end)
+end
+
+local function saveConfig()
+    pcall(function()
+        if writefile then
+            writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
+        end
+    end)
+end
+
+-- ====== DATABASE ======
 local Animations = {
     ["Idle"] = {
         ["2016 Animation (mm2)"] = {"387947158", "387947464"},
@@ -333,495 +368,263 @@ local Animations = {
     }
 }
 
--- === DEFAULT ANIMATIONS (R15 Standard) ===
-local DefaultAnimations = {
-    Idle = {"507766666", "507766951"},
-    Walk = "507777826",
-    Run = "507767714",
-    Jump = "507765000",
-    Fall = "507767968",
-    Swim = "507784897",
-    SwimIdle = "507785072",
-    Climb = "507765644"
-}
-
--- === STATE ===
-local lastAnimations = {}
+-- ====== State ======
 local guiOpen = false
+local lastAnimations = {}
 
--- === UTILS ===
-local function StopAllAnims()
-    local character = Player.Character
-    if character then
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
-                track:Stop(0)
-            end
-        end
+-- ====== Utils ======
+local function validateCharacter()
+    local c = Player.Character
+    return c and c:FindFirstChildOfClass("Humanoid") and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function preloadAnimation(animIdAny)
+    local ids = (type(animIdAny)=="table") and animIdAny or {animIdAny}
+    local assets = {}
+    for _,id in ipairs(ids) do
+        local a = Instance.new("Animation")
+        a.AnimationId = "rbxassetid://"..tostring(id)
+        table.insert(assets, a)
+    end
+    pcall(function() ContentProvider:PreloadAsync(assets) end)
+end
+
+local function stopAllTracks(h)
+    for _,t in ipairs(h:GetPlayingAnimationTracks()) do
+        pcall(function() t:Stop(0.12) end)
     end
 end
 
-local function RefreshCharacter()
-    local character = Player.Character
-    if character then
-        local humanoid = character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-        end
-    end
+local function softKickAnimate(h)
+    -- trik ringan agar script Animate refresh state
+    h:Move(Vector3.new(), true)
+    task.wait(0.04)
+    h:Move(Vector3.new(0.05,0,0), true)
+    task.wait(0.04)
+    h:Move(Vector3.new(), true)
 end
 
-local function SetAnimation(animType, animId)
-    local character = Player.Character
-    if not character then return end
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
-    local humanoid = character:FindFirstChild("Humanoid")
-    if humanoid then
-        humanoid.PlatformStand = true
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and not part.Anchored then
-                part.Anchored = true
-            end
-        end
-    end
-    StopAllAnims()
-    task.wait(0.1)
-    if animType == "Idle" and animate.idle then
-        animate.idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-        animate.idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-        lastAnimations.Idle = animId
-    elseif animType == "Walk" and animate.walk then
-        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Walk = animId
-    elseif animType == "Run" and animate.run then
-        animate.run.RunAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Run = animId
-    elseif animType == "Jump" and animate.jump then
-        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Jump = animId
-    elseif animType == "Fall" and animate.fall then
-        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Fall = animId
-    elseif animType == "Swim" and animate.swim then
-        animate.swim.Swim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Swim = animId
-    elseif animType == "SwimIdle" and animate.swimidle then
-        animate.swimidle.SwimIdle.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.SwimIdle = animId
-    elseif animType == "Climb" and animate.climb then
-        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-        lastAnimations.Climb = animId
-    end
+local function saveLast()
     pcall(function()
-        if writefile and readfile and isfile then
-            writefile("AnimHub_Saved.json", HttpService:JSONEncode(lastAnimations))
+        if writefile then
+            writefile(SAVE_FILE, HttpService:JSONEncode(lastAnimations))
         end
     end)
-    RefreshCharacter()
-    task.wait(0.1)
-    if humanoid then
-        humanoid.PlatformStand = false
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part.Anchored then
-                part.Anchored = false
-            end
-        end
-    end
 end
 
--- === RESET ANIMATIONS TO DEFAULT ===
-local function ResetAnimations()
-    local character = Player.Character
-    if not character then return end
-    local animate = character:FindFirstChild("Animate")
-    if not animate then return end
-    local humanoid = character:FindFirstChild("Humanoid")
-    
-    if humanoid then
-        humanoid.PlatformStand = true
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and not part.Anchored then
-                part.Anchored = true
-            end
-        end
-    end
-    
-    StopAllAnims()
-    task.wait(0.1)
-    
-    -- Reset to default R15 animations
-    if animate.idle then
-        animate.idle.Animation1.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[1]
-        animate.idle.Animation2.AnimationId = "rbxassetid://" .. DefaultAnimations.Idle[2]
-    end
-    if animate.walk then
-        animate.walk.WalkAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Walk
-    end
-    if animate.run then
-        animate.run.RunAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Run
-    end
-    if animate.jump then
-        animate.jump.JumpAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Jump
-    end
-    if animate.fall then
-        animate.fall.FallAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Fall
-    end
-    if animate.swim then
-        animate.swim.Swim.AnimationId = "rbxassetid://" .. DefaultAnimations.Swim
-    end
-    if animate.swimidle then
-        animate.swimidle.SwimIdle.AnimationId = "rbxassetid://" .. DefaultAnimations.SwimIdle
-    end
-    if animate.climb then
-        animate.climb.ClimbAnim.AnimationId = "rbxassetid://" .. DefaultAnimations.Climb
-    end
-    
-    -- Clear saved animations
-    lastAnimations = {}
+-- ====== Apply Animation (halus & publik) ======
+local function setAnim(kind, id)
+    if not validateCharacter() then return false end
+    local c = Player.Character
+    local h = c:FindFirstChildOfClass("Humanoid")
+    local anim = c:FindFirstChild("Animate")
+    if not h or not anim then return false end
+
+    preloadAnimation(id)
+    stopAllTracks(h)
+
+    local ok = true
+    if     kind=="Idle"     and anim.idle      then anim.idle.Animation1.AnimationId="rbxassetid://"..id[1]; anim.idle.Animation2.AnimationId="rbxassetid://"..id[2]; lastAnimations.Idle = id
+    elseif kind=="Walk"     and anim.walk      then anim.walk.WalkAnim.AnimationId   ="rbxassetid://"..id;   lastAnimations.Walk = id
+    elseif kind=="Run"      and anim.run       then anim.run.RunAnim.AnimationId     ="rbxassetid://"..id;   lastAnimations.Run  = id
+    elseif kind=="Jump"     and anim.jump      then anim.jump.JumpAnim.AnimationId   ="rbxassetid://"..id;   lastAnimations.Jump = id
+    elseif kind=="Fall"     and anim.fall      then anim.fall.FallAnim.AnimationId   ="rbxassetid://"..id;   lastAnimations.Fall = id
+    elseif kind=="Swim"     and anim.swim      then anim.swim.Swim.AnimationId       ="rbxassetid://"..id;   lastAnimations.Swim = id
+    elseif kind=="SwimIdle" and anim.swimidle  then anim.swimidle.SwimIdle.AnimationId="rbxassetid://"..id;  lastAnimations.SwimIdle = id
+    elseif kind=="Climb"    and anim.climb     then anim.climb.ClimbAnim.AnimationId ="rbxassetid://"..id;   lastAnimations.Climb = id
+    else ok=false end
+
+    task.wait(0.08)
+    softKickAnimate(h)
+    if ok then saveLast() end
+    return ok
+end
+
+-- ====== Load saved saat respawn (tanpa batas) ======
+local function loadSaved()
+    if not validateCharacter() then return end
     pcall(function()
-        if writefile and delfile and isfile and isfile("AnimHub_Saved.json") then
-            delfile("AnimHub_Saved.json")
-        end
-    end)
-    
-    RefreshCharacter()
-    task.wait(0.1)
-    
-    if humanoid then
-        humanoid.PlatformStand = false
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part.Anchored then
-                part.Anchored = false
+        if isfile and isfile(SAVE_FILE) then
+            local t = HttpService:JSONDecode(readfile(SAVE_FILE))
+            if typeof(t)=="table" then
+                lastAnimations = t
+                for k,v in pairs(t) do setAnim(k,v) end
             end
-        end
-    end
-end
-
--- === ADVANCED LOAD SAVED ANIMATIONS ===
-local function LoadSavedAnimations()
-    task.spawn(function()
-        local character = Player.Character
-        if not character then return end
-        
-        -- Wait for Animate script to fully load with longer timeout
-        local animate = character:WaitForChild("Animate", 10)
-        if not animate then 
-            warn("[AnimHub] Animate script not found!")
-            return 
-        end
-        
-        -- Wait for humanoid
-        local humanoid = character:WaitForChild("Humanoid", 10)
-        if not humanoid then 
-            warn("[AnimHub] Humanoid not found!")
-            return 
-        end
-        
-        -- Extra wait to ensure all animation children are loaded
-        task.wait(0.3)
-        
-        -- Load saved data
-        local success, result = pcall(function()
-            if isfile and readfile and isfile("AnimHub_Saved.json") then
-                local fileContent = readfile("AnimHub_Saved.json")
-                local savedData = HttpService:JSONDecode(fileContent)
-                
-                if not savedData or type(savedData) ~= "table" then
-                    warn("[AnimHub] Invalid save data!")
-                    return
-                end
-                
-                -- Apply each animation type with verification
-                for animType, animId in pairs(savedData) do
-                    task.wait(0.08) -- Small delay between each animation
-                    
-                    if animType == "Idle" and animate:FindFirstChild("idle") then
-                        local idle = animate.idle
-                        if idle:FindFirstChild("Animation1") and idle:FindFirstChild("Animation2") then
-                            idle.Animation1.AnimationId = "rbxassetid://" .. animId[1]
-                            idle.Animation2.AnimationId = "rbxassetid://" .. animId[2]
-                        end
-                    elseif animType == "Walk" and animate:FindFirstChild("walk") then
-                        local walk = animate.walk
-                        if walk:FindFirstChild("WalkAnim") then
-                            walk.WalkAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Run" and animate:FindFirstChild("run") then
-                        local run = animate.run
-                        if run:FindFirstChild("RunAnim") then
-                            run.RunAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Jump" and animate:FindFirstChild("jump") then
-                        local jump = animate.jump
-                        if jump:FindFirstChild("JumpAnim") then
-                            jump.JumpAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Fall" and animate:FindFirstChild("fall") then
-                        local fall = animate.fall
-                        if fall:FindFirstChild("FallAnim") then
-                            fall.FallAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Swim" and animate:FindFirstChild("swim") then
-                        local swim = animate.swim
-                        if swim:FindFirstChild("Swim") then
-                            swim.Swim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "SwimIdle" and animate:FindFirstChild("swimidle") then
-                        local swimidle = animate.swimidle
-                        if swimidle:FindFirstChild("SwimIdle") then
-                            swimidle.SwimIdle.AnimationId = "rbxassetid://" .. animId
-                        end
-                    elseif animType == "Climb" and animate:FindFirstChild("climb") then
-                        local climb = animate.climb
-                        if climb:FindFirstChild("ClimbAnim") then
-                            climb.ClimbAnim.AnimationId = "rbxassetid://" .. animId
-                        end
-                    end
-                end
-                
-                lastAnimations = savedData
-                
-                -- Force refresh animations
-                task.wait(0.15)
-                RefreshCharacter()
-                
-                print("[AnimHub] Animations loaded successfully!")
-            else
-                print("[AnimHub] No saved animations found.")
-            end
-        end)
-        
-        if not success then
-            warn("[AnimHub] Error loading animations: " .. tostring(result))
         end
     end)
 end
 
--- === MAIN GUI FUNCTION ===
-local function OpenGUI()
-    if guiOpen then return end
+-- ====== GUI ======
+local function openGUI()
+    if guiOpen or Config.GuiClosed then return end
+    if not validateCharacter() then return end
     guiOpen = true
 
     local sg = Instance.new("ScreenGui")
-    sg.Name = "GazeAnimGUI"
+    sg.Name = "GazeAnimGUI_Simple"
     sg.ResetOnSpawn = false
     sg.Parent = PlayerGui
 
     local main = Instance.new("Frame")
-    main.Size = UDim2.new(0, 250, 0, 250)
-    main.Position = UDim2.new(0.5, -125, 0.5, -125)
-    main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
-    main.BackgroundTransparency = 0.2
+    main.Size = UDim2.new(0,200,0,200)
+    main.Position = UDim2.new(0.5,-100,0.5,-100)
+    main.BackgroundColor3 = Color3.fromRGB(10,10,10)
+    main.BorderSizePixel = 0
     main.Active = true
-    main.ZIndex = 1
     main.Parent = sg
 
-    -- === HEADER (LOAD + SEARCH + RESET + CLOSE) ===
+    Instance.new("UICorner", main).CornerRadius = UDim.new(0,12)
+    local stroke = Instance.new("UIStroke", main); stroke.Color = Color3.fromRGB(35,35,35); stroke.Thickness=1
+
+    -- Header kosong + Search + X
     local header = Instance.new("Frame")
-    header.Size = UDim2.new(1, 0, 0, 35)
-    header.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
-    header.BackgroundTransparency = 0.3
-    header.ZIndex = 2
+    header.Size = UDim2.new(1,0,0,30)
+    header.BackgroundColor3 = Color3.fromRGB(12,12,12)
+    header.BorderSizePixel = 0
     header.Parent = main
+    Instance.new("UICorner", header).CornerRadius = UDim.new(0,12)
 
-    -- Load Button (Kiri)
-    local loadBtn = Instance.new("TextButton")
-    loadBtn.Text = "📂"
-    loadBtn.Size = UDim2.new(0, 25, 0, 25)
-    loadBtn.Position = UDim2.new(0, 5, 0.5, -12.5)
-    loadBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
-    loadBtn.BackgroundTransparency = 0.2
-    loadBtn.TextColor3 = Color3.new(1, 1, 1)
-    loadBtn.Font = Enum.Font.GothamBold
-    loadBtn.TextSize = 14
-    loadBtn.ZIndex = 4
-    loadBtn.Parent = header
-
-    -- Search Box (Tengah)
     local search = Instance.new("TextBox")
-    search.Text = ""
-    search.PlaceholderText = ""
-    search.Size = UDim2.new(0, 80, 0, 25)
-    search.Position = UDim2.new(0, 35, 0.5, -12.5)
-    search.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    search.BackgroundTransparency = 0.3
-    search.TextColor3 = Color3.new(1, 1, 1)
-    search.PlaceholderColor3 = Color3.fromRGB(180, 180, 190)
+    search.PlaceholderText = "Cari animasi..."
+    search.ClearTextOnFocus = false
+    search.Size = UDim2.new(1,-70,1,-10)
+    search.Position = UDim2.new(0,8,0,5)
+    search.BackgroundColor3 = Color3.fromRGB(18,18,18)
+    search.TextColor3 = Color3.fromRGB(220,220,220)
+    search.PlaceholderColor3 = Color3.fromRGB(120,120,120)
     search.Font = Enum.Font.Gotham
     search.TextSize = 12
-    search.ClearTextOnFocus = false
-    search.ZIndex = 3
+    search.BorderSizePixel = 0
     search.Parent = header
+    Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
 
-    -- Reset Button
-    local resetBtn = Instance.new("TextButton")
-    resetBtn.Text = "🔄"
-    resetBtn.Size = UDim2.new(0, 25, 0, 25)
-    resetBtn.Position = UDim2.new(0, 120, 0.5, -12.5)
-    resetBtn.BackgroundColor3 = Color3.fromRGB(255, 100, 50)
-    resetBtn.BackgroundTransparency = 0.2
-    resetBtn.TextColor3 = Color3.new(1, 1, 1)
-    resetBtn.Font = Enum.Font.GothamBold
-    resetBtn.TextSize = 14
-    resetBtn.ZIndex = 4
-    resetBtn.Parent = header
+    local close = Instance.new("TextButton")
+    close.Text = "X"
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 16
+    close.TextColor3 = Color3.fromRGB(255,120,120)
+    close.Size = UDim2.new(0,28,0,22)
+    close.Position = UDim2.new(1,-34,0,4)
+    close.BackgroundColor3 = Color3.fromRGB(30,10,10)
+    close.BorderSizePixel = 0
+    close.Parent = header
+    Instance.new("UICorner", close).CornerRadius = UDim.new(0,8)
 
-    -- Close Button (Paling Kanan)
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Text = "×"
-    closeBtn.Size = UDim2.new(0, 25, 0, 25)
-    closeBtn.Position = UDim2.new(1, -30, 0.5, -12.5)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-    closeBtn.BackgroundTransparency = 0.2
-    closeBtn.TextColor3 = Color3.new(1, 1, 1)
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.TextSize = 16
-    closeBtn.ZIndex = 4
-    closeBtn.Parent = header
-
-    -- Button Actions
-    loadBtn.MouseButton1Click:Connect(function()
-        LoadSavedAnimations()
-    end)
-
-    resetBtn.MouseButton1Click:Connect(function()
-        ResetAnimations()
-    end)
-
-    closeBtn.MouseButton1Click:Connect(function()
+    close.MouseButton1Click:Connect(function()
+        Config.GuiClosed = true
+        saveConfig()
         sg:Destroy()
         guiOpen = false
     end)
 
-    -- Draggable Logic (Full Body - dari main frame)
+    -- Drag
     local dragging, dragInput, dragStart, startPos
-    main.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = main.Position
+    header.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=true; dragStart=i.Position; startPos=main.Position
         end
     end)
-    main.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
+    header.InputChanged:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then
+            dragInput=i
         end
     end)
-    UIS.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    UIS.InputChanged:Connect(function(i)
+        if i==dragInput and dragging then
+            local d=i.Position-dragStart
+            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
         end
     end)
-    main.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
+    header.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=false
         end
     end)
 
-    -- Scrollable List
-    local scroll = Instance.new("ScrollingFrame")
-    scroll.Size = UDim2.new(1, -10, 1, -45)
-    scroll.Position = UDim2.new(0, 5, 0, 40)
-    scroll.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
-    scroll.BackgroundTransparency = 0.25
-    scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 5
-    scroll.ScrollBarImageColor3 = Color3.fromRGB(0, 170, 255)
-    scroll.ZIndex = 2
-    scroll.ClipsDescendants = true
-    scroll.Parent = main
+    -- List
+    local list = Instance.new("ScrollingFrame")
+    list.Size = UDim2.new(1,-8,1,-38)
+    list.Position = UDim2.new(0,4,0,34)
+    list.BackgroundColor3 = Color3.fromRGB(14,14,14)
+    list.ScrollBarThickness = 4
+    list.BorderSizePixel = 0
+    list.Parent = main
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0,10)
+    local ls = Instance.new("UIStroke", list); ls.Color=Color3.fromRGB(32,32,32); ls.Thickness=1
 
+    local y=0
     local buttons = {}
-    local yPos = 0
 
-    local function addButton(name, animType, animId)
-        local btn = Instance.new("TextButton")
-        btn.Name = name
-        btn.Text = name .. " - " .. animType
-        btn.Size = UDim2.new(1, -10, 0, 30)
-        btn.Position = UDim2.new(0, 5, 0, yPos)
-        btn.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
-        btn.BackgroundTransparency = 0.2
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.Font = Enum.Font.Gotham
-        btn.TextSize = 11
-        btn.ZIndex = 3
-        btn.Parent = scroll
-        btn.MouseButton1Click:Connect(function()
-            SetAnimation(animType, animId)
+    local function addBtn(label, kind, id)
+        local b=Instance.new("TextButton")
+        b.Size=UDim2.new(1,-8,0,24)
+        b.Position=UDim2.new(0,4,0,y)
+        b.BackgroundColor3=Color3.fromRGB(20,20,20)
+        b.TextColor3=Color3.fromRGB(220,220,220)
+        b.Font=Enum.Font.Gotham
+        b.TextSize=11
+        b.TextXAlignment=Enum.TextXAlignment.Left
+        b.BorderSizePixel=0
+        b.Text = label.."  •  "..kind
+        b.Parent=list
+        Instance.new("UICorner", b).CornerRadius=UDim.new(0,8)
+        local pad=Instance.new("UIPadding", b); pad.PaddingLeft=UDim.new(0,8)
+        Instance.new("UIStroke", b).Color=Color3.fromRGB(35,35,35)
+
+        b.MouseButton1Click:Connect(function()
+            local ok=setAnim(kind,id)
+            b.BackgroundColor3 = ok and Color3.fromRGB(18,45,110) or Color3.fromRGB(80,20,20)
+            task.wait(0.18)
+            b.BackgroundColor3 = Color3.fromRGB(20,20,20)
         end)
-        table.insert(buttons, btn)
-        yPos = yPos + 35
+
+        table.insert(buttons, b)
+        y += 26
     end
 
-    -- Populate Buttons
-    for name, ids in pairs(Animations.Idle) do
-        addButton(name, "Idle", ids)
-    end
-    for name, id in pairs(Animations.Walk) do
-        addButton(name, "Walk", id)
-    end
-    for name, id in pairs(Animations.Run) do
-        addButton(name, "Run", id)
-    end
-    for name, id in pairs(Animations.Jump) do
-        addButton(name, "Jump", id)
-    end
-    for name, id in pairs(Animations.Fall) do
-        addButton(name, "Fall", id)
-    end
-    for name, id in pairs(Animations.SwimIdle) do
-        addButton(name, "SwimIdle", id)
-    end
-    for name, id in pairs(Animations.Swim) do
-        addButton(name, "Swim", id)
-    end
-    for name, id in pairs(Animations.Climb) do
-        addButton(name, "Climb", id)
-    end
+    -- Populate dari DB
+    for name, ids in pairs(Animations.Idle)     do addBtn(name,"Idle",ids) end
+    for name, id  in pairs(Animations.Walk)     do addBtn(name,"Walk",id) end
+    for name, id  in pairs(Animations.Run)      do addBtn(name,"Run",id) end
+    for name, id  in pairs(Animations.Jump)     do addBtn(name,"Jump",id) end
+    for name, id  in pairs(Animations.Fall)     do addBtn(name,"Fall",id) end
+    for name, id  in pairs(Animations.SwimIdle) do addBtn(name,"SwimIdle",id) end
+    for name, id  in pairs(Animations.Swim)     do addBtn(name,"Swim",id) end
+    for name, id  in pairs(Animations.Climb)    do addBtn(name,"Climb",id) end
+    list.CanvasSize = UDim2.new(0,0,0,y)
 
-    scroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
-
-    -- Search Filter
+    -- Search filter
     search:GetPropertyChangedSignal("Text"):Connect(function()
-        local query = search.Text:lower()
-        local pos = 0
-        for _, btn in ipairs(buttons) do
-            if query == "" or btn.Text:lower():find(query, 1, true) then
-                btn.Visible = true
-                btn.Position = UDim2.new(0, 5, 0, pos)
-                pos = pos + 35
-            else
-                btn.Visible = false
+        local q=string.lower(search.Text)
+        local pos=0
+        for _,b in ipairs(buttons) do
+            local show = (q=="" or string.find(string.lower(b.Text), q, 1, true)~=nil)
+            b.Visible=show
+            if show then
+                b.Position=UDim2.new(0,4,0,pos)
+                pos += 26
             end
         end
-        scroll.CanvasSize = UDim2.new(0, 0, 0, pos)
+        list.CanvasSize = UDim2.new(0,0,0,pos)
     end)
 end
 
--- === AUTO-LOAD SYSTEM (WORKS EVEN WHEN GUI IS CLOSED) ===
--- This runs independently from GUI state
-Player.CharacterAdded:Connect(function(character)
-    -- Wait 2 seconds for character to fully load
-    task.wait(2)
-    
-    -- Verify character still exists
-    if Player.Character == character then
-        LoadSavedAnimations()
-    end
+-- ====== Startup / Respawn ======
+loadConfig()
+
+Player.CharacterAdded:Connect(function()
+    task.defer(function()
+        task.wait(1.1)
+        loadSaved()                   -- auto-apply animasi
+        if not Config.GuiClosed then  -- GUI hanya dibuka jika belum pernah ditutup
+            openGUI()
+        end
+    end)
 end)
 
--- === INITIAL LOAD ON SCRIPT EXECUTION ===
--- Auto-load animations when script first runs
-task.spawn(function()
-    if Player.Character then
-        task.wait(2)
-        LoadSavedAnimations()
+task.defer(function()
+    task.wait(0.8)
+    if validateCharacter() and not Config.GuiClosed then
+        openGUI()
     end
 end)
-
--- === OPEN GUI NOW ===
-OpenGUI()
