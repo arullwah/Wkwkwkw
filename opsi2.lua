@@ -25,7 +25,7 @@ local MAX_FRAME_JUMP = 60
 local JUMP_VELOCITY_THRESHOLD = 25
 
 -- Anti-Fall Configuration
-local FALL_TIME_THRESHOLD = 1.0  -- Reduced to 1 second for faster detection
+local FALL_TIME_THRESHOLD = 3.0  -- Reduced to 1 second for faster detection
 local FALL_HEIGHT_THRESHOLD = 20 -- Reduced to 20 studs
 local TIMELINE_STEP_SECONDS = 1  -- Maju/mundur 1 detik per klik
 
