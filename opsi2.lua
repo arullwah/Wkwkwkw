@@ -1,7 +1,6 @@
-
--- ========= AUTO WALK PRO v8.3 - CLEAN EDITION =========
--- PERFECT TIMELINE SYSTEM + ULTRA CLEAN GUI
--- Frame deletion on rewind + Seamless resume + Enhanced error handling
+-- ========= AUTO WALK PRO v9.0 - FULL BODY TRACKING SYSTEM =========
+-- R6/R15 CROSS-COMPATIBILITY + COMPLETE ANIMATION RECORDING
+-- Fix playback stuck issue + Perfect movement replay
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -16,7 +15,6 @@ local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
-local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 10
 local MOVETO_REACH_DISTANCE = 2
 local MAX_FRAME_JUMP = 60
@@ -25,6 +23,27 @@ local FALL_TIME_THRESHOLD = 1.0
 local FALL_HEIGHT_THRESHOLD = 20
 local TIMELINE_STEP_SECONDS = 1
 
+-- ========= BODY TRACKING CONFIGURATION =========
+local ENABLE_FULL_BODY = true -- Toggle full body tracking
+local RECORD_ANIMATIONS = true -- Record animation states
+
+-- R6 Parts
+local R6_PARTS = {
+    "Head", "Torso", 
+    "Left Arm", "Right Arm",
+    "Left Leg", "Right Leg"
+}
+
+-- R15 Parts
+local R15_PARTS = {
+    "Head",
+    "UpperTorso", "LowerTorso",
+    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand",
+    "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "RightUpperLeg", "RightLowerLeg", "RightFoot"
+}
+
 -- ========= CORE VARIABLES =========
 local IsRecording = false
 local IsPlaying = false
@@ -32,7 +51,7 @@ local IsPaused = false
 local UseMoveTo = true
 local CurrentSpeed = 1
 local RecordedMovements = {}
-local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
+local CurrentRecording = {Frames = {}, StartTime = 0, Name = "", RigType = "Unknown"}
 local AutoHeal = false
 local AutoLoop = false
 local recordConnection = nil
@@ -84,9 +103,225 @@ end
 local function SafeCall(func, ...)
     local success, result = pcall(func, ...)
     if not success then
-        -- Silent error handling - no prints/warns
+        -- Silent error handling
     end
     return success, result
+end
+
+-- ========= RIG TYPE DETECTION =========
+local function GetRigType(character)
+    if not character then return "Unknown" end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return "Unknown" end
+    
+    if character:FindFirstChild("UpperTorso") then
+        return "R15"
+    elseif character:FindFirstChild("Torso") then
+        return "R6"
+    end
+    
+    return "Unknown"
+end
+
+-- ========= BODY PART MAPPING (R6 <-> R15) =========
+local PART_MAPPING = {
+    -- R6 to R15
+    ["Torso"] = "UpperTorso",
+    ["Left Arm"] = "LeftUpperArm",
+    ["Right Arm"] = "RightUpperArm",
+    ["Left Leg"] = "LeftUpperLeg",
+    ["Right Leg"] = "RightUpperLeg",
+    
+    -- R15 to R6
+    ["UpperTorso"] = "Torso",
+    ["LowerTorso"] = "Torso",
+    ["LeftUpperArm"] = "Left Arm",
+    ["LeftLowerArm"] = "Left Arm",
+    ["LeftHand"] = "Left Arm",
+    ["RightUpperArm"] = "Right Arm",
+    ["RightLowerArm"] = "Right Arm",
+    ["RightHand"] = "Right Arm",
+    ["LeftUpperLeg"] = "Left Leg",
+    ["LeftLowerLeg"] = "Left Leg",
+    ["LeftFoot"] = "Left Leg",
+    ["RightUpperLeg"] = "Right Leg",
+    ["RightLowerLeg"] = "Right Leg",
+    ["RightFoot"] = "Right Leg"
+}
+
+-- ========= GET COMPATIBLE PART =========
+local function GetCompatiblePart(character, partName, sourceRigType, targetRigType)
+    -- Same rig type
+    if sourceRigType == targetRigType then
+        return character:FindFirstChild(partName)
+    end
+    
+    -- Try direct find first
+    local part = character:FindFirstChild(partName)
+    if part then return part end
+    
+    -- Use mapping
+    local mappedName = PART_MAPPING[partName]
+    if mappedName then
+        return character:FindFirstChild(mappedName)
+    end
+    
+    return nil
+end
+
+-- ========= RECORD FULL BODY FRAME =========
+local function RecordFullBodyFrame(character)
+    local rigType = GetRigType(character)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not humanoid then return nil end
+    
+    local frame = {
+        Timestamp = tick() - CurrentRecording.StartTime,
+        RigType = rigType,
+        
+        -- Core movement data
+        RootCFrame = {hrp.CFrame:GetComponents()},
+        RootVelocity = {hrp.AssemblyLinearVelocity.X, hrp.AssemblyLinearVelocity.Y, hrp.AssemblyLinearVelocity.Z},
+        WalkSpeed = humanoid.WalkSpeed,
+        MoveState = GetCurrentMoveState(humanoid, hrp),
+        
+        -- Body parts data
+        BodyParts = {}
+    }
+    
+    if ENABLE_FULL_BODY then
+        local partsToRecord = rigType == "R6" and R6_PARTS or R15_PARTS
+        
+        for _, partName in ipairs(partsToRecord) do
+            local part = character:FindFirstChild(partName)
+            if part and part:IsA("BasePart") then
+                local cf = part.CFrame
+                local relCF = hrp.CFrame:ToObjectSpace(cf) -- Relative to HRP
+                
+                frame.BodyParts[partName] = {
+                    RelativeCFrame = {relCF:GetComponents()},
+                    Velocity = {part.AssemblyLinearVelocity.X, part.AssemblyLinearVelocity.Y, part.AssemblyLinearVelocity.Z}
+                }
+            end
+        end
+        
+        -- Record Motor6D data for precise animation
+        if RECORD_ANIMATIONS then
+            frame.Joints = {}
+            for _, obj in ipairs(character:GetDescendants()) do
+                if obj:IsA("Motor6D") then
+                    frame.Joints[obj.Name] = {
+                        C0 = {obj.C0:GetComponents()},
+                        C1 = {obj.C1:GetComponents()}
+                    }
+                end
+            end
+        end
+    end
+    
+    return frame
+end
+
+-- ========= PLAYBACK FULL BODY FRAME =========
+local function PlaybackFullBodyFrame(character, frame, useSmooth)
+    local targetRigType = GetRigType(character)
+    local sourceRigType = frame.RigType or "Unknown"
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not humanoid then return end
+    
+    -- Apply root movement
+    SafeCall(function()
+        if frame.RootCFrame then
+            local cf = CFrame.new(unpack(frame.RootCFrame))
+            
+            if UseMoveTo and not useSmooth then
+                -- MoveTo mode - natural walking
+                humanoid:MoveTo(cf.Position)
+                hrp.CFrame = CFrame.new(hrp.Position) * CFrame.Angles(0, math.atan2(cf.LookVector.X, cf.LookVector.Z), 0)
+            else
+                -- CFrame mode - direct positioning
+                hrp.CFrame = cf
+            end
+        end
+        
+        if frame.RootVelocity then
+            hrp.AssemblyLinearVelocity = Vector3.new(
+                frame.RootVelocity[1] * CurrentSpeed,
+                frame.RootVelocity[2] * CurrentSpeed,
+                frame.RootVelocity[3] * CurrentSpeed
+            )
+        end
+        
+        if frame.WalkSpeed then
+            humanoid.WalkSpeed = frame.WalkSpeed * CurrentSpeed
+        end
+    end)
+    
+    -- Apply body parts (with cross-rig compatibility)
+    if ENABLE_FULL_BODY and frame.BodyParts then
+        SafeCall(function()
+            for partName, data in pairs(frame.BodyParts) do
+                local targetPart = GetCompatiblePart(character, partName, sourceRigType, targetRigType)
+                
+                if targetPart and targetPart:IsA("BasePart") and data.RelativeCFrame then
+                    -- Apply relative CFrame to maintain animation
+                    local relCF = CFrame.new(unpack(data.RelativeCFrame))
+                    local worldCF = hrp.CFrame * relCF
+                    
+                    targetPart.CFrame = worldCF
+                    
+                    -- Apply velocity for natural movement
+                    if data.Velocity and not UseMoveTo then
+                        targetPart.AssemblyLinearVelocity = Vector3.new(
+                            data.Velocity[1] * CurrentSpeed,
+                            data.Velocity[2] * CurrentSpeed,
+                            data.Velocity[3] * CurrentSpeed
+                        )
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Apply joint data (if same rig type)
+    if RECORD_ANIMATIONS and frame.Joints and sourceRigType == targetRigType then
+        SafeCall(function()
+            for jointName, data in pairs(frame.Joints) do
+                local joint = character:FindFirstChild(jointName, true)
+                if joint and joint:IsA("Motor6D") then
+                    if data.C0 then
+                        joint.C0 = CFrame.new(unpack(data.C0))
+                    end
+                    if data.C1 then
+                        joint.C1 = CFrame.new(unpack(data.C1))
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Apply movement state
+    if frame.MoveState then
+        SafeCall(function()
+            if frame.MoveState == "Jumping" then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif frame.MoveState == "Falling" then
+                humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif frame.MoveState == "Climbing" then
+                humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
+            elseif frame.MoveState == "Swimming" then
+                humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end)
+    end
 end
 
 -- ========= CHARACTER RESET =========
@@ -105,6 +340,7 @@ local function CompleteCharacterReset(char)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
         
+        -- Re-enable collisions
         for _, part in pairs(char:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                 part.CanCollide = true
@@ -169,26 +405,11 @@ end
 
 -- ========= FRAME DATA FUNCTIONS =========
 local function GetFramePosition(frame)
-    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-end
-
-local function GetFrameCFrame(frame)
-    local pos = GetFramePosition(frame)
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    ) or Vector3.new(0, 0, 0)
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
+    if frame.RootCFrame then
+        local cf = CFrame.new(unpack(frame.RootCFrame))
+        return cf.Position
+    end
+    return Vector3.new(0, 0, 0)
 end
 
 local function GetFrameTimestamp(frame)
@@ -217,7 +438,7 @@ end
 
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoWalkProV83"
+ScreenGui.Name = "AutoWalkProV9"
 ScreenGui.ResetOnSpawn = false
 
 SafeCall(function()
@@ -229,10 +450,10 @@ SafeCall(function()
     end
 end)
 
--- ========= RECORDING STUDIO GUI (230x205) =========
+-- ========= RECORDING STUDIO GUI (230x230) =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 205)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -102.5)
+RecordingStudio.Size = UDim2.fromOffset(230, 230)
+RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -115)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -346,7 +567,7 @@ local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.fromOffset(214, 28)
 FrameLabel.Position = UDim2.fromOffset(5, 40)
 FrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-FrameLabel.Text = "Frames: 0 / 30000 | Pos: 0"
+FrameLabel.Text = "Frames: 0 / 30000 | Rig: Unknown"
 FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 FrameLabel.Font = Enum.Font.GothamBold
 FrameLabel.TextSize = 10
@@ -377,10 +598,13 @@ local RewindBtn = CreateStudioBtn("⏪ MUNDUR", 5, 98, 64, 35, Color3.fromRGB(80
 local ResumeBtn = CreateStudioBtn("▶ RESUME", 74, 98, 68, 35, Color3.fromRGB(40, 180, 80))
 local ForwardBtn = CreateStudioBtn("MAJU ⏩", 147, 98, 68, 35, Color3.fromRGB(80, 120, 200))
 
+-- Full Body Toggle
+local FullBodyBtn = CreateStudioBtn("FULL BODY: ON", 5, 138, 214, 24, Color3.fromRGB(100, 150, 255))
+
 -- Status Label
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.fromOffset(214, 20)
-StatusLabel.Position = UDim2.fromOffset(5, 138)
+StatusLabel.Position = UDim2.fromOffset(5, 167)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Ready to record"
 StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -388,10 +612,10 @@ StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 8
 StatusLabel.Parent = StudioContent
 
--- ========= CLEAN MAIN GUI (250x200) =========
+-- ========= MAIN GUI (250x220) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 200)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
+MainFrame.Size = UDim2.fromOffset(250, 220)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -110)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -422,7 +646,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -60, 1, 0)
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "AUTO WALK PRO v8.3"
+Title.Text = "AUTO WALK PRO v9.0"
 Title.TextColor3 = Color3.fromRGB(100, 255, 150)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -464,7 +688,7 @@ Content.Position = UDim2.new(0, 8, 0, 36)
 Content.BackgroundTransparency = 1
 Content.ScrollBarThickness = 4
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-Content.CanvasSize = UDim2.new(0, 0, 0, 400)
+Content.CanvasSize = UDim2.new(0, 0, 0, 420)
 Content.Parent = MainFrame
 
 -- Mini Button
@@ -490,7 +714,7 @@ MiniStroke.Color = Color3.fromRGB(100, 255, 150)
 MiniStroke.Thickness = 2
 MiniStroke.Parent = MiniButton
 
--- ========= CLEAN GUI COMPONENTS =========
+-- ========= GUI COMPONENTS =========
 local function CreateElegantButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
@@ -615,10 +839,10 @@ end
 -- Status Label
 local Status = Instance.new("TextLabel")
 Status.Size = UDim2.fromOffset(234, 20)
-Status.Position = UDim2.fromOffset(0, 380)
+Status.Position = UDim2.fromOffset(0, 400)
 Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Status.BackgroundTransparency = 0
-Status.Text = "System Ready - v8.3"
+Status.Text = "System Ready - v9.0 Full Body"
 Status.TextColor3 = Color3.fromRGB(100, 255, 150)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 9
@@ -676,7 +900,7 @@ SpeedStroke.Parent = SpeedDisplay
 
 -- Replay List
 local ReplayList = Instance.new("ScrollingFrame")
-ReplayList.Size = UDim2.new(1, 0, 0, 170)
+ReplayList.Size = UDim2.new(1, 0, 0, 190)
 ReplayList.Position = UDim2.fromOffset(0, 205)
 ReplayList.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 ReplayList.BorderSizePixel = 0
@@ -695,7 +919,6 @@ ListLayout.Parent = ReplayList
 
 -- ========= ROUTE VISUALIZATION =========
 local routeParts = {}
-local routeBeams = {}
 
 local function ClearRouteVisualization()
     SafeCall(function()
@@ -704,13 +927,7 @@ local function ClearRouteVisualization()
                 part:Destroy()
             end
         end
-        for _, beam in pairs(routeBeams) do
-            if beam and beam.Parent then
-                beam:Destroy()
-            end
-        end
         routeParts = {}
-        routeBeams = {}
     end)
 end
 
@@ -724,7 +941,6 @@ local function ShowRouteVisualization(recording)
         folder.Name = "RouteVisualization"
         folder.Parent = workspace
         
-        local lastPart = nil
         local step = math.max(10, math.floor(#recording / 500))
         
         for i = 1, #recording, step do
@@ -732,36 +948,17 @@ local function ShowRouteVisualization(recording)
             local pos = GetFramePosition(frame)
             
             local part = Instance.new("Part")
-            part.Size = Vector3.new(0.3, 0.3, 0.3)
+            part.Size = Vector3.new(0.5, 0.5, 0.5)
             part.Position = pos
             part.Anchored = true
             part.CanCollide = false
-            part.Transparency = 0.4
+            part.Transparency = 0.3
             part.Color = Color3.fromRGB(100, 255, 150)
             part.Material = Enum.Material.Neon
             part.Shape = Enum.PartType.Ball
             part.Parent = folder
             
             table.insert(routeParts, part)
-            
-            if lastPart then
-                local beam = Instance.new("Beam")
-                beam.Attachment0 = Instance.new("Attachment")
-                beam.Attachment0.Parent = lastPart
-                beam.Attachment1 = Instance.new("Attachment")
-                beam.Attachment1.Parent = part
-                beam.Color = ColorSequence.new(Color3.fromRGB(100, 255, 150))
-                beam.Width0 = 0.15
-                beam.Width1 = 0.15
-                beam.Brightness = 2
-                beam.Parent = folder
-                
-                table.insert(routeBeams, beam)
-                table.insert(routeBeams, beam.Attachment0)
-                table.insert(routeBeams, beam.Attachment1)
-            end
-            
-            lastPart = part
         end
     end)
 end
@@ -785,7 +982,7 @@ local function UpdateReplayList()
         for index, name in ipairs(recordingNames) do
             local rec = RecordedMovements[name]
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -8, 0, 16)
+            item.Size = UDim2.new(1, -8, 0, 18)
             item.Position = UDim2.new(0, 4, 0, yPos)
             item.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
             item.Parent = ReplayList
@@ -794,9 +991,26 @@ local function UpdateReplayList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            local rigType = rec.RigType or "Unknown"
+            local rigColor = rigType == "R6" and Color3.fromRGB(255, 200, 100) or Color3.fromRGB(100, 200, 255)
+            
+            local rigLabel = Instance.new("TextLabel")
+            rigLabel.Size = UDim2.fromOffset(25, 14)
+            rigLabel.Position = UDim2.new(0, 2, 0.5, -7)
+            rigLabel.BackgroundColor3 = rigColor
+            rigLabel.Text = rigType
+            rigLabel.TextColor3 = Color3.new(0, 0, 0)
+            rigLabel.Font = Enum.Font.GothamBold
+            rigLabel.TextSize = 6
+            rigLabel.Parent = item
+            
+            local rigCorner = Instance.new("UICorner")
+            rigCorner.CornerRadius = UDim.new(0, 3)
+            rigCorner.Parent = rigLabel
+            
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(0, 120, 1, 0)
-            nameBox.Position = UDim2.new(0, 4, 0, 0)
+            nameBox.Size = UDim2.new(0, 90, 1, 0)
+            nameBox.Position = UDim2.new(0, 30, 0, 0)
             nameBox.BackgroundTransparency = 1
             nameBox.Text = name
             nameBox.TextColor3 = Color3.new(1, 1, 1)
@@ -806,8 +1020,8 @@ local function UpdateReplayList()
             nameBox.Parent = item
             
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(30, 12)
-            playBtn.Position = UDim2.new(1, -60, 0.5, -6)
+            playBtn.Size = UDim2.fromOffset(30, 14)
+            playBtn.Position = UDim2.new(1, -65, 0.5, -7)
             playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
             playBtn.Text = "PLAY"
             playBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -821,8 +1035,8 @@ local function UpdateReplayList()
             playCorner.Parent = playBtn
             
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(30, 12)
-            delBtn.Position = UDim2.new(1, -25, 0.5, -6)
+            delBtn.Size = UDim2.fromOffset(30, 14)
+            delBtn.Position = UDim2.new(1, -30, 0.5, -7)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "DEL"
             delBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -865,7 +1079,7 @@ local function UpdateReplayList()
             end)
             AddConnection(delConn)
             
-            yPos = yPos + 18
+            yPos = yPos + 20
         end
         
         ReplayList.CanvasSize = UDim2.new(0, 0, 0, yPos)
@@ -876,11 +1090,12 @@ end
 local function UpdateStudioUI()
     SafeCall(function()
         local currentPos = TimelinePosition > 0 and TimelinePosition or #CurrentRecording.Frames
-        FrameLabel.Text = string.format("Frames: %d / 30000 | Pos: %d", #CurrentRecording.Frames, currentPos)
+        local rigType = CurrentRecording.RigType or "Unknown"
+        FrameLabel.Text = string.format("Frames: %d / 30000 | Rig: %s", #CurrentRecording.Frames, rigType)
     end)
 end
 
--- ========= RECORDING STUDIO FUNCTIONS =========
+-- ========= RECORDING FUNCTIONS =========
 local function StartStudioRecording()
     if IsRecording then return end
     
@@ -900,13 +1115,21 @@ local function StartStudioRecording()
         IsTimelineMode = false
         FallCheckEnabled = true
         timelineGroundedStart = nil
-        CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Studio_" .. os.date("%H%M%S")}
+        
+        local rigType = GetRigType(char)
+        CurrentRecording = {
+            Frames = {}, 
+            StartTime = tick(), 
+            Name = "Studio_" .. os.date("%H%M%S"),
+            RigType = rigType
+        }
+        
         lastRecordTime = 0
         lastRecordPos = nil
         
         RecordBtn.Text = "⏹ STOP"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
-        StatusLabel.Text = "🎬 Recording... Move your character"
+        StatusLabel.Text = "🎬 Recording " .. rigType .. "... Move character"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         recordConnection = RunService.Heartbeat:Connect(function()
@@ -920,7 +1143,6 @@ local function StartStudioRecording()
                 local hum = char:FindFirstChildOfClass("Humanoid")
                 
                 if IsTimelineMode then
-                    -- Auto-exit timeline mode when stable
                     local moveState = GetCurrentMoveState(hum, hrp)
                     if moveState == "Grounded" then
                         if not timelineGroundedStart then
@@ -956,23 +1178,16 @@ local function StartStudioRecording()
                 if (now - lastRecordTime) < (1 / RECORDING_FPS) then return end
                 
                 local currentPos = hrp.Position
-                local currentVelocity = hrp.AssemblyLinearVelocity
                 
                 if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD and moveState == "Grounded" then
                     lastRecordTime = now
                     return
                 end
                 
-                local cf = hrp.CFrame
-                table.insert(CurrentRecording.Frames, {
-                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                    MoveState = moveState,
-                    WalkSpeed = hum and hum.WalkSpeed or 16,
-                    Timestamp = now - CurrentRecording.StartTime
-                })
+                local frame = RecordFullBodyFrame(char)
+                if frame then
+                    table.insert(CurrentRecording.Frames, frame)
+                end
                 
                 lastRecordTime = now
                 lastRecordPos = currentPos
@@ -1024,22 +1239,17 @@ local function RewindTimeline()
         
         local hrp = char.HumanoidRootPart
         
-        -- Calculate frames to delete (1 second = 60 frames)
         local framesToDelete = TIMELINE_STEP_SECONDS * RECORDING_FPS
         local targetFrame = math.max(1, #CurrentRecording.Frames - framesToDelete)
         
-        -- Delete frames from end
         for i = #CurrentRecording.Frames, targetFrame + 1, -1 do
             table.remove(CurrentRecording.Frames, i)
         end
         
-        -- Teleport to new position
         if #CurrentRecording.Frames > 0 then
             local frame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            PlaybackFullBodyFrame(char, frame, true)
             
-            -- Update last safe frame
             for i = #CurrentRecording.Frames, 1, -1 do
                 if CurrentRecording.Frames[i].MoveState == "Grounded" then
                     LastSafeFrame = i
@@ -1050,7 +1260,6 @@ local function RewindTimeline()
             TimelinePosition = #CurrentRecording.Frames
         end
         
-        -- Enter timeline mode
         IsTimelineMode = true
         FallCheckEnabled = false
         
@@ -1058,7 +1267,6 @@ local function RewindTimeline()
         StatusLabel.Text = "⏪ Rewound 1 second - Use RESUME"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
         
-        -- Reset fall detection
         IsFallDetected = false
         isCurrentlyFalling = false
         timelineGroundedStart = nil
@@ -1077,26 +1285,21 @@ local function ForwardTimeline()
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         
-        local hrp = char.HumanoidRootPart
-        
         if not IsTimelineMode then
             StatusLabel.Text = "⏩ Already at latest position"
             StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
             return
         end
         
-        -- Get current position
         if #CurrentRecording.Frames > 0 then
             local frame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            PlaybackFullBodyFrame(char, frame, true)
         end
         
         UpdateStudioUI()
         StatusLabel.Text = "⏩ Position updated - Use RESUME"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
         
-        -- Reset fall detection
         IsFallDetected = false
         isCurrentlyFalling = false
         timelineGroundedStart = nil
@@ -1110,7 +1313,6 @@ local function ResumeStudioRecording()
     end
     
     SafeCall(function()
-        -- Exit timeline mode and resume recording
         IsTimelineMode = false
         FallCheckEnabled = true
         IsFallDetected = false
@@ -1137,6 +1339,8 @@ local function SaveStudioRecording()
         end
         
         RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
+        RecordedMovements[CurrentRecording.Name].RigType = CurrentRecording.RigType
+        
         UpdateReplayList()
         
         StatusLabel.Text = "💾 Saved: " .. CurrentRecording.Name
@@ -1144,7 +1348,8 @@ local function SaveStudioRecording()
         
         UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
         
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+        local rigType = GetRigType(player.Character)
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S"), RigType = rigType}
         TimelinePosition = 0
         IsTimelineMode = false
         timelineGroundedStart = nil
@@ -1162,7 +1367,8 @@ local function ClearStudioRecording()
             StopStudioRecording()
         end
         
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+        local rigType = GetRigType(player.Character)
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S"), RigType = rigType}
         TimelinePosition = 0
         IsTimelineMode = false
         LastSafeFrame = 0
@@ -1174,358 +1380,7 @@ local function ClearStudioRecording()
     end)
 end
 
--- ========= STUDIO BUTTON EVENTS =========
-RecordBtn.MouseButton1Click:Connect(function()
-    if IsRecording then
-        StopStudioRecording()
-    else
-        StartStudioRecording()
-    end
-end)
-
-RewindBtn.MouseButton1Click:Connect(RewindTimeline)
-ForwardBtn.MouseButton1Click:Connect(ForwardTimeline)
-ResumeBtn.MouseButton1Click:Connect(ResumeStudioRecording)
-SaveBtn.MouseButton1Click:Connect(SaveStudioRecording)
-ClearBtn.MouseButton1Click:Connect(ClearStudioRecording)
-
-CloseStudioBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if IsRecording then
-            StopStudioRecording()
-        end
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end)
-
 -- ========= PLAYBACK FUNCTIONS =========
-function PlayRecordingWithPureCFrame(recording, startFrame)
-    if not recording or #recording == 0 then return end
-    
-    SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        
-        if not hum or not hrp then return end
-        
-        task.spawn(function()
-            SafeCall(function()
-                hum.AutoRotate = false
-                hum.PlatformStand = false
-                
-                for _, part in pairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-                
-                local currentFrame = startFrame or 1
-                
-                while IsPlaying and currentFrame <= #recording do
-                    if IsPaused then
-                        if pauseStartTime == 0 then
-                            pauseStartTime = tick()
-                            SafeCall(function()
-                                if char and char:FindFirstChild("HumanoidRootPart") then
-                                    local currentHum = char:FindFirstChildOfClass("Humanoid")
-                                    local currentHrp = char:FindFirstChild("HumanoidRootPart")
-                                    if currentHum and currentHrp then
-                                        currentHum.AutoRotate = false
-                                        currentHum.PlatformStand = false
-                                        currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                        currentHrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                                    end
-                                end
-                            end)
-                        end
-                        RunService.Heartbeat:Wait()
-                        continue
-                    else
-                        if pauseStartTime > 0 then
-                            totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                            pauseStartTime = 0
-                            if hum then
-                                hum.AutoRotate = false
-                                hum.PlatformStand = false
-                            end
-                        end
-                    end
-                    
-                    char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then break end
-                    hum = char:FindFirstChildOfClass("Humanoid")
-                    hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then break end
-                    
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-                    
-                    local targetFrame = currentFrame
-                    local framesSkipped = 0
-                    
-                    while targetFrame < #recording 
-                        and framesSkipped < MAX_FRAME_JUMP
-                        and GetFrameTimestamp(recording[targetFrame + 1]) <= effectiveTime do
-                        
-                        -- Don't skip critical state changes
-                        local currentState = recording[targetFrame].MoveState
-                        local nextState = recording[targetFrame + 1].MoveState
-                        
-                        if currentState ~= nextState and (nextState == "Jumping" or nextState == "Falling") then
-                            break
-                        end
-                        
-                        targetFrame = targetFrame + 1
-                        framesSkipped = framesSkipped + 1
-                    end
-                    
-                    if targetFrame > #recording then
-                        targetFrame = #recording
-                    end
-                    
-                    local frame = recording[targetFrame]
-                    if not frame then break end
-                    
-                    currentFrame = targetFrame
-                    currentPlaybackFrame = targetFrame
-                    
-                    SafeCall(function()
-                        hrp.CFrame = GetFrameCFrame(frame)
-                        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame) * CurrentSpeed
-                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                        
-                        local moveState = frame.MoveState
-                        
-                        if moveState ~= lastMoveState then
-                            lastMoveState = moveState
-                            
-                            if moveState == "Climbing" then
-                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            elseif moveState == "Jumping" then
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            elseif moveState == "Falling" then
-                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                            elseif moveState == "Swimming" then
-                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            else
-                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                            end
-                        end
-                        
-                        if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
-                            hum.Health = hum.MaxHealth
-                        end
-                    end)
-                    
-                    if currentFrame % 30 == 0 then
-                        UpdateStatus(string.format("Pure CFrame: Frame %d/%d (%.1f%%)", currentFrame, #recording, (currentFrame / #recording) * 100))
-                    end
-                    
-                    if currentFrame >= #recording then break end
-                    RunService.Heartbeat:Wait()
-                end
-                
-                SafeCall(function()
-                    for _, part in pairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                            part.CanCollide = true
-                        end
-                    end
-                end)
-                
-                if AutoLoop and IsPlaying then
-                    UpdateStatus("🔄 Looping...")
-                    currentPlaybackFrame = 1
-                    playbackStartTime = tick()
-                    totalPausedDuration = 0
-                    PlayRecordingWithPureCFrame(recording, 1)
-                else
-                    IsPlaying = false
-                    IsPaused = false
-                    lastMoveState = nil
-                    CompleteCharacterReset(char)
-                    UpdateStatus("🎉 Playback Complete!")
-                end
-            end)
-        end)
-    end)
-end
-
-function PlayRecordingWithSmartMoveTo(recording, startFrame)
-    if not recording or #recording == 0 then return end
-    
-    SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        
-        if not hum or not hrp then return end
-        
-        task.spawn(function()
-            SafeCall(function()
-                hum.AutoRotate = true
-                hum.PlatformStand = false
-                
-                for _, part in pairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                        part.CanCollide = false
-                    end
-                end
-                
-                local currentFrame = startFrame or 1
-                
-                while IsPlaying and currentFrame <= #recording do
-                    if IsPaused then
-                        if pauseStartTime == 0 then
-                            pauseStartTime = tick()
-                            SafeCall(function()
-                                if char and char:FindFirstChild("HumanoidRootPart") then
-                                    local currentHum = char:FindFirstChildOfClass("Humanoid")
-                                    local currentHrp = char:FindFirstChild("HumanoidRootPart")
-                                    if currentHum and currentHrp then
-                                        currentHum.AutoRotate = true
-                                        currentHum.PlatformStand = false
-                                        currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                                        currentHrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                                        currentHum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end)
-                        end
-                        RunService.Heartbeat:Wait()
-                        continue
-                    else
-                        if pauseStartTime > 0 then
-                            totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                            pauseStartTime = 0
-                            if hum then
-                                hum.AutoRotate = true
-                                hum.PlatformStand = false
-                            end
-                        end
-                    end
-                    
-                    char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then break end
-                    hum = char:FindFirstChildOfClass("Humanoid")
-                    hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then break end
-                    
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-                    
-                    local targetFrame = currentFrame
-                    local framesSkipped = 0
-                    
-                    while targetFrame < #recording 
-                        and framesSkipped < MAX_FRAME_JUMP
-                        and GetFrameTimestamp(recording[targetFrame + 1]) <= effectiveTime do
-                        
-                        -- Don't skip critical state changes
-                        local currentState = recording[targetFrame].MoveState
-                        local nextState = recording[targetFrame + 1].MoveState
-                        
-                        if currentState ~= nextState and (nextState == "Jumping" or nextState == "Falling") then
-                            break
-                        end
-                        
-                        targetFrame = targetFrame + 1
-                        framesSkipped = framesSkipped + 1
-                    end
-                    
-                    if targetFrame > #recording then
-                        targetFrame = #recording
-                    end
-                    
-                    local frame = recording[targetFrame]
-                    if not frame then break end
-                    
-                    currentFrame = targetFrame
-                    currentPlaybackFrame = targetFrame
-                    
-                    SafeCall(function()
-                        local targetPos = GetFramePosition(frame)
-                        local moveState = frame.MoveState
-                        
-                        local scaledVelocity = GetFrameVelocity(frame) * CurrentSpeed
-                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                        
-                        local distanceToTarget = (hrp.Position - targetPos).Magnitude
-                        
-                        if distanceToTarget > 30 then
-                            hrp.CFrame = GetFrameCFrame(frame)
-                            hrp.AssemblyLinearVelocity = scaledVelocity
-                            currentFrame = currentFrame + 1
-                        elseif distanceToTarget > MOVETO_REACH_DISTANCE then
-                            hum:MoveTo(targetPos)
-                            
-                            local targetCFrame = GetFrameCFrame(frame)
-                            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + targetCFrame.LookVector)
-                        else
-                            currentFrame = currentFrame + 1
-                        end
-                        
-                        if moveState ~= lastMoveState then
-                            lastMoveState = moveState
-                            
-                            if moveState == "Climbing" then
-                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            elseif moveState == "Jumping" then
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            elseif moveState == "Falling" then
-                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                            elseif moveState == "Swimming" then
-                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            else
-                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                            end
-                        end
-                        
-                        if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
-                            hum.Health = hum.MaxHealth
-                        end
-                    end)
-                    
-                    if currentFrame % 30 == 0 then
-                        UpdateStatus(string.format("Smart MoveTo: Frame %d/%d (%.1f%%)", currentFrame, #recording, (currentFrame / #recording) * 100))
-                    end
-                    
-                    if currentFrame >= #recording then break end
-                    RunService.Heartbeat:Wait()
-                end
-                
-                SafeCall(function()
-                    for _, part in pairs(char:GetDescendants()) do
-                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                            part.CanCollide = true
-                        end
-                    end
-                end)
-                
-                if AutoLoop and IsPlaying then
-                    UpdateStatus("🔄 Looping...")
-                    currentPlaybackFrame = 1
-                    playbackStartTime = tick()
-                    totalPausedDuration = 0
-                    PlayRecordingWithSmartMoveTo(recording, 1)
-                else
-                    IsPlaying = false
-                    IsPaused = false
-                    lastMoveState = nil
-                    CompleteCharacterReset(char)
-                    UpdateStatus("🎉 Playback Complete!")
-                end
-            end)
-        end)
-    end)
-end
-
 function PlayRecording(name)
     if IsPlaying then return end
     
@@ -1551,6 +1406,21 @@ function PlayRecording(name)
         lastMoveState = nil
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        
+        -- Prepare character for playback
+        SafeCall(function()
+            humanoid.AutoRotate = not UseMoveTo
+            humanoid.PlatformStand = false
+            
+            -- Disable collisions for smooth playback
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = false
+                end
+            end
+        end)
+        
         local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
         
         if distance <= ROUTE_PROXIMITY_THRESHOLD then
@@ -1570,11 +1440,120 @@ function PlayRecording(name)
             end
         end
         
-        if UseMoveTo then
-            PlayRecordingWithSmartMoveTo(recording, currentPlaybackFrame)
-        else
-            PlayRecordingWithPureCFrame(recording, currentPlaybackFrame)
-        end
+        -- Start playback loop
+        task.spawn(function()
+            SafeCall(function()
+                local currentFrame = currentPlaybackFrame
+                
+                while IsPlaying and currentFrame <= #recording do
+                    -- Handle pause
+                    if IsPaused then
+                        if pauseStartTime == 0 then
+                            pauseStartTime = tick()
+                            SafeCall(function()
+                                if char and char:FindFirstChild("HumanoidRootPart") then
+                                    local currentHum = char:FindFirstChildOfClass("Humanoid")
+                                    local currentHrp = char:FindFirstChild("HumanoidRootPart")
+                                    if currentHum and currentHrp then
+                                        currentHum.PlatformStand = false
+                                        currentHrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                        currentHrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                                    end
+                                end
+                            end)
+                        end
+                        RunService.Heartbeat:Wait()
+                        continue
+                    else
+                        if pauseStartTime > 0 then
+                            totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                            pauseStartTime = 0
+                        end
+                    end
+                    
+                    -- Refresh character reference
+                    char = player.Character
+                    if not char or not char:FindFirstChild("HumanoidRootPart") then break end
+                    humanoid = char:FindFirstChildOfClass("Humanoid")
+                    hrp = char:FindFirstChild("HumanoidRootPart")
+                    if not humanoid or not hrp then break end
+                    
+                    local currentTime = tick()
+                    local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+                    
+                    -- Find target frame based on timestamp
+                    local targetFrame = currentFrame
+                    local framesSkipped = 0
+                    
+                    while targetFrame < #recording 
+                        and framesSkipped < MAX_FRAME_JUMP
+                        and GetFrameTimestamp(recording[targetFrame + 1]) <= effectiveTime do
+                        
+                        -- Don't skip critical state changes
+                        local currentState = recording[targetFrame].MoveState
+                        local nextState = recording[targetFrame + 1].MoveState
+                        
+                        if currentState ~= nextState and (nextState == "Jumping" or nextState == "Falling") then
+                            break
+                        end
+                        
+                        targetFrame = targetFrame + 1
+                        framesSkipped = framesSkipped + 1
+                    end
+                    
+                    if targetFrame > #recording then
+                        targetFrame = #recording
+                    end
+                    
+                    local frame = recording[targetFrame]
+                    if not frame then break end
+                    
+                    currentFrame = targetFrame
+                    currentPlaybackFrame = targetFrame
+                    
+                    -- Apply frame with full body tracking
+                    PlaybackFullBodyFrame(char, frame, false)
+                    
+                    -- Auto heal
+                    if AutoHeal and humanoid.Health < humanoid.MaxHealth * 0.5 then
+                        humanoid.Health = humanoid.MaxHealth
+                    end
+                    
+                    -- Update status
+                    if currentFrame % 30 == 0 then
+                        local mode = UseMoveTo and "MoveTo" or "CFrame"
+                        UpdateStatus(string.format("%s: Frame %d/%d (%.1f%%)", mode, currentFrame, #recording, (currentFrame / #recording) * 100))
+                    end
+                    
+                    if currentFrame >= #recording then break end
+                    RunService.Heartbeat:Wait()
+                end
+                
+                -- Restore collisions
+                SafeCall(function()
+                    for _, part in pairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.CanCollide = true
+                        end
+                    end
+                end)
+                
+                -- Handle loop or stop
+                if AutoLoop and IsPlaying then
+                    UpdateStatus("🔄 Looping...")
+                    currentPlaybackFrame = 1
+                    playbackStartTime = tick()
+                    totalPausedDuration = 0
+                    PlayRecording(currentRecordingName)
+                else
+                    IsPlaying = false
+                    IsPaused = false
+                    lastMoveState = nil
+                    CompleteCharacterReset(char)
+                    UpdateStatus("🎉 Playback Complete!")
+                end
+            end)
+        end)
     end)
 end
 
@@ -1674,9 +1653,10 @@ local function SaveToFile()
                 autoHeal = AutoHeal,
                 autoLoop = AutoLoop,
                 useMoveTo = UseMoveTo,
-                showVisualization = ShowVisualization
+                showVisualization = ShowVisualization,
+                fullBodyTracking = ENABLE_FULL_BODY
             },
-            version = "8.3"
+            version = "9.0"
         }
         writefile(filename, HttpService:JSONEncode(data))
         UpdateStatus("💾 Saved: " .. filename)
@@ -1710,6 +1690,46 @@ local function LoadFromFile()
         end
     end)
 end
+
+-- ========= STUDIO BUTTON EVENTS =========
+RecordBtn.MouseButton1Click:Connect(function()
+    if IsRecording then
+        StopStudioRecording()
+    else
+        StartStudioRecording()
+    end
+end)
+
+RewindBtn.MouseButton1Click:Connect(RewindTimeline)
+ForwardBtn.MouseButton1Click:Connect(ForwardTimeline)
+ResumeBtn.MouseButton1Click:Connect(ResumeStudioRecording)
+SaveBtn.MouseButton1Click:Connect(SaveStudioRecording)
+ClearBtn.MouseButton1Click:Connect(ClearStudioRecording)
+
+FullBodyBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        ENABLE_FULL_BODY = not ENABLE_FULL_BODY
+        if ENABLE_FULL_BODY then
+            FullBodyBtn.Text = "FULL BODY: ON"
+            FullBodyBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+            StatusLabel.Text = "✅ Full body tracking enabled"
+        else
+            FullBodyBtn.Text = "FULL BODY: OFF"
+            FullBodyBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            StatusLabel.Text = "⚠️ HRP-only mode (legacy)"
+        end
+    end)
+end)
+
+CloseStudioBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if IsRecording then
+            StopStudioRecording()
+        end
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end)
 
 -- ========= MAIN GUI BUTTON EVENTS =========
 OpenStudioBtn.MouseButton1Click:Connect(function()
@@ -1987,12 +2007,23 @@ end)
 -- ========= INITIALIZATION =========
 SafeCall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.3 - Ready!")
+    UpdateStatus("✅ Auto Walk Pro v9.0 - Full Body Ready!")
     UpdateSpeedDisplay()
+    UpdateStudioUI()
 end)
 
 -- ========= FINAL CONFIRMATION =========
 task.wait(1)
 SafeCall(function()
-    UpdateStatus("✅ All Systems Operational")
+    UpdateStatus("✅ R6/R15 Cross-Compatible System Active")
+    
+    -- Display current rig type
+    local char = player.Character
+    if char then
+        local rigType = GetRigType(char)
+        print("🎮 Auto Walk Pro v9.0 Loaded")
+        print("📦 Your Current Rig: " .. rigType)
+        print("✨ Full Body Tracking: " .. (ENABLE_FULL_BODY and "ENABLED" or "DISABLED"))
+        print("🔧 Cross-Compatibility: R6 ↔ R15 Supported")
+    end
 end)
