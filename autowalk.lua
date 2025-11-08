@@ -1,6 +1,5 @@
--- ========= AUTO WALK PRO v8.5 - ENHANCED REVERSE SYSTEM =========
--- GUI AutoWalk Pro v8.5 + Advanced Recording System ByaruL v3.0
--- Perfect Timeline + Reverse Playback + Seamless Fall Recovery
+-- ========= AUTO WALK PRO v8.6 - STABLE REVERSE SYSTEM =========
+-- Enhanced Stability + Smooth Reverse/Forward + No Raycast
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -17,31 +16,30 @@ local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 10
-local TIMELINE_STEP_SECONDS = 1
 
--- ========= REVERSE PLAYBACK CONFIG =========
-local REVERSE_SPEED_MULTIPLIER = 2.0
-local FORWARD_SPEED_MULTIPLIER = 2.0
-local REVERSE_FRAME_STEP = 2
-local FORWARD_FRAME_STEP = 2
+-- ========= SMOOTH REVERSE/FORWARD CONFIG =========
+local REVERSE_SPEED_MULTIPLIER = 1.0
+local FORWARD_SPEED_MULTIPLIER = 1.0
+local REVERSE_FRAME_STEP = 1
+local FORWARD_FRAME_STEP = 1
+local TIMELINE_STEP_SECONDS = 0.5
 
--- ========= REAL-TIME PLAYBACK CONFIG =========
+-- ========= STABILITY CONFIG =========
 local INTERPOLATION_ENABLED = true
 local INTERPOLATION_ALPHA = 0.45
 local MIN_INTERPOLATION_DISTANCE = 0.3
 
 -- ========= UNIVERSAL CHARACTER SUPPORT =========
 local UNIVERSAL_MODE = true
-local DYNAMIC_GROUND_OFFSET = true
 local R6_OFFSET = 3.2
 local R15_OFFSET = 4.8
 local FALLBACK_OFFSET = 3.5
 
--- ========= FALL DETECTION CONFIG =========
-local FALL_TIME_THRESHOLD = 0.8
-local FALL_HEIGHT_THRESHOLD = 15
-local FALL_VELOCITY_THRESHOLD = -50
-local SAFE_FRAME_BUFFER = 10
+-- ========= RELAXED FALL DETECTION =========
+local FALL_TIME_THRESHOLD = 2.0
+local FALL_HEIGHT_THRESHOLD = 25
+local FALL_VELOCITY_THRESHOLD = -70
+local SAFE_FRAME_BUFFER = 5
 
 -- ========= CORE VARIABLES =========
 local IsRecording = false
@@ -83,7 +81,6 @@ local currentRecordingName = ""
 -- ========= TIMELINE NAVIGATION VARIABLES =========
 local TimelinePosition = 0
 local IsTimelineMode = false
-local timelineGroundedStart = nil
 local ReverseStartFrame = 0
 local reverseConnection = nil
 local forwardConnection = nil
@@ -96,11 +93,6 @@ local prePauseWalkSpeed = 16
 local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 
--- ========= SEAMLESS TRANSITION VARIABLES =========
-local TransitionFrames = {}
-local IsTransitionMode = false
-local TransitionStartFrame = 0
-
 -- ========= EVENT CLEANUP =========
 local eventConnections = {}
 
@@ -110,7 +102,7 @@ end
 
 local function CleanupConnections()
     for _, conn in pairs(eventConnections) do
-        pcall(function()
+        SafeCall(function()
             if conn and conn.Connected then
                 conn:Disconnect()
             end
@@ -151,21 +143,6 @@ local function GetCharacterType()
     return "Unknown"
 end
 
-local function GetDynamicGroundOffset()
-    if not DYNAMIC_GROUND_OFFSET then
-        return FALLBACK_OFFSET
-    end
-    
-    local charType = GetCharacterType()
-    if charType == "R6" then
-        return R6_OFFSET
-    elseif charType == "R15" then
-        return R15_OFFSET
-    else
-        return FALLBACK_OFFSET
-    end
-end
-
 local function GetOptimalGroundOffset()
     local charType = GetCharacterType()
     
@@ -178,35 +155,9 @@ local function GetOptimalGroundOffset()
     end
 end
 
--- ========= ENHANCED GROUND DETECTION =========
-local function GetEnhancedGroundHeight(position, character)
-    local rayOrigin = Vector3.new(position.X, position.Y + 8, position.Z)
-    local rayDirection = Vector3.new(0, -20, 0)
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    if character then
-        raycastParams.FilterDescendantsInstances = {character}
-    end
-    
-    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-    if rayResult then
-        return rayResult.Position.Y
-    end
-    
-    return position.Y - 5
-end
-
+-- ========= SIMPLIFIED POSITION ADJUSTMENT (NO RAYCAST) =========
 local function AdjustPositionToGround(position)
-    local char = player.Character
-    local groundHeight = GetEnhancedGroundHeight(position, char)
-    local offset = GetOptimalGroundOffset()
-    
-    local charType = GetCharacterType()
-    if charType == "R15" then
-        offset = offset + 0.2
-    end
-    
-    return Vector3.new(position.X, groundHeight + offset, position.Z)
+    return Vector3.new(position.X, position.Y, position.Z)
 end
 
 -- ========= R15 VELOCITY CONTROL =========
@@ -255,12 +206,6 @@ local function CompleteCharacterReset(char)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
         
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.CanCollide = true
-            end
-        end
-        
         local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
         if bodyVelocity then
             bodyVelocity:Destroy()
@@ -268,7 +213,33 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= ENHANCED FALL DETECTION =========
+-- ========= PAUSE STATE MANAGEMENT =========
+local function SaveHumanoidState()
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        prePauseAutoRotate = humanoid.AutoRotate
+        prePauseWalkSpeed = humanoid.WalkSpeed
+        prePauseJumpPower = humanoid.JumpPower
+        prePauseHumanoidState = humanoid:GetState()
+    end
+end
+
+local function RestoreHumanoidState()
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.AutoRotate = prePauseAutoRotate
+        humanoid.WalkSpeed = prePauseWalkSpeed
+        humanoid.JumpPower = prePauseJumpPower
+    end
+end
+
+-- ========= RELAXED FALL DETECTION =========
 local function GetCurrentMoveState(hum, hrp)
     if not hum then return "Grounded" end
     
@@ -302,7 +273,7 @@ local function GetCurrentMoveState(hum, hrp)
         end
     end
     
-    if hrp.Position.Y < -50 then
+    if hrp.Position.Y < -100 then
         IsFallDetected = true
         return "Falling"
     end
@@ -313,8 +284,6 @@ local function GetCurrentMoveState(hum, hrp)
         return "Climbing"
     elseif state == Enum.HumanoidStateType.Swimming then
         return "Swimming"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then
-        return "Grounded"
     else
         return "Grounded"
     end
@@ -329,8 +298,6 @@ local function GetFrameCFrame(frame)
     local pos = GetFramePosition(frame)
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
     local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    
-    pos = AdjustPositionToGround(pos)
     
     return CFrame.lookAt(pos, pos + look, up)
 end
@@ -351,7 +318,7 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= SEAMLESS FRAME DELETION =========
+-- ========= SMOOTH FRAME DELETION =========
 local function DeleteFramesFromFall(startFrame)
     SafeCall(function()
         if #CurrentRecording.Frames == 0 or startFrame <= 0 then return end
@@ -377,15 +344,13 @@ end
 -- ========= SEAMLESS TRANSITION CREATOR =========
 local function CreateSeamlessTransition(fromFrame, toPosition)
     SafeCall(function()
-        TransitionFrames = {}
-        IsTransitionMode = true
-        TransitionStartFrame = #CurrentRecording.Frames
+        local TransitionFrames = {}
         
-        if not fromFrame then return end
+        if not fromFrame then return TransitionFrames end
         
         local startPos = GetFramePosition(fromFrame)
         local distance = (toPosition - startPos).Magnitude
-        local transitionSteps = math.max(5, math.floor(distance / 2))
+        local transitionSteps = math.max(3, math.floor(distance / 1.5))
         
         for i = 1, transitionSteps do
             local alpha = i / transitionSteps
@@ -402,6 +367,8 @@ local function CreateSeamlessTransition(fromFrame, toPosition)
                 Timestamp = fromFrame.Timestamp + (i * 0.016)
             })
         end
+        
+        return TransitionFrames
     end)
 end
 
@@ -449,32 +416,6 @@ local function SmoothCFrameLerp(currentCF, targetCF, alpha)
     return CFrame.new(newPos) * (newCF - newCF.Position)
 end
 
--- ========= PAUSE STATE MANAGEMENT =========
-local function SaveHumanoidState()
-    local char = player.Character
-    if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        prePauseAutoRotate = humanoid.AutoRotate
-        prePauseWalkSpeed = humanoid.WalkSpeed
-        prePauseJumpPower = humanoid.JumpPower
-        prePauseHumanoidState = humanoid:GetState()
-    end
-end
-
-local function RestoreHumanoidState()
-    local char = player.Character
-    if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.AutoRotate = prePauseAutoRotate
-        humanoid.WalkSpeed = prePauseWalkSpeed
-        humanoid.JumpPower = prePauseJumpPower
-    end
-end
-
 -- ========= UNIVERSAL STATE CONTROL =========
 local function UniversalStateControl(humanoid, targetState)
     if not humanoid then return end
@@ -496,7 +437,7 @@ end
 
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoWalkProV85"
+ScreenGui.Name = "AutoWalkProV86"
 ScreenGui.ResetOnSpawn = false
 
 SafeCall(function()
@@ -508,10 +449,10 @@ SafeCall(function()
     end
 end)
 
--- ========= RECORDING STUDIO GUI (230x230) =========
+-- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 280)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -140)
+RecordingStudio.Size = UDim2.fromOffset(230, 200)
+RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -100)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -543,7 +484,7 @@ local StudioTitle = Instance.new("TextLabel")
 StudioTitle.Size = UDim2.new(1, -30, 1, 0)
 StudioTitle.Position = UDim2.new(0, 10, 0, 0)
 StudioTitle.BackgroundTransparency = 1
-StudioTitle.Text = "🎬 RECORDING STUDIO v8.5"
+StudioTitle.Text = "🎬 RECORDING STUDIO v8.6"
 StudioTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
 StudioTitle.Font = Enum.Font.GothamBold
 StudioTitle.TextSize = 11
@@ -640,28 +581,17 @@ FrameStroke.Color = Color3.fromRGB(60, 60, 70)
 FrameStroke.Thickness = 1
 FrameStroke.Parent = FrameLabel
 
--- Timeline Label
-local TimelineLabel = Instance.new("TextLabel")
-TimelineLabel.Size = UDim2.fromOffset(214, 20)
-TimelineLabel.Position = UDim2.fromOffset(5, 73)
-TimelineLabel.BackgroundTransparency = 1
-TimelineLabel.Text = "⏮️ Reverse / Forward Timeline ⏭️"
-TimelineLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-TimelineLabel.Font = Enum.Font.Gotham
-TimelineLabel.TextSize = 8
-TimelineLabel.Parent = StudioContent
-
 -- Timeline Buttons
-local ReverseBtn = CreateStudioBtn("⏪ MUNDUR", 5, 98, 104, 35, Color3.fromRGB(80, 120, 200))
-local ForwardBtn = CreateStudioBtn("⏩ MAJU", 114, 98, 105, 35, Color3.fromRGB(200, 120, 80))
+local ReverseBtn = CreateStudioBtn("⏪ MUNDUR 0.5s", 5, 73, 104, 35, Color3.fromRGB(80, 120, 200))
+local ForwardBtn = CreateStudioBtn("⏩ MAJU 0.5s", 114, 73, 105, 35, Color3.fromRGB(200, 120, 80))
 
 -- Resume Button
-local ResumeBtn = CreateStudioBtn("▶ RESUME", 5, 138, 214, 30, Color3.fromRGB(40, 180, 80))
+local ResumeBtn = CreateStudioBtn("▶ RESUME & HAPUS", 5, 113, 214, 30, Color3.fromRGB(40, 180, 80))
 
 -- Status Label
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.fromOffset(214, 20)
-StatusLabel.Position = UDim2.fromOffset(5, 173)
+StatusLabel.Position = UDim2.fromOffset(5, 148)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Ready to record"
 StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -671,8 +601,8 @@ StatusLabel.Parent = StudioContent
 
 -- Info Panel
 local InfoFrame = Instance.new("Frame")
-InfoFrame.Size = UDim2.fromOffset(214, 50)
-InfoFrame.Position = UDim2.fromOffset(5, 198)
+InfoFrame.Size = UDim2.fromOffset(214, 30)
+InfoFrame.Position = UDim2.fromOffset(5, 173)
 InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 InfoFrame.BorderSizePixel = 0
 InfoFrame.Visible = true
@@ -687,118 +617,21 @@ InfoStroke.Color = Color3.fromRGB(60, 60, 70)
 InfoStroke.Thickness = 1
 InfoStroke.Parent = InfoFrame
 
-local InfoTitle = Instance.new("TextLabel")
-InfoTitle.Size = UDim2.new(1, -8, 0, 12)
-InfoTitle.Position = UDim2.fromOffset(4, 2)
-InfoTitle.BackgroundTransparency = 1
-InfoTitle.Text = "📊 RECORDING INFO"
-InfoTitle.TextColor3 = Color3.fromRGB(150, 200, 255)
-InfoTitle.Font = Enum.Font.GothamBold
-InfoTitle.TextSize = 8
-InfoTitle.TextXAlignment = Enum.TextXAlignment.Left
-InfoTitle.Parent = InfoFrame
+local InfoText = Instance.new("TextLabel")
+InfoText.Size = UDim2.new(1, -8, 1, 0)
+InfoText.Position = UDim2.fromOffset(4, 0)
+InfoText.BackgroundTransparency = 1
+InfoText.Text = "Reverse/Forward: 0.5s steps | Resume: Auto-delete"
+InfoText.TextColor3 = Color3.fromRGB(180, 180, 200)
+InfoText.Font = Enum.Font.Gotham
+InfoText.TextSize = 7
+InfoText.TextXAlignment = Enum.TextXAlignment.Left
+InfoText.Parent = InfoFrame
 
-local InfoDuration = Instance.new("TextLabel")
-InfoDuration.Size = UDim2.new(1, -8, 0, 10)
-InfoDuration.Position = UDim2.fromOffset(4, 16)
-InfoDuration.BackgroundTransparency = 1
-InfoDuration.Text = "Duration: 0.00s"
-InfoDuration.TextColor3 = Color3.fromRGB(200, 200, 220)
-InfoDuration.Font = Enum.Font.Gotham
-InfoDuration.TextSize = 7
-InfoDuration.TextXAlignment = Enum.TextXAlignment.Left
-InfoDuration.Parent = InfoFrame
-
-local InfoDistance = Instance.new("TextLabel")
-InfoDistance.Size = UDim2.new(1, -8, 0, 10)
-InfoDistance.Position = UDim2.fromOffset(4, 28)
-InfoDistance.BackgroundTransparency = 1
-InfoDistance.Text = "Distance: 0.00 studs"
-InfoDistance.TextColor3 = Color3.fromRGB(200, 200, 220)
-InfoDistance.Font = Enum.Font.Gotham
-InfoDistance.TextSize = 7
-InfoDistance.TextXAlignment = Enum.TextXAlignment.Left
-InfoDistance.Parent = InfoFrame
-
-local InfoFPS = Instance.new("TextLabel")
-InfoFPS.Size = UDim2.new(1, -8, 0, 10)
-InfoFPS.Position = UDim2.fromOffset(4, 40)
-InfoFPS.BackgroundTransparency = 1
-InfoFPS.Text = "FPS: 60 | Quality: Perfect"
-InfoFPS.TextColor3 = Color3.fromRGB(100, 255, 150)
-InfoFPS.Font = Enum.Font.Gotham
-InfoFPS.TextSize = 7
-InfoFPS.TextXAlignment = Enum.TextXAlignment.Left
-InfoFPS.Parent = InfoFrame
-
--- Indicators
-local ReverseIndicator = Instance.new("Frame")
-ReverseIndicator.Size = UDim2.fromOffset(60, 20)
-ReverseIndicator.Position = UDim2.fromOffset(5, 253)
-ReverseIndicator.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
-ReverseIndicator.BorderSizePixel = 0
-ReverseIndicator.Visible = false
-ReverseIndicator.Parent = StudioContent
-
-local ReverseCorner = Instance.new("UICorner")
-ReverseCorner.CornerRadius = UDim.new(0, 5)
-ReverseCorner.Parent = ReverseIndicator
-
-local ReverseText = Instance.new("TextLabel")
-ReverseText.Size = UDim2.new(1, 0, 1, 0)
-ReverseText.BackgroundTransparency = 1
-ReverseText.Text = "⏪ REV"
-ReverseText.TextColor3 = Color3.new(1, 1, 1)
-ReverseText.Font = Enum.Font.GothamBold
-ReverseText.TextSize = 9
-ReverseText.Parent = ReverseIndicator
-
-local ForwardIndicator = Instance.new("Frame")
-ForwardIndicator.Size = UDim2.fromOffset(60, 20)
-ForwardIndicator.Position = UDim2.fromOffset(70, 253)
-ForwardIndicator.BackgroundColor3 = Color3.fromRGB(200, 120, 80)
-ForwardIndicator.BorderSizePixel = 0
-ForwardIndicator.Visible = false
-ForwardIndicator.Parent = StudioContent
-
-local ForwardCorner = Instance.new("UICorner")
-ForwardCorner.CornerRadius = UDim.new(0, 5)
-ForwardCorner.Parent = ForwardIndicator
-
-local ForwardText = Instance.new("TextLabel")
-ForwardText.Size = UDim2.new(1, 0, 1, 0)
-ForwardText.BackgroundTransparency = 1
-ForwardText.Text = "⏩ FWD"
-ForwardText.TextColor3 = Color3.new(1, 1, 1)
-ForwardText.Font = Enum.Font.GothamBold
-ForwardText.TextSize = 9
-ForwardText.Parent = ForwardIndicator
-
-local TimelineModeIndicator = Instance.new("Frame")
-TimelineModeIndicator.Size = UDim2.fromOffset(80, 20)
-TimelineModeIndicator.Position = UDim2.fromOffset(135, 253)
-TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
-TimelineModeIndicator.BorderSizePixel = 0
-TimelineModeIndicator.Visible = false
-TimelineModeIndicator.Parent = StudioContent
-
-local TimelineCorner = Instance.new("UICorner")
-TimelineCorner.CornerRadius = UDim.new(0, 5)
-TimelineCorner.Parent = TimelineModeIndicator
-
-local TimelineText = Instance.new("TextLabel")
-TimelineText.Size = UDim2.new(1, 0, 1, 0)
-TimelineText.BackgroundTransparency = 1
-TimelineText.Text = "⚠️ PAUSED"
-TimelineText.TextColor3 = Color3.new(1, 1, 1)
-TimelineText.Font = Enum.Font.GothamBold
-TimelineText.TextSize = 8
-TimelineText.Parent = TimelineModeIndicator
-
--- ========= CLEAN MAIN GUI (250x200) =========
+-- ========= MAIN GUI =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 200)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
+MainFrame.Size = UDim2.fromOffset(250, 280)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -140)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -829,7 +662,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -60, 1, 0)
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "AUTO WALK PRO v8.5"
+Title.Text = "AUTO WALK PRO v8.6"
 Title.TextColor3 = Color3.fromRGB(100, 255, 150)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -1025,7 +858,7 @@ Status.Size = UDim2.fromOffset(234, 20)
 Status.Position = UDim2.fromOffset(0, 380)
 Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Status.BackgroundTransparency = 0
-Status.Text = "System Ready - v8.5 Enhanced Reverse"
+Status.Text = "System Ready - v8.6 Stable Reverse"
 Status.TextColor3 = Color3.fromRGB(100, 255, 150)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 9
@@ -1122,35 +955,6 @@ ProgressBar.Parent = ProgressFrame
 local BarCorner = Instance.new("UICorner")
 BarCorner.CornerRadius = UDim.new(0, 3)
 BarCorner.Parent = ProgressBar
-
--- Notification System
-local NotificationFrame = Instance.new("Frame")
-NotificationFrame.Size = UDim2.fromOffset(200, 40)
-NotificationFrame.Position = UDim2.new(0.5, -100, 0, -50)
-NotificationFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-NotificationFrame.BorderSizePixel = 0
-NotificationFrame.Visible = false
-NotificationFrame.Parent = ScreenGui
-
-local NotifCorner = Instance.new("UICorner")
-NotifCorner.CornerRadius = UDim.new(0, 8)
-NotifCorner.Parent = NotificationFrame
-
-local NotifStroke = Instance.new("UIStroke")
-NotifStroke.Color = Color3.fromRGB(100, 255, 150)
-NotifStroke.Thickness = 2
-NotifStroke.Parent = NotificationFrame
-
-local NotifText = Instance.new("TextLabel")
-NotifText.Size = UDim2.new(1, -16, 1, 0)
-NotifText.Position = UDim2.fromOffset(8, 0)
-NotifText.BackgroundTransparency = 1
-NotifText.Text = ""
-NotifText.TextColor3 = Color3.fromRGB(100, 255, 150)
-NotifText.Font = Enum.Font.GothamBold
-NotifText.TextSize = 10
-NotifText.TextWrapped = true
-NotifText.Parent = NotificationFrame
 
 -- ========= ROUTE VISUALIZATION =========
 local routeParts = {}
@@ -1339,7 +1143,7 @@ local function UpdateStudioUI()
     end)
 end
 
--- ========= ENHANCED REVERSE PLAYBACK SYSTEM =========
+-- ========= SMOOTH REVERSE PLAYBACK SYSTEM =========
 local function StartReversePlayback()
     if IsReversing or not IsRecording then return end
     
@@ -1360,20 +1164,19 @@ local function StartReversePlayback()
         IsReversing = true
         IsTimelineMode = true
         FallCheckEnabled = false
-        ReverseStartFrame = #CurrentRecording.Frames
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
         if hum then
             hum.AutoRotate = false
-            hum.PlatformStand = false
         end
         
-        StatusLabel.Text = "⏪ Reversing playback..."
+        StatusLabel.Text = "⏪ Reversing 0.5s..."
         StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
         
         local currentFrame = #CurrentRecording.Frames
+        local targetFrame = math.max(1, currentFrame - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
         
         reverseConnection = RunService.Heartbeat:Connect(function()
             if not IsReversing or not IsRecording then
@@ -1406,12 +1209,10 @@ local function StartReversePlayback()
                 return
             end
             
-            currentFrame = currentFrame - (REVERSE_FRAME_STEP * REVERSE_SPEED_MULTIPLIER)
-            
-            if currentFrame < 1 then
-                currentFrame = 1
+            if currentFrame <= targetFrame then
+                currentFrame = targetFrame
                 IsReversing = false
-                StatusLabel.Text = "⏹️ Reached start of recording"
+                StatusLabel.Text = "⏹️ Reverse completed"
                 StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
                 if reverseConnection then
                     reverseConnection:Disconnect()
@@ -1420,17 +1221,17 @@ local function StartReversePlayback()
                 return
             end
             
+            currentFrame = currentFrame - REVERSE_FRAME_STEP
+            
             local frame = CurrentRecording.Frames[math.floor(currentFrame)]
             if frame then
                 SafeCall(function()
                     local targetCFrame = GetFrameCFrame(frame)
                     hrp.CFrame = targetCFrame
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                     
                     if hum then
                         hum.WalkSpeed = 0
-                        UniversalStateControl(hum, "Grounded")
                     end
                     
                     UpdateStudioUI()
@@ -1451,20 +1252,12 @@ local function StopReversePlayback()
             reverseConnection = nil
         end
         
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 16
-            end
-        end
-        
-        StatusLabel.Text = "⏸️ Reverse stopped - Use RESUME to continue"
+        StatusLabel.Text = "⏸️ Reverse stopped"
         StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
     end)
 end
 
--- ========= ENHANCED FORWARD PLAYBACK SYSTEM =========
+-- ========= SMOOTH FORWARD PLAYBACK SYSTEM =========
 local function StartForwardPlayback()
     if IsForwarding or not IsRecording then return end
     
@@ -1491,17 +1284,15 @@ local function StartForwardPlayback()
         
         if hum then
             hum.AutoRotate = false
-            hum.PlatformStand = false
         end
         
-        StatusLabel.Text = "⏩ Forwarding playback..."
+        StatusLabel.Text = "⏩ Forwarding 0.5s..."
         StatusLabel.TextColor3 = Color3.fromRGB(200, 150, 100)
-        
-        local currentFrame = 1
         
         local currentPos = hrp.Position
         local nearestFrame, _ = FindNearestFrame(CurrentRecording.Frames, currentPos)
-        currentFrame = nearestFrame
+        local currentFrame = nearestFrame
+        local targetFrame = math.min(#CurrentRecording.Frames, currentFrame + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
         
         forwardConnection = RunService.Heartbeat:Connect(function()
             if not IsForwarding or not IsRecording then
@@ -1534,12 +1325,10 @@ local function StartForwardPlayback()
                 return
             end
             
-            currentFrame = currentFrame + (FORWARD_FRAME_STEP * FORWARD_SPEED_MULTIPLIER)
-            
-            if currentFrame > #CurrentRecording.Frames then
-                currentFrame = #CurrentRecording.Frames
+            if currentFrame >= targetFrame then
+                currentFrame = targetFrame
                 IsForwarding = false
-                StatusLabel.Text = "⏹️ Reached end of recording"
+                StatusLabel.Text = "⏹️ Forward completed"
                 StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
                 if forwardConnection then
                     forwardConnection:Disconnect()
@@ -1548,17 +1337,17 @@ local function StartForwardPlayback()
                 return
             end
             
+            currentFrame = currentFrame + FORWARD_FRAME_STEP
+            
             local frame = CurrentRecording.Frames[math.floor(currentFrame)]
             if frame then
                 SafeCall(function()
                     local targetCFrame = GetFrameCFrame(frame)
                     hrp.CFrame = targetCFrame
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                     
                     if hum then
                         hum.WalkSpeed = 0
-                        UniversalStateControl(hum, "Grounded")
                     end
                     
                     UpdateStudioUI()
@@ -1579,15 +1368,7 @@ local function StopForwardPlayback()
             forwardConnection = nil
         end
         
-        local char = player.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 16
-            end
-        end
-        
-        StatusLabel.Text = "⏸️ Forward stopped - Use RESUME to continue"
+        StatusLabel.Text = "⏸️ Forward stopped"
         StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
     end)
 end
@@ -1613,17 +1394,13 @@ local function StartStudioRecording()
         TimelinePosition = 0
         IsTimelineMode = false
         FallCheckEnabled = true
-        IsTransitionMode = false
-        TransitionFrames = {}
-        PreFallFrameCount = 0
-        timelineGroundedStart = nil
         CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Studio_" .. os.date("%H%M%S")}
         lastRecordTime = 0
         lastRecordPos = nil
         
         RecordBtn.Text = "⏹ STOP"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
-        StatusLabel.Text = "🎬 Recording... Move your character"
+        StatusLabel.Text = "🎬 Recording..."
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         recordConnection = RunService.Heartbeat:Connect(function()
@@ -1637,20 +1414,6 @@ local function StartStudioRecording()
                 local hum = char:FindFirstChildOfClass("Humanoid")
                 
                 if IsTimelineMode then
-                    local moveState = GetCurrentMoveState(hum, hrp)
-                    if moveState == "Grounded" then
-                        if not timelineGroundedStart then
-                            timelineGroundedStart = tick()
-                        elseif tick() - timelineGroundedStart > 2 then
-                            IsTimelineMode = false
-                            FallCheckEnabled = true
-                            StatusLabel.Text = "✅ Auto-resumed recording"
-                            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-                            timelineGroundedStart = nil
-                        end
-                    else
-                        timelineGroundedStart = nil
-                    end
                     return
                 end
                 
@@ -1711,8 +1474,6 @@ local function StopStudioRecording()
     isCurrentlyFalling = false
     IsTimelineMode = false
     FallCheckEnabled = true
-    IsTransitionMode = false
-    timelineGroundedStart = nil
     
     SafeCall(function()
         if recordConnection then
@@ -1757,20 +1518,27 @@ local function ResumeStudioRecording()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
+        -- Hapus semua frame di depan posisi saat ini
+        local currentPos = hrp.Position
+        local nearestFrame, distance = FindNearestFrame(CurrentRecording.Frames, currentPos)
+        
+        if nearestFrame < #CurrentRecording.Frames then
+            for i = #CurrentRecording.Frames, nearestFrame + 1, -1 do
+                table.remove(CurrentRecording.Frames, i)
+            end
+        end
+        
+        -- Buat transisi seamless jika perlu
         if #CurrentRecording.Frames > 0 then
             local lastFrame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            local currentPos = hrp.Position
             local lastPos = GetFramePosition(lastFrame)
             
-            if (currentPos - lastPos).Magnitude > 5 then
-                CreateSeamlessTransition(lastFrame, currentPos)
+            if (currentPos - lastPos).Magnitude > 3 then
+                local transitionFrames = CreateSeamlessTransition(lastFrame, currentPos)
                 
-                for _, transFrame in ipairs(TransitionFrames) do
+                for _, transFrame in ipairs(transitionFrames) do
                     table.insert(CurrentRecording.Frames, transFrame)
                 end
-                
-                IsTransitionMode = false
-                TransitionFrames = {}
                 
                 StatusLabel.Text = "✅ Seamless transition created"
                 StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -1781,14 +1549,13 @@ local function ResumeStudioRecording()
         FallCheckEnabled = true
         IsFallDetected = false
         isCurrentlyFalling = false
-        timelineGroundedStart = nil
         
         if hum then
             hum.WalkSpeed = 16
             hum.AutoRotate = true
         end
         
-        StatusLabel.Text = "▶ Recording resumed from frame " .. #CurrentRecording.Frames
+        StatusLabel.Text = "▶ Recording resumed - Frames deleted: " .. (#CurrentRecording.Frames - nearestFrame)
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         UpdateStudioUI()
@@ -1818,7 +1585,6 @@ local function SaveStudioRecording()
         CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
         TimelinePosition = 0
         IsTimelineMode = false
-        timelineGroundedStart = nil
         LastSafeFrame = 0
         LastSafePosition = nil
         LastSafeVelocity = nil
@@ -1842,9 +1608,6 @@ local function ClearStudioRecording()
         LastSafeFrame = 0
         LastSafePosition = nil
         LastSafeVelocity = nil
-        IsTransitionMode = false
-        TransitionFrames = {}
-        timelineGroundedStart = nil
         
         UpdateStudioUI()
         StatusLabel.Text = "🗑️ Cleared - Ready to record"
@@ -1917,14 +1680,9 @@ function PlayRecordingWithByarulSystem(recording, startFrame)
     
     task.spawn(function()
         SafeCall(function()
+            SaveHumanoidState()
             hum.AutoRotate = false
             hum.PlatformStand = false
-            
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
             
             local currentFrame = startFrame or 1
             playbackStartTime = tick()
@@ -2120,12 +1878,6 @@ function StopPlayback()
         
         local char = player.Character
         if char then
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    part.CanCollide = true
-                end
-            end
-            
             CompleteCharacterReset(char)
         end
         
@@ -2207,7 +1959,7 @@ local function SaveToFile()
                 useMoveTo = UseMoveTo,
                 showVisualization = ShowVisualization
             },
-            version = "8.5"
+            version = "8.6"
         }
         writefile(filename, HttpService:JSONEncode(data))
         UpdateStatus("💾 Saved: " .. filename)
@@ -2423,53 +2175,6 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ========= ANTI-STUCK DETECTION =========
-local lastPosition = nil
-local stuckTimer = 0
-local STUCK_THRESHOLD = 3
-
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if not IsPlaying or IsPaused then 
-            lastPosition = nil
-            stuckTimer = 0
-            return 
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char.HumanoidRootPart
-        local currentPos = hrp.Position
-        
-        if lastPosition then
-            local distance = (currentPos - lastPosition).Magnitude
-            
-            if distance < 1 then
-                stuckTimer = stuckTimer + task.wait()
-                
-                if stuckTimer >= STUCK_THRESHOLD then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        
-                        if currentPlaybackFrame < #RecordedMovements[currentRecordingName] then
-                            currentPlaybackFrame = currentPlaybackFrame + 5
-                        end
-                    end
-                    
-                    stuckTimer = 0
-                    UpdateStatus("⚠️ Stuck detected - attempting recovery")
-                end
-            else
-                stuckTimer = 0
-            end
-        end
-        
-        lastPosition = currentPos
-    end)
-end)
-
 -- ========= CHARACTER RESPAWN HANDLER =========
 player.CharacterAdded:Connect(function(newChar)
     SafeCall(function()
@@ -2517,161 +2222,15 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ========= INFO UPDATE SYSTEM =========
-local totalDistance = 0
-local lastInfoUpdatePos = nil
-
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if not RecordingStudio.Visible or not IsRecording then 
-            totalDistance = 0
-            lastInfoUpdatePos = nil
-            return 
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        
-        if lastInfoUpdatePos then
-            local dist = (hrp.Position - lastInfoUpdatePos).Magnitude
-            totalDistance = totalDistance + dist
-        end
-        lastInfoUpdatePos = hrp.Position
-        
-        local duration = 0
-        if #CurrentRecording.Frames > 0 then
-            local lastFrame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            duration = GetFrameTimestamp(lastFrame)
-        end
-        
-        InfoDuration.Text = string.format("Duration: %.2fs", duration)
-        InfoDistance.Text = string.format("Distance: %.2f studs", totalDistance)
-        
-        local quality = "Perfect"
-        local qualityColor = Color3.fromRGB(100, 255, 150)
-        
-        if #CurrentRecording.Frames > 25000 then
-            quality = "Warning"
-            qualityColor = Color3.fromRGB(255, 200, 100)
-        elseif #CurrentRecording.Frames >= 30000 then
-            quality = "FULL!"
-            qualityColor = Color3.fromRGB(255, 100, 100)
-        end
-        
-        InfoFPS.Text = string.format("FPS: %d | Quality: %s", RECORDING_FPS, quality)
-        InfoFPS.TextColor3 = qualityColor
-    end)
-end)
-
--- ========= INDICATOR UPDATE LOOP =========
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if RecordingStudio.Visible then
-            ReverseIndicator.Visible = IsReversing
-            ForwardIndicator.Visible = IsForwarding
-            TimelineModeIndicator.Visible = IsTimelineMode and not IsReversing and not IsForwarding
-            
-            if IsReversing then
-                local pulse = math.abs(math.sin(tick() * 3))
-                ReverseIndicator.BackgroundColor3 = Color3.fromRGB(
-                    80 + pulse * 40,
-                    120 + pulse * 40,
-                    200 + pulse * 55
-                )
-            end
-            
-            if IsForwarding then
-                local pulse = math.abs(math.sin(tick() * 3))
-                ForwardIndicator.BackgroundColor3 = Color3.fromRGB(
-                    200 + pulse * 55,
-                    120 + pulse * 40,
-                    80 + pulse * 40
-                )
-            end
-            
-            if IsTimelineMode and not IsReversing and not IsForwarding then
-                local pulse = math.abs(math.sin(tick() * 2))
-                TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(
-                    255,
-                    150 + pulse * 50,
-                    50 + pulse * 30
-                )
-            end
-        end
-    end)
-end)
-
--- ========= NOTIFICATION SYSTEM =========
-local function ShowNotification(message, color, duration)
-    SafeCall(function()
-        NotifText.Text = message
-        NotifStroke.Color = color or Color3.fromRGB(100, 255, 150)
-        NotifText.TextColor3 = color or Color3.fromRGB(100, 255, 150)
-        
-        NotificationFrame.Position = UDim2.new(0.5, -100, 0, -50)
-        NotificationFrame.Visible = true
-        
-        local slideIn = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Position = UDim2.new(0.5, -100, 0, 20)
-        })
-        slideIn:Play()
-        
-        task.delay(duration or 3, function()
-            local slideOut = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-                Position = UDim2.new(0.5, -100, 0, -50)
-            })
-            slideOut:Play()
-            
-            task.delay(0.3, function()
-                NotificationFrame.Visible = false
-            end)
-        end)
-    end)
-end
-
--- ========= ENHANCED STATUS UPDATES WITH NOTIFICATIONS =========
-local originalUpdateStatus = UpdateStatus
-
-UpdateStatus = function(msg)
-    originalUpdateStatus(msg)
-    
-    if msg:find("ERROR") or msg:find("❌") then
-        ShowNotification(msg, Color3.fromRGB(255, 100, 100), 2)
-    elseif msg:find("✅") or msg:find("Saved") then
-        ShowNotification(msg, Color3.fromRGB(100, 255, 150), 2)
-    elseif msg:find("⚠️") or msg:find("FALL") then
-        ShowNotification(msg, Color3.fromRGB(255, 150, 50), 3)
-    end
-end
-
 -- ========= INITIALIZATION =========
 SafeCall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.5 - Enhanced Reverse Ready!")
+    UpdateStatus("✅ Auto Walk Pro v8.6 - Stable Reverse Ready!")
     UpdateSpeedDisplay()
-end)
-
--- ========= R15 INITIALIZATION =========
-task.spawn(function()
-    task.wait(1)
-    local char = player.Character
-    if char then
-        local charType = GetCharacterType()
-        if charType == "R15" then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = false
-                humanoid.AutoRotate = false
-            end
-        end
-    end
 end)
 
 -- ========= FINAL STATUS UPDATE =========
 task.wait(0.5)
 SafeCall(function()
-    ShowNotification("✅ AUTO WALK PRO v8.5 Ready!", Color3.fromRGB(100, 255, 150), 3)
-    UpdateStatus("✅ Enhanced Reverse System - All Systems Go!")
+    UpdateStatus("✅ Stable Reverse System - All Systems Go!")
 end)
