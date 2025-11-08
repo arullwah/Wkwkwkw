@@ -1,4 +1,4 @@
--- ByaruL AutoWalk v2.4 - SIMPLIFIED GROUND DETECTION VERSION
+-- ByaruL AutoWalk v2.5 - UNIVERSAL R6/R15 SUPPORT VERSION
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -20,8 +20,12 @@ local INTERPOLATION_ENABLED = true
 local INTERPOLATION_ALPHA = 0.45
 local MIN_INTERPOLATION_DISTANCE = 0.3
 
--- ========= SIMPLIFIED GROUND DETECTION SYSTEM =========
-local GROUND_OFFSET = 3.0 -- Default height above ground for R6
+-- ========= UNIVERSAL CHARACTER SUPPORT =========
+local UNIVERSAL_MODE = true
+local DYNAMIC_GROUND_OFFSET = true
+local R6_OFFSET = 2.8
+local R15_OFFSET = 4.2
+local FALLBACK_OFFSET = 3.5
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -121,14 +125,55 @@ local function CleanupConnections()
     end
 end
 
--- ========= SIMPLIFIED GROUND DETECTION =========
-local function GetGroundHeight(position)
-    local rayOrigin = Vector3.new(position.X, position.Y + 5, position.Z)
-    local rayDirection = Vector3.new(0, -50, 0)
+-- ========= UNIVERSAL CHARACTER DETECTION =========
+local function GetCharacterType()
+    local char = player.Character
+    if not char then return "Unknown" end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return "Unknown" end
+    
+    if humanoid.RigType == Enum.HumanoidRigType.R6 then
+        return "R6"
+    elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
+        return "R15"
+    end
+    
+    local leftLeg = char:FindFirstChild("Left Leg")
+    local leftLowerLeg = char:FindFirstChild("LeftLowerLeg")
+    
+    if leftLeg and not leftLowerLeg then
+        return "R6"
+    elseif leftLowerLeg then
+        return "R15"
+    end
+    
+    return "Unknown"
+end
+
+local function GetDynamicGroundOffset()
+    if not DYNAMIC_GROUND_OFFSET then
+        return FALLBACK_OFFSET
+    end
+    
+    local charType = GetCharacterType()
+    if charType == "R6" then
+        return R6_OFFSET
+    elseif charType == "R15" then
+        return R15_OFFSET
+    else
+        return FALLBACK_OFFSET
+    end
+end
+
+-- ========= ENHANCED GROUND DETECTION =========
+local function GetEnhancedGroundHeight(position, character)
+    local rayOrigin = Vector3.new(position.X, position.Y + 8, position.Z)
+    local rayDirection = Vector3.new(0, -20, 0)
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    if player.Character then
-        raycastParams.FilterDescendantsInstances = {player.Character}
+    if character then
+        raycastParams.FilterDescendantsInstances = {character}
     end
     
     local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
@@ -136,12 +181,90 @@ local function GetGroundHeight(position)
         return rayResult.Position.Y
     end
     
-    return position.Y - 10 -- Default fallback height
+    local checkPositions = {
+        Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
+        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
+        Vector3.new(1, 0, 1), Vector3.new(-1, 0, -1),
+        Vector3.new(1, 0, -1), Vector3.new(-1, 0, 1)
+    }
+    
+    for _, offset in ipairs(checkPositions) do
+        local checkOrigin = rayOrigin + offset * 2
+        rayResult = workspace:Raycast(checkOrigin, rayDirection, raycastParams)
+        if rayResult then
+            return rayResult.Position.Y
+        end
+    end
+    
+    return position.Y - 5
 end
 
 local function AdjustPositionToGround(position)
-    local groundHeight = GetGroundHeight(position)
-    return Vector3.new(position.X, groundHeight + GROUND_OFFSET, position.Z)
+    local char = player.Character
+    local groundHeight = GetEnhancedGroundHeight(position, char)
+    local offset = GetDynamicGroundOffset()
+    
+    return Vector3.new(position.X, groundHeight + offset, position.Z)
+end
+
+-- ========= UNIVERSAL VELOCITY CONTROL =========
+local function ApplyUniversalVelocity(character, velocity)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    local success = false
+    
+    local s1, e1 = pcall(function()
+        hrp.AssemblyLinearVelocity = velocity
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        success = true
+    end)
+    
+    if not success then
+        local s2, e2 = pcall(function()
+            local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
+            if not bodyVelocity then
+                bodyVelocity = Instance.new("BodyVelocity")
+                bodyVelocity.Name = "AutoWalkBodyVelocity"
+                bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
+                bodyVelocity.Parent = hrp
+            end
+            bodyVelocity.Velocity = velocity
+            success = true
+        end)
+    end
+    
+    if not success then
+        local s3, e3 = pcall(function()
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = true
+                hrp.AssemblyLinearVelocity = velocity
+                success = true
+            end
+        end)
+    end
+    
+    return success
+end
+
+-- ========= UNIVERSAL STATE CONTROL =========
+local function UniversalStateControl(humanoid, targetState)
+    if not humanoid then return end
+    
+    pcall(function()
+        if targetState == "Climbing" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
+        elseif targetState == "Jumping" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        elseif targetState == "Swimming" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
+        elseif targetState == "Falling" then
+            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        else
+            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end)
 end
 
 -- ========= SOUND EFFECTS =========
@@ -245,8 +368,7 @@ local function CompleteCharacterReset(char)
         humanoid.WalkSpeed = CurrentWalkSpeed
         humanoid.JumpPower = 50
         humanoid.Sit = false
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        ApplyUniversalVelocity(char, Vector3.new(0, 0, 0))
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
     end)
 end
@@ -345,11 +467,14 @@ local function RestoreFullUserControl()
     end
     
     if hrp then
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
+        pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
+        pcall(function() hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0) end)
     end
     
-    -- Reset smooth playback variables
     lastPlaybackCFrame = nil
     lastPlaybackVelocity = Vector3.new(0, 0, 0)
 end
@@ -468,7 +593,6 @@ local function GetFrameCFrame(frame)
     local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
     local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
     
-    -- Apply ground adjustment
     pos = AdjustPositionToGround(pos)
     
     return CFrame.lookAt(pos, pos + look, up)
@@ -496,28 +620,21 @@ local function SmoothCFrameLerp(currentCF, targetCF, alpha)
         return targetCF
     end
     
-    -- Position lerp
     local currentPos = currentCF.Position
     local targetPos = targetCF.Position
     local distance = (targetPos - currentPos).Magnitude
     
-    -- Skip interpolation if too far (teleport needed)
     if distance > 25 then
         return targetCF
     end
     
-    -- Skip interpolation if too close (avoid jitter)
     if distance < MIN_INTERPOLATION_DISTANCE then
         return targetCF
     end
     
-    -- Smooth position interpolation
     local newPos = currentPos:Lerp(targetPos, alpha)
-    
-    -- Smooth rotation interpolation (slerp)
     local newCF = currentCF:Lerp(targetCF, alpha)
     
-    -- Combine position and rotation
     return CFrame.new(newPos) * (newCF - newCF.Position)
 end
 
@@ -561,7 +678,6 @@ local function PlayRecordingWithCFrame(recording, startFrame)
     pauseStartTime = 0
     lastPlaybackState = nil
     
-    -- Initialize smooth playback
     lastPlaybackCFrame = hrp.CFrame
     lastPlaybackVelocity = Vector3.new(0, 0, 0)
 
@@ -572,7 +688,6 @@ local function PlayRecordingWithCFrame(recording, startFrame)
             return
         end
         
-        -- PAUSE HANDLING
         if IsPaused then
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
@@ -590,7 +705,6 @@ local function PlayRecordingWithCFrame(recording, startFrame)
             end
         end
 
-        -- CHARACTER SAFETY CHECK
         char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
@@ -608,11 +722,9 @@ local function PlayRecordingWithCFrame(recording, startFrame)
             return
         end
 
-        -- REAL-TIME FRAME CALCULATION
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        -- FIND CORRECT FRAME BASED ON CURRENT TIME
         local targetFrameIndex = 1
         for i = 1, #recording do
             if GetFrameTimestamp(recording[i]) <= effectiveTime then
@@ -629,12 +741,11 @@ local function PlayRecordingWithCFrame(recording, startFrame)
             IsPaused = false
             lastPlaybackState = nil
             
-            -- Ensure final position accuracy
             local finalFrame = recording[#recording]
             if finalFrame then
                 pcall(function()
                     hrp.CFrame = GetFrameCFrame(finalFrame)
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    ApplyUniversalVelocity(char, Vector3.new(0, 0, 0))
                 end)
             end
             
@@ -649,51 +760,31 @@ local function PlayRecordingWithCFrame(recording, startFrame)
         if not targetFrame then return end
 
         pcall(function()
-            -- Get target CFrame and velocity
             local targetCFrame = GetFrameCFrame(targetFrame)
             local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
             
-            -- REAL-TIME SMOOTH INTERPOLATION
             local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
             local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
             
-            -- Apply smooth CFrame
             hrp.CFrame = smoothCFrame
-            hrp.AssemblyLinearVelocity = smoothVelocity
+            ApplyUniversalVelocity(char, smoothVelocity)
             
-            -- Store for next frame
             lastPlaybackCFrame = smoothCFrame
             lastPlaybackVelocity = smoothVelocity
             
-            -- Apply WalkSpeed
             hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
             
-            -- REAL-TIME STATE MANAGEMENT
             local moveState = targetFrame.MoveState
             local currentStateTime = tick()
             
             if moveState ~= lastPlaybackState and (currentStateTime - lastStateChangeTime) > STATE_CHANGE_COOLDOWN then
                 lastPlaybackState = moveState
                 lastStateChangeTime = currentStateTime
-                
-                if moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    hum.PlatformStand = false
-                    hum.AutoRotate = false
-                elseif moveState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif moveState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
+                UniversalStateControl(hum, moveState)
             end
             
             currentPlaybackFrame = currentFrame
             
-            -- Update frame counter
             if FrameLabel then
                 FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
             end
@@ -707,7 +798,6 @@ end
 local function GetSelectedReplaysList()
     local selectedList = {}
     
-    -- Get only selected replays
     for _, name in ipairs(RecordingOrder) do
         if SelectedReplays[name] and RecordedMovements[name] and #RecordedMovements[name] > 0 then
             table.insert(selectedList, name)
@@ -736,7 +826,6 @@ local function PlaySingleRecording(recordingName)
     local framePauseStart = 0
     local currentFrame = 1
     
-    -- Reset smooth playback variables
     if char and char:FindFirstChild("HumanoidRootPart") then
         lastPlaybackCFrame = char.HumanoidRootPart.CFrame
         lastPlaybackVelocity = Vector3.new(0, 0, 0)
@@ -744,7 +833,6 @@ local function PlaySingleRecording(recordingName)
     
     local playbackCompleted = false
     
-    -- REAL-TIME PLAYBACK CONNECTION
     local singlePlaybackConnection
     singlePlaybackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         if not AutoLoop or not IsAutoLoopPlaying then
@@ -752,7 +840,6 @@ local function PlaySingleRecording(recordingName)
             return
         end
         
-        -- PAUSE HANDLING
         if IsPaused then
             if framePauseStart == 0 then
                 framePauseStart = tick()
@@ -785,11 +872,9 @@ local function PlaySingleRecording(recordingName)
             return
         end
         
-        -- REAL-TIME FRAME CALCULATION
         local currentTime = tick()
         local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
         
-        -- FIND CURRENT FRAME BASED ON TIME
         local targetFrameIndex = 1
         for i = 1, #recording do
             if GetFrameTimestamp(recording[i]) <= effectiveTime then
@@ -810,48 +895,34 @@ local function PlaySingleRecording(recordingName)
         local targetFrame = recording[currentFrame]
         if not targetFrame then return end
 
-        -- REAL-TIME SMOOTH PLAYBACK
         pcall(function()
             local targetCFrame = GetFrameCFrame(targetFrame)
             local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
             
-            -- SMOOTH INTERPOLATION
             local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, 0.5)
             local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, 0.5)
             
-            -- APPLY SMOOTH MOVEMENT
             hrp.CFrame = smoothCFrame
-            hrp.AssemblyLinearVelocity = smoothVelocity
+            ApplyUniversalVelocity(char, smoothVelocity)
             
             lastPlaybackCFrame = smoothCFrame
             lastPlaybackVelocity = smoothVelocity
             
-            -- APPLY WALKSPEED & STATE
             hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
             
             local moveState = targetFrame.MoveState
             if moveState ~= lastPlaybackState then
                 lastPlaybackState = moveState
-                
-                if moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                elseif moveState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
+                UniversalStateControl(hum, moveState)
             end
         end)
     end)
     
     AddConnection(singlePlaybackConnection)
     
-    -- WAIT FOR PLAYBACK COMPLETION
     local startWait = tick()
     while AutoLoop and IsAutoLoopPlaying and not playbackCompleted do
-        if tick() - startWait > 120 then -- Timeout 120 detik
+        if tick() - startWait > 120 then
             break
         end
         task.wait(0.1)
@@ -885,7 +956,6 @@ local function StartAutoLoopAll()
     IsAutoLoopPlaying = true
     lastPlaybackState = nil
     
-    -- MAIN LOOP CONNECTION
     loopConnection = RunService.Heartbeat:Connect(function()
         if not AutoLoop or not IsAutoLoopPlaying then
             if loopConnection then
@@ -895,11 +965,9 @@ local function StartAutoLoopAll()
             return
         end
         
-        -- Loop melalui semua replay yang dipilih
         while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #SelectedReplaysList do
             local recordingName = SelectedReplaysList[CurrentLoopIndex]
             
-            -- Tunggu karakter ready dengan retry system
             local maxRetries = 3
             local retryCount = 0
             local characterReady = false
@@ -912,7 +980,7 @@ local function StartAutoLoopAll()
                     
                     local waitStart = tick()
                     while not IsCharacterReady() do
-                        if tick() - waitStart > 8 then -- Timeout 8 detik
+                        if tick() - waitStart > 8 then
                             break
                         end
                         task.wait(0.5)
@@ -930,7 +998,6 @@ local function StartAutoLoopAll()
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
             if not characterReady then
-                -- Skip replay jika karakter tidak ready
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
@@ -939,7 +1006,6 @@ local function StartAutoLoopAll()
                 continue
             end
             
-            -- Mainkan replay saat ini
             local success = PlaySingleRecording(recordingName)
             
             if success then
@@ -948,14 +1014,13 @@ local function StartAutoLoopAll()
                     CurrentLoopIndex = 1
                 end
             else
-                -- Tetap lanjut ke replay berikutnya
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
                 end
             end
             
-            task.wait(0.5) -- Jeda antar replay
+            task.wait(0.5)
         end
     end)
     
@@ -1025,7 +1090,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL - Ground Mode v2.4"
+Title.Text = "ByaruL - Universal Mode v2.5"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -1390,13 +1455,11 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
-        -- ACTION BUTTONS ROW
         local actionRow = Instance.new("Frame")
         actionRow.Size = UDim2.new(1, 0, 0, 25)
         actionRow.BackgroundTransparency = 1
         actionRow.Parent = item
         
-        -- Play Button
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
         playBtn.Position = UDim2.fromOffset(5, 0)
@@ -1411,7 +1474,6 @@ function UpdateRecordList()
         playCorner.CornerRadius = UDim.new(0, 4)
         playCorner.Parent = playBtn
         
-        -- Delete Button
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(25, 25)
         delBtn.Position = UDim2.fromOffset(35, 0)
@@ -1426,7 +1488,6 @@ function UpdateRecordList()
         delCorner.CornerRadius = UDim.new(0, 4)
         delCorner.Parent = delBtn
         
-        -- Name TextBox
         local nameBox = Instance.new("TextBox")
         nameBox.Size = UDim2.new(0, 100, 0, 25)
         nameBox.Position = UDim2.fromOffset(65, 0)
@@ -1445,7 +1506,6 @@ function UpdateRecordList()
         nameBoxCorner.CornerRadius = UDim.new(0, 4)
         nameBoxCorner.Parent = nameBox
         
-        -- Up Button
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
         upBtn.Position = UDim2.fromOffset(170, 0)
@@ -1460,7 +1520,6 @@ function UpdateRecordList()
         upCorner.CornerRadius = UDim.new(0, 4)
         upCorner.Parent = upBtn
         
-        -- Down Button
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
         downBtn.Position = UDim2.fromOffset(200, 0)
@@ -1475,14 +1534,12 @@ function UpdateRecordList()
         downCorner.CornerRadius = UDim.new(0, 4)
         downCorner.Parent = downBtn
         
-        -- INFO ROW
         local infoRow = Instance.new("Frame")
         infoRow.Size = UDim2.new(1, 0, 0, 20)
         infoRow.Position = UDim2.fromOffset(0, 30)
         infoRow.BackgroundTransparency = 1
         infoRow.Parent = item
         
-        -- Checkbox
         local checkbox = Instance.new("TextButton")
         checkbox.Size = UDim2.fromOffset(16, 16)
         checkbox.Position = UDim2.fromOffset(10, 2)
@@ -1497,7 +1554,6 @@ function UpdateRecordList()
         checkboxCorner.CornerRadius = UDim.new(0, 3)
         checkboxCorner.Parent = checkbox
         
-        -- Info Label
         local infoLabel = Instance.new("TextLabel")
         infoLabel.Size = UDim2.new(1, -40, 1, 0)
         infoLabel.Position = UDim2.fromOffset(30, 0)
@@ -1505,9 +1561,9 @@ function UpdateRecordList()
         
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • GROUND MODE"
+            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • UNIVERSAL"
         else
-            infoLabel.Text = "❌ 0:00 • 0 frames • GROUND MODE"
+            infoLabel.Text = "❌ 0:00 • 0 frames • UNIVERSAL"
         end
         
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
@@ -1516,7 +1572,6 @@ function UpdateRecordList()
         infoLabel.TextXAlignment = Enum.TextXAlignment.Left
         infoLabel.Parent = infoRow
         
-        -- EVENT HANDLERS
         checkbox.MouseButton1Click:Connect(function()
             SelectedReplays[name] = not SelectedReplays[name]
             checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
@@ -1715,7 +1770,6 @@ function PlayRecording(name)
     DisableJump()
     PlaySound("Play")
 
-    -- Real-time CFrame playback
     PlayRecordingWithCFrame(recording, currentPlaybackFrame)
 end
 
@@ -1780,7 +1834,7 @@ local function SaveToJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "2.4",
+            Version = "2.5",
             Checkpoints = {},
             RecordingOrder = RecordingOrder,
             CheckpointNames = checkpointNames
@@ -1913,7 +1967,6 @@ LoopBtn.MouseButton1Click:Connect(function()
     AnimateLoop(AutoLoop)
     
     if AutoLoop then
-        -- Hanya gunakan replay yang dicentang
         local hasAnyValid = false
         for name, isSelected in pairs(SelectedReplays) do
             if isSelected and RecordedMovements[name] and #RecordedMovements[name] > 0 then
@@ -1978,7 +2031,6 @@ end)
 
 MergeBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(MergeBtn)
-    -- Simple merge function
     if #RecordingOrder < 2 then
         PlaySound("Error")
         return
@@ -2040,6 +2092,22 @@ CloseButton.MouseButton1Click:Connect(function()
     ClearPathVisualization()
     ScreenGui:Destroy()
 end)
+
+-- ========= HTTPS SUPPORT FOR GUI =========
+local function LoadGUIFromURL(url)
+    local success, result = pcall(function()
+        local httpService = game:GetService("HttpService")
+        local response = httpService:GetAsync(url)
+        return response
+    end)
+    
+    if success then
+        return result
+    else
+        warn("Failed to load GUI from URL: " .. tostring(result))
+        return nil
+    end
+end
 
 -- ========= HOTKEYS =========
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -2112,4 +2180,4 @@ player.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("✅ AutoWalk ByaruL v2.4 - GROUND DETECTION MODE Loaded!")
+print("✅ AutoWalk ByaruL v2.5 - UNIVERSAL R6/R15 MODE Loaded!")
