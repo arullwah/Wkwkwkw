@@ -1,11 +1,13 @@
 --[[ 
-    ✅ Gaze Animations GUI – Simple, Smooth, Persistent Close
+    ✅ Gaze Animations GUI – Simple, Smooth, Persistent Close (Final v2)
     - Executor/client only
     - 200x200, draggable
     - Header: Search + X
-    - Close = permanen (disimpan ke file), GUI tidak auto-muncul lagi saat respawn
+    - Close = disimpan (GUI tidak auto-muncul lagi saat respawn)
+    - Tapi saat execute ulang script, GUI selalu muncul kembali (tanpa hapus file)
     - Auto-load animasi setelah respawn tetap aktif (tanpa GUI)
-    By: Arull | final polish
+    - Re-open manual tetap bisa pakai tombol "." (Period)
+    By: Arull | Final Stable Build
 ]]
 
 -- ====== Services ======
@@ -41,6 +43,10 @@ local function saveConfig()
         end
     end)
 end
+
+-- ====== Patch: Force Open saat Execute ======
+-- (tanpa memengaruhi persist di respawn)
+_G.AnimHubForceOpen = true
 
 -- ====== DATABASE ======
 local Animations = {
@@ -396,7 +402,6 @@ local function stopAllTracks(h)
 end
 
 local function softKickAnimate(h)
-    -- trik ringan agar script Animate refresh state
     h:Move(Vector3.new(), true)
     task.wait(0.04)
     h:Move(Vector3.new(0.05,0,0), true)
@@ -412,7 +417,7 @@ local function saveLast()
     end)
 end
 
--- ====== Apply Animation (halus & publik) ======
+-- ====== Apply Animation ======
 local function setAnim(kind, id)
     if not validateCharacter() then return false end
     local c = Player.Character
@@ -440,7 +445,7 @@ local function setAnim(kind, id)
     return ok
 end
 
--- ====== Load saved saat respawn (tanpa batas) ======
+-- ====== Load saved saat respawn ======
 local function loadSaved()
     if not validateCharacter() then return end
     pcall(function()
@@ -471,12 +476,15 @@ local function openGUI()
     main.BackgroundColor3 = Color3.fromRGB(10,10,10)
     main.BorderSizePixel = 0
     main.Active = true
+    main.Draggable = true
     main.Parent = sg
-
     Instance.new("UICorner", main).CornerRadius = UDim.new(0,12)
-    local stroke = Instance.new("UIStroke", main); stroke.Color = Color3.fromRGB(35,35,35); stroke.Thickness=1
 
-    -- Header kosong + Search + X
+    local stroke = Instance.new("UIStroke", main)
+    stroke.Color = Color3.fromRGB(35,35,35)
+    stroke.Thickness=1
+
+    -- Header
     local header = Instance.new("Frame")
     header.Size = UDim2.new(1,0,0,30)
     header.BackgroundColor3 = Color3.fromRGB(12,12,12)
@@ -515,30 +523,6 @@ local function openGUI()
         saveConfig()
         sg:Destroy()
         guiOpen = false
-    end)
-
-    -- Drag
-    local dragging, dragInput, dragStart, startPos
-    header.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-            dragging=true; dragStart=i.Position; startPos=main.Position
-        end
-    end)
-    header.InputChanged:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then
-            dragInput=i
-        end
-    end)
-    UIS.InputChanged:Connect(function(i)
-        if i==dragInput and dragging then
-            local d=i.Position-dragStart
-            main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
-        end
-    end)
-    header.InputEnded:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-            dragging=false
-        end
     end)
 
     -- List
@@ -582,18 +566,16 @@ local function openGUI()
         y += 26
     end
 
-    -- Populate dari DB
-    for name, ids in pairs(Animations.Idle)     do addBtn(name,"Idle",ids) end
-    for name, id  in pairs(Animations.Walk)     do addBtn(name,"Walk",id) end
-    for name, id  in pairs(Animations.Run)      do addBtn(name,"Run",id) end
-    for name, id  in pairs(Animations.Jump)     do addBtn(name,"Jump",id) end
-    for name, id  in pairs(Animations.Fall)     do addBtn(name,"Fall",id) end
-    for name, id  in pairs(Animations.SwimIdle) do addBtn(name,"SwimIdle",id) end
-    for name, id  in pairs(Animations.Swim)     do addBtn(name,"Swim",id) end
-    for name, id  in pairs(Animations.Climb)    do addBtn(name,"Climb",id) end
+    for n,i in pairs(Animations.Idle) do addBtn(n,"Idle",i) end
+    for n,i in pairs(Animations.Walk) do addBtn(n,"Walk",i) end
+    for n,i in pairs(Animations.Run) do addBtn(n,"Run",i) end
+    for n,i in pairs(Animations.Jump) do addBtn(n,"Jump",i) end
+    for n,i in pairs(Animations.Fall) do addBtn(n,"Fall",i) end
+    for n,i in pairs(Animations.SwimIdle) do addBtn(n,"SwimIdle",i) end
+    for n,i in pairs(Animations.Swim) do addBtn(n,"Swim",i) end
+    for n,i in pairs(Animations.Climb) do addBtn(n,"Climb",i) end
     list.CanvasSize = UDim2.new(0,0,0,y)
 
-    -- Search filter
     search:GetPropertyChangedSignal("Text"):Connect(function()
         local q=string.lower(search.Text)
         local pos=0
@@ -612,11 +594,17 @@ end
 -- ====== Startup / Respawn ======
 loadConfig()
 
+-- Patch: paksa buka saat execute ulang (tapi tetap hormati persist di respawn)
+if _G.AnimHubForceOpen then
+    Config.GuiClosed = false
+    saveConfig()
+end
+
 Player.CharacterAdded:Connect(function()
     task.defer(function()
         task.wait(1.1)
-        loadSaved()                   -- auto-apply animasi
-        if not Config.GuiClosed then  -- GUI hanya dibuka jika belum pernah ditutup
+        loadSaved()
+        if not Config.GuiClosed then
             openGUI()
         end
     end)
@@ -628,3 +616,18 @@ task.defer(function()
         openGUI()
     end
 end)
+
+-- ====== Re-Open Hotkey ======
+do
+    local REOPEN_KEY = Enum.KeyCode.Period
+    UIS.InputBegan:Connect(function(input,gp)
+        if gp then return end
+        if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==REOPEN_KEY then
+            if Config.GuiClosed then
+                Config.GuiClosed=false
+                saveConfig()
+            end
+            if not guiOpen then openGUI() end
+        end
+    end)
+end
