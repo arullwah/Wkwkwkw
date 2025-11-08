@@ -2591,7 +2591,7 @@ end)
 -- ========= INITIALIZATION =========
 SafeCall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.7 - Smooth Recording Ready!")
+    UpdateStatus("✅ Auto Walk - Smooth Recording Ready!")
     UpdateSpeedDisplay()
     print("🎉 [Initialization] Auto Walk Pro v8.7 initialized successfully!")
 end)
