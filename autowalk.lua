@@ -1,1003 +1,1846 @@
--- Modern UI Library - Mobile Friendly (No Conflicts!)
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+
+-- ========= AUTO WALK PRO v8.3 - FIXED PLAYBACK EDITION =========
+-- PERFECT TIMELINE SYSTEM + SMOOTH PLAYBACK
+-- Frame deletion on rewind + Seamless resume + Fixed playback bugs
+
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+wait(1)
 
-local SimpleUI = {
-    Tabs = {},
-    CurrentTab = nil,
-    Connections = {}
-}
+-- ========= CONFIGURATION =========
+local RECORDING_FPS = 60
+local MAX_FRAMES = 30000
+local MIN_DISTANCE_THRESHOLD = 0.01
+local VELOCITY_SCALE = 1
+local VELOCITY_Y_SCALE = 1
+local ROUTE_PROXIMITY_THRESHOLD = 10
+local MOVETO_REACH_DISTANCE = 2
+local MAX_FRAME_JUMP = 30
+local JUMP_VELOCITY_THRESHOLD = 25
+local FALL_TIME_THRESHOLD = 1.0
+local FALL_HEIGHT_THRESHOLD = 20
+local TIMELINE_STEP_SECONDS = 1
 
-function SimpleUI:AddConnection(connection)
-    table.insert(self.Connections, connection)
-    return connection
+-- ========= CORE VARIABLES =========
+local IsRecording = false
+local IsPlaying = false
+local IsPaused = false
+local UseMoveTo = true
+local CurrentSpeed = 1
+local RecordedMovements = {}
+local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
+local AutoHeal = false
+local AutoLoop = false
+local recordConnection = nil
+local lastRecordTime = 0
+local lastRecordPos = nil
+local ShowVisualization = false
+
+-- ========= ANTI-FALL VARIABLES =========
+local IsFallDetected = false
+local LastSafeFrame = 0
+local fallStartTime = 0
+local fallStartHeight = 0
+local isCurrentlyFalling = false
+local FallCheckEnabled = true
+
+-- ========= PAUSE/RESUME VARIABLES =========
+local playbackStartTime = 0
+local totalPausedDuration = 0
+local pauseStartTime = 0
+local currentPlaybackFrame = 1
+local lastMoveState = nil
+local moveToConnection = nil
+local currentRecordingName = ""
+
+-- ========= TIMELINE NAVIGATION VARIABLES =========
+local TimelinePosition = 0
+local IsTimelineMode = false
+local timelineGroundedStart = nil
+
+-- ========= EVENT CLEANUP =========
+local eventConnections = {}
+
+local function AddConnection(conn)
+    table.insert(eventConnections, conn)
 end
 
-function SimpleUI:Cleanup()
-    for _, connection in pairs(self.Connections) do
-        if connection then
-            pcall(function() connection:Disconnect() end)
+local function CleanupConnections()
+    for _, conn in pairs(eventConnections) do
+        pcall(function()
+            if conn and conn.Connected then
+                conn:Disconnect()
+            end
+        end)
+    end
+    eventConnections = {}
+end
+
+-- ========= ENHANCED PCALL WRAPPER =========
+local function SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    return success, result
+end
+
+-- ========= CHARACTER RESET =========
+local function CompleteCharacterReset(char)
+    SafeCall(function()
+        if not char or not char:IsDescendantOf(workspace) then return end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not humanoid or not hrp then return end
+        
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        humanoid.WalkSpeed = 16
+        humanoid.JumpPower = 50
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+        
+        if moveToConnection then
+            moveToConnection:Disconnect()
+            moveToConnection = nil
+        end
+    end)
+end
+
+-- ========= FALL DETECTION =========
+local function GetCurrentMoveState(hum, hrp)
+    if not hum then return "Grounded" end
+    
+    local state = hum:GetState()
+    
+    if state == Enum.HumanoidStateType.Freefall then
+        if not isCurrentlyFalling then
+            isCurrentlyFalling = true
+            fallStartTime = tick()
+            fallStartHeight = hrp.Position.Y
+        end
+        
+        local fallDuration = tick() - fallStartTime
+        local fallDistance = fallStartHeight - hrp.Position.Y
+        
+        if FallCheckEnabled and (fallDuration > FALL_TIME_THRESHOLD and fallDistance > FALL_HEIGHT_THRESHOLD) then
+            IsFallDetected = true
+            return "Falling"
+        end
+        
+        return "Falling"
+    else
+        if isCurrentlyFalling then
+            isCurrentlyFalling = false
+            fallStartTime = 0
+            fallStartHeight = 0
         end
     end
-    self.Connections = {}
+    
+    if hrp.Position.Y < -50 then
+        IsFallDetected = true
+        return "Falling"
+    end
+    
+    if state == Enum.HumanoidStateType.Jumping then
+        return "Jumping"
+    elseif state == Enum.HumanoidStateType.Climbing then
+        return "Climbing"
+    elseif state == Enum.HumanoidStateType.Swimming then
+        return "Swimming"
+    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then
+        return "Grounded"
+    else
+        return "Grounded"
+    end
 end
 
--- Create ScreenGui
+-- ========= FRAME DATA FUNCTIONS =========
+local function GetFramePosition(frame)
+    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+end
+
+local function GetFrameCFrame(frame)
+    local pos = GetFramePosition(frame)
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    return CFrame.lookAt(pos, pos + look, up)
+end
+
+local function GetFrameVelocity(frame)
+    return frame.Velocity and Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[3] * VELOCITY_SCALE
+    ) or Vector3.new(0, 0, 0)
+end
+
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
+end
+
+local function GetFrameTimestamp(frame)
+    return frame.Timestamp or 0
+end
+
+-- ========= FIND NEAREST FRAME =========
+local function FindNearestFrame(recording, position)
+    if not recording or #recording == 0 then return 1, math.huge end
+    
+    local nearestFrame = 1
+    local nearestDistance = math.huge
+    
+    for i, frame in ipairs(recording) do
+        local framePos = GetFramePosition(frame)
+        local distance = (framePos - position).Magnitude
+        
+        if distance < nearestDistance then
+            nearestDistance = distance
+            nearestFrame = i
+        end
+    end
+    
+    return nearestFrame, nearestDistance
+end
+
+-- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MobileUI_" .. HttpService:GenerateGUID(false)
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Name = "AutoWalkProV83"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.Parent = game.CoreGui
 
--- Main Window (300x400)
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 300, 0, 400)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-MainFrame.BackgroundTransparency = 0.05
-MainFrame.BorderSizePixel = 0
-MainFrame.ClipsDescendants = false
-MainFrame.Active = true
-MainFrame.Parent = ScreenGui
+SafeCall(function()
+    if player:FindFirstChild("PlayerGui") then
+        ScreenGui.Parent = player.PlayerGui
+    else
+        wait(2)
+        ScreenGui.Parent = player:WaitForChild("PlayerGui")
+    end
+end)
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+-- ========= RECORDING STUDIO GUI (230x205) =========
+local RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(230, 205)
+RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -102.5)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-local UIStroke = Instance.new("UIStroke")
-UIStroke.Color = Color3.fromRGB(60, 60, 60)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 10)
+StudioCorner.Parent = RecordingStudio
 
--- Header (Drag Area)
-local Header = Instance.new("Frame")
-Header.Size = UDim2.new(1, 0, 0, 35)
-Header.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Header.BorderSizePixel = 0
-Header.Active = true
-Header.Parent = MainFrame
+local StudioStroke = Instance.new("UIStroke")
+StudioStroke.Color = Color3.fromRGB(100, 150, 255)
+StudioStroke.Thickness = 2
+StudioStroke.Parent = RecordingStudio
+
+-- Studio Header
+local StudioHeader = Instance.new("Frame")
+StudioHeader.Size = UDim2.new(1, 0, 0, 28)
+StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+StudioHeader.BorderSizePixel = 0
+StudioHeader.Parent = RecordingStudio
 
 local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 10)
-HeaderCorner.Parent = Header
+HeaderCorner.Parent = StudioHeader
 
-local HeaderFix = Instance.new("Frame")
-HeaderFix.Size = UDim2.new(1, 0, 0, 10)
-HeaderFix.Position = UDim2.new(0, 0, 1, -10)
-HeaderFix.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-HeaderFix.BorderSizePixel = 0
-HeaderFix.Parent = Header
+local StudioTitle = Instance.new("TextLabel")
+StudioTitle.Size = UDim2.new(1, -30, 1, 0)
+StudioTitle.Position = UDim2.new(0, 10, 0, 0)
+StudioTitle.BackgroundTransparency = 1
+StudioTitle.Text = "🎬 RECORDING STUDIO"
+StudioTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
+StudioTitle.Font = Enum.Font.GothamBold
+StudioTitle.TextSize = 11
+StudioTitle.TextXAlignment = Enum.TextXAlignment.Left
+StudioTitle.Parent = StudioHeader
+
+local CloseStudioBtn = Instance.new("TextButton")
+CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
+CloseStudioBtn.Position = UDim2.new(1, -24, 0.5, -10)
+CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+CloseStudioBtn.Text = "×"
+CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseStudioBtn.Font = Enum.Font.GothamBold
+CloseStudioBtn.TextSize = 14
+CloseStudioBtn.Parent = StudioHeader
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 5)
+CloseCorner.Parent = CloseStudioBtn
+
+-- Studio Content
+local StudioContent = Instance.new("Frame")
+StudioContent.Size = UDim2.new(1, -16, 1, -36)
+StudioContent.Position = UDim2.new(0, 8, 0, 32)
+StudioContent.BackgroundTransparency = 1
+StudioContent.Parent = RecordingStudio
+
+-- Helper function
+local function CreateStudioBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 9
+    btn.AutoButtonColor = false
+    btn.Parent = StudioContent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = btn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.7
+    stroke.Parent = btn
+    
+    btn.MouseEnter:Connect(function()
+        SafeCall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(
+                    math.min(color.R * 255 + 30, 255),
+                    math.min(color.G * 255 + 30, 255),
+                    math.min(color.B * 255 + 30, 255)
+                )
+            }):Play()
+        end)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        SafeCall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+        end)
+    end)
+    
+    return btn
+end
+
+-- Top Row Buttons (NO REVERSE BUTTON)
+local RecordBtn = CreateStudioBtn("● RECORD", 5, 5, 68, 30, Color3.fromRGB(200, 50, 60))
+local SaveBtn = CreateStudioBtn("💾 SAVE", 78, 5, 68, 30, Color3.fromRGB(100, 200, 100))
+local ClearBtn = CreateStudioBtn("🗑️ CLEAR", 151, 5, 68, 30, Color3.fromRGB(150, 50, 60))
+
+-- Frame Counter
+local FrameLabel = Instance.new("TextLabel")
+FrameLabel.Size = UDim2.fromOffset(214, 28)
+FrameLabel.Position = UDim2.fromOffset(5, 40)
+FrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+FrameLabel.Text = "Frames: 0 / 30000 | Pos: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+FrameLabel.Font = Enum.Font.GothamBold
+FrameLabel.TextSize = 10
+FrameLabel.Parent = StudioContent
+
+local FrameCorner = Instance.new("UICorner")
+FrameCorner.CornerRadius = UDim.new(0, 5)
+FrameCorner.Parent = FrameLabel
+
+local FrameStroke = Instance.new("UIStroke")
+FrameStroke.Color = Color3.fromRGB(60, 60, 70)
+FrameStroke.Thickness = 1
+FrameStroke.Parent = FrameLabel
+
+-- Timeline Label
+local TimelineLabel = Instance.new("TextLabel")
+TimelineLabel.Size = UDim2.fromOffset(214, 20)
+TimelineLabel.Position = UDim2.fromOffset(5, 73)
+TimelineLabel.BackgroundTransparency = 1
+TimelineLabel.Text = "Timeline Control (1 sec/step)"
+TimelineLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+TimelineLabel.Font = Enum.Font.Gotham
+TimelineLabel.TextSize = 8
+TimelineLabel.Parent = StudioContent
+
+-- Timeline Buttons (NO FORWARD - HANYA MUNDUR DAN RESUME)
+local RewindBtn = CreateStudioBtn("⏪ MUNDUR", 5, 98, 104, 35, Color3.fromRGB(80, 120, 200))
+local ResumeBtn = CreateStudioBtn("▶ RESUME", 114, 98, 105, 35, Color3.fromRGB(40, 180, 80))
+
+-- Status Label
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.fromOffset(214, 20)
+StatusLabel.Position = UDim2.fromOffset(5, 138)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Ready to record"
+StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextSize = 8
+StatusLabel.Parent = StudioContent
+
+-- ========= CLEAN MAIN GUI (250x200) =========
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.fromOffset(250, 200)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
+
+local MainStroke = Instance.new("UIStroke")
+MainStroke.Color = Color3.fromRGB(60, 60, 60)
+MainStroke.Thickness = 2
+MainStroke.Parent = MainFrame
+
+-- Main Header
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1, 0, 0, 32)
+Header.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Header.BorderSizePixel = 0
+Header.Parent = MainFrame
+
+local MainHeaderCorner = Instance.new("UICorner")
+MainHeaderCorner.CornerRadius = UDim.new(0, 12)
+MainHeaderCorner.Parent = Header
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(0, 180, 1, 0)
+Title.Size = UDim2.new(1, -60, 1, 0)
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "🎮 CUSTOM UI"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Text = "AUTO WALK PRO v8.3"
+Title.TextColor3 = Color3.fromRGB(100, 255, 150)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 13
+Title.TextSize = 12
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Header
 
--- Control Buttons
-local Controls = Instance.new("Frame")
-Controls.Size = UDim2.new(0, 60, 1, 0)
-Controls.Position = UDim2.new(1, -65, 0, 0)
-Controls.BackgroundTransparency = 1
-Controls.Parent = Header
+local HideButton = Instance.new("TextButton")
+HideButton.Size = UDim2.fromOffset(20, 20)
+HideButton.Position = UDim2.new(1, -50, 0.5, -10)
+HideButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+HideButton.Text = "_"
+HideButton.TextColor3 = Color3.new(1, 1, 1)
+HideButton.Font = Enum.Font.GothamBold
+HideButton.TextSize = 12
+HideButton.Parent = Header
 
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.new(0, 25, 0, 25)
-MinimizeBtn.Position = UDim2.new(0, 3, 0.5, -12.5)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-MinimizeBtn.Text = "_"
-MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.TextSize = 14
-MinimizeBtn.BorderSizePixel = 0
-MinimizeBtn.AutoButtonColor = false
-MinimizeBtn.Parent = Controls
+local HideCorner = Instance.new("UICorner")
+HideCorner.CornerRadius = UDim.new(0, 6)
+HideCorner.Parent = HideButton
 
-local MinCorner = Instance.new("UICorner")
-MinCorner.CornerRadius = UDim.new(0, 6)
-MinCorner.Parent = MinimizeBtn
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.fromOffset(20, 20)
+CloseButton.Position = UDim2.new(1, -25, 0.5, -10)
+CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+CloseButton.Text = "×"
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.TextSize = 14
+CloseButton.Parent = Header
 
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 25, 0, 25)
-CloseBtn.Position = UDim2.new(0, 32, 0.5, -12.5)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-CloseBtn.Text = "✕"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.TextSize = 12
-CloseBtn.BorderSizePixel = 0
-CloseBtn.AutoButtonColor = false
-CloseBtn.Parent = Controls
+local CloseCorner2 = Instance.new("UICorner")
+CloseCorner2.CornerRadius = UDim.new(0, 6)
+CloseCorner2.Parent = CloseButton
 
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 6)
-CloseCorner.Parent = CloseBtn
+-- Content Area
+local Content = Instance.new("ScrollingFrame")
+Content.Size = UDim2.new(1, -16, 1, -40)
+Content.Position = UDim2.new(0, 8, 0, 36)
+Content.BackgroundTransparency = 1
+Content.ScrollBarThickness = 4
+Content.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+Content.CanvasSize = UDim2.new(0, 0, 0, 400)
+Content.Parent = MainFrame
 
--- Tab Container
-local TabContainer = Instance.new("ScrollingFrame")
-TabContainer.Size = UDim2.new(1, -16, 0, 30)
-TabContainer.Position = UDim2.new(0, 8, 0, 40)
-TabContainer.BackgroundTransparency = 1
-TabContainer.BorderSizePixel = 0
-TabContainer.ScrollBarThickness = 0
-TabContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-TabContainer.AutomaticCanvasSize = Enum.AutomaticSize.X
-TabContainer.ScrollingDirection = Enum.ScrollingDirection.X
-TabContainer.Parent = MainFrame
-
-local TabLayout = Instance.new("UIListLayout")
-TabLayout.FillDirection = Enum.FillDirection.Horizontal
-TabLayout.Padding = UDim.new(0, 4)
-TabLayout.Parent = TabContainer
-
--- Content Container
-local ContentContainer = Instance.new("ScrollingFrame")
-ContentContainer.Size = UDim2.new(1, -16, 1, -80)
-ContentContainer.Position = UDim2.new(0, 8, 0, 75)
-ContentContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ContentContainer.BackgroundTransparency = 0.1
-ContentContainer.BorderSizePixel = 0
-ContentContainer.ScrollBarThickness = 5
-ContentContainer.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-ContentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
-ContentContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-ContentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
-ContentContainer.Parent = MainFrame
-
-local ContentCorner = Instance.new("UICorner")
-ContentCorner.CornerRadius = UDim.new(0, 8)
-ContentCorner.Parent = ContentContainer
-
--- Mini Button (Centered Top)
+-- Mini Button
 local MiniButton = Instance.new("TextButton")
-MiniButton.Size = UDim2.new(0, 45, 0, 45)
-MiniButton.Position = UDim2.new(0.5, -22.5, 0, 10)
-MiniButton.AnchorPoint = Vector2.new(0, 0)
-MiniButton.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MiniButton.Text = "⚙️"
-MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0, 20, 0.5, -20)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Text = "AWP"
+MiniButton.TextColor3 = Color3.fromRGB(100, 255, 150)
 MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 18
+MiniButton.TextSize = 12
 MiniButton.Visible = false
-MiniButton.ZIndex = 10
 MiniButton.Active = true
-MiniButton.BorderSizePixel = 0
+MiniButton.Draggable = true
 MiniButton.Parent = ScreenGui
 
 local MiniCorner = Instance.new("UICorner")
-MiniCorner.CornerRadius = UDim.new(0, 10)
+MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
 local MiniStroke = Instance.new("UIStroke")
-MiniStroke.Color = Color3.fromRGB(60, 60, 60)
+MiniStroke.Color = Color3.fromRGB(100, 255, 150)
 MiniStroke.Thickness = 2
 MiniStroke.Parent = MiniButton
 
--- DRAG SYSTEM (Improved - Header dan MainFrame bisa di-drag)
-local dragData = {
-    active = false,
-    object = nil,
-    input = nil,
-    startPos = nil
-}
+-- ========= CLEAN GUI COMPONENTS =========
+local function CreateElegantButton(text, x, y, w, h, color, parent)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.AutoButtonColor = false
+    btn.Parent = parent or Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 60)
+    stroke.Thickness = 1
+    stroke.Parent = btn
+    
+    btn.MouseEnter:Connect(function()
+        SafeCall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
+                math.min(color.R * 255 + 20, 255),
+                math.min(color.G * 255 + 20, 255), 
+                math.min(color.B * 255 + 20, 255)
+            )}):Play()
+        end)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        SafeCall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+        end)
+    end)
+    
+    return btn
+end
 
-local function startDrag(input, object)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragData.active = true
-        dragData.object = object
-        dragData.input = input
-        dragData.startPos = object.Position
+local function CreateElegantTextBox(placeholder, x, y, w, h, parent)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.fromOffset(w, h)
+    box.Position = UDim2.fromOffset(x, y)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    box.Text = ""
+    box.PlaceholderText = placeholder
+    box.TextColor3 = Color3.fromRGB(200, 200, 220)
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 10
+    box.Parent = parent or Content
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = box
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 60)
+    stroke.Thickness = 1
+    stroke.Parent = box
+    
+    box.Focused:Connect(function()
+        SafeCall(function()
+            TweenService:Create(box, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(35, 35, 35)}):Play()
+            TweenService:Create(stroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(100, 255, 150)}):Play()
+        end)
+    end)
+    
+    box.FocusLost:Connect(function()
+        SafeCall(function()
+            TweenService:Create(box, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 25)}):Play()
+            TweenService:Create(stroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(60, 60, 60)}):Play()
+        end)
+    end)
+    
+    return box
+end
+
+local function CreateToggleButton(text, x, y, w, h, defaultState)
+    local btn = CreateElegantButton(text, x, y, w, h, defaultState and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(80, 80, 80))
+    
+    local isOn = defaultState
+    
+    local function UpdateButton()
+        if isOn then
+            btn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+            btn.Text = text .. " ON"
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            btn.Text = text .. " OFF"
+        end
+    end
+    
+    UpdateButton()
+    
+    btn.MouseEnter:Connect(function()
+        SafeCall(function()
+            if isOn then
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 200, 100)}):Play()
+            else
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 100, 100)}):Play()
+            end
+        end)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        SafeCall(function()
+            if isOn then
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 180, 80)}):Play()
+            else
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(80, 80, 80)}):Play()
+            end
+        end)
+    end)
+    
+    return btn, function() return isOn end, function(state) 
+        isOn = state 
+        UpdateButton()
+    end
+end
+
+-- Status Label
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.fromOffset(234, 20)
+Status.Position = UDim2.fromOffset(0, 380)
+Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Status.BackgroundTransparency = 0
+Status.Text = "System Ready - v8.3"
+Status.TextColor3 = Color3.fromRGB(100, 255, 150)
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 9
+Status.TextXAlignment = Enum.TextXAlignment.Center
+Status.Parent = Content
+
+local StatusCorner = Instance.new("UICorner")
+StatusCorner.CornerRadius = UDim.new(0, 6)
+StatusCorner.Parent = Status
+
+local StatusStroke = Instance.new("UIStroke")
+StatusStroke.Color = Color3.fromRGB(60, 60, 60)
+StatusStroke.Thickness = 1
+StatusStroke.Parent = Status
+
+-- Main GUI Layout
+local OpenStudioBtn = CreateElegantButton("🎬 RECORDING STUDIO", 10, 5, 230, 30, Color3.fromRGB(100, 150, 255))
+
+local PauseBtn = CreateElegantButton("⏸ PAUSE", 10, 40, 70, 26, Color3.fromRGB(255, 150, 50))
+local PlayBtn = CreateElegantButton("▶ PLAY", 85, 40, 70, 26, Color3.fromRGB(40, 180, 80))
+local StopBtn = CreateElegantButton("■ STOP", 160, 40, 70, 26, Color3.fromRGB(150, 50, 60))
+
+local MoveToBtn, GetMoveToState, SetMoveToState = CreateToggleButton("MoveTo", 10, 75, 110, 24, true)
+local VisualBtn, GetVisualState, SetVisualState = CreateToggleButton("Visual", 125, 75, 110, 24, false)
+local LoopBtn, GetLoopState, SetLoopState = CreateToggleButton("Loop", 10, 105, 110, 24, false)
+local HealBtn, GetHealState, SetHealState = CreateToggleButton("Heal", 125, 105, 110, 24, false)
+
+local FileNameBox = CreateElegantTextBox("filename", 10, 140, 150, 24)
+local SaveFileBtn = CreateElegantButton("SAVE", 165, 140, 35, 24, Color3.fromRGB(40, 140, 70))
+local LoadFileBtn = CreateElegantButton("LOAD", 205, 140, 35, 24, Color3.fromRGB(140, 100, 40))
+
+local SpeedMinus = CreateElegantButton("-", 10, 175, 50, 24, Color3.fromRGB(60, 60, 60))
+local SpeedPlus = CreateElegantButton("+", 190, 175, 50, 24, Color3.fromRGB(60, 60, 60))
+
+local SpeedDisplay = Instance.new("TextLabel")
+SpeedDisplay.Size = UDim2.fromOffset(120, 24)
+SpeedDisplay.Position = UDim2.fromOffset(65, 175)
+SpeedDisplay.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+SpeedDisplay.BackgroundTransparency = 0
+SpeedDisplay.Text = "1.00x"
+SpeedDisplay.TextColor3 = Color3.fromRGB(100, 255, 150)
+SpeedDisplay.Font = Enum.Font.Gotham
+SpeedDisplay.TextSize = 11
+SpeedDisplay.TextXAlignment = Enum.TextXAlignment.Center
+SpeedDisplay.Parent = Content
+
+local SpeedCorner2 = Instance.new("UICorner")
+SpeedCorner2.CornerRadius = UDim.new(0, 6)
+SpeedCorner2.Parent = SpeedDisplay
+
+local SpeedStroke = Instance.new("UIStroke")
+SpeedStroke.Color = Color3.fromRGB(60, 60, 60)
+SpeedStroke.Thickness = 1
+SpeedStroke.Parent = SpeedDisplay
+
+-- Replay List
+local ReplayList = Instance.new("ScrollingFrame")
+ReplayList.Size = UDim2.new(1, 0, 0, 170)
+ReplayList.Position = UDim2.fromOffset(0, 205)
+ReplayList.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+ReplayList.BorderSizePixel = 0
+ReplayList.ScrollBarThickness = 4
+ReplayList.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
+ReplayList.CanvasSize = UDim2.new(0, 0, 0, 0)
+ReplayList.Parent = Content
+
+local ListCorner = Instance.new("UICorner")
+ListCorner.CornerRadius = UDim.new(0, 6)
+ListCorner.Parent = ReplayList
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 2)
+ListLayout.Parent = ReplayList
+
+-- ========= ROUTE VISUALIZATION =========
+local routeParts = {}
+local routeBeams = {}
+
+local function ClearRouteVisualization()
+    SafeCall(function()
+        for _, part in pairs(routeParts) do
+            if part and part.Parent then
+                part:Destroy()
+            end
+        end
+        for _, beam in pairs(routeBeams) do
+            if beam and beam.Parent then
+                beam:Destroy()
+            end
+        end
+        routeParts = {}
+        routeBeams = {}
+    end)
+end
+
+local function ShowRouteVisualization(recording)
+    ClearRouteVisualization()
+    
+    if not recording or #recording == 0 or not ShowVisualization then return end
+    
+    SafeCall(function()
+        local folder = Instance.new("Folder")
+        folder.Name = "RouteVisualization"
+        folder.Parent = workspace
         
-        -- Smooth drag effect
-        local capture = input:Capture()
-    end
+        local lastPart = nil
+        local step = math.max(10, math.floor(#recording / 500))
+        
+        for i = 1, #recording, step do
+            local frame = recording[i]
+            local pos = GetFramePosition(frame)
+            
+            local part = Instance.new("Part")
+            part.Size = Vector3.new(0.3, 0.3, 0.3)
+            part.Position = pos
+            part.Anchored = true
+            part.CanCollide = false
+            part.Transparency = 0.4
+            part.Color = Color3.fromRGB(100, 255, 150)
+            part.Material = Enum.Material.Neon
+            part.Shape = Enum.PartType.Ball
+            part.Parent = folder
+            
+            table.insert(routeParts, part)
+            
+            if lastPart then
+                local beam = Instance.new("Beam")
+                beam.Attachment0 = Instance.new("Attachment")
+                beam.Attachment0.Parent = lastPart
+                beam.Attachment1 = Instance.new("Attachment")
+                beam.Attachment1.Parent = part
+                beam.Color = ColorSequence.new(Color3.fromRGB(100, 255, 150))
+                beam.Width0 = 0.15
+                beam.Width1 = 0.15
+                beam.Brightness = 2
+                beam.Parent = folder
+                
+                table.insert(routeBeams, beam)
+                table.insert(routeBeams, beam.Attachment0)
+                table.insert(routeBeams, beam.Attachment1)
+            end
+            
+            lastPart = part
+        end
+    end)
 end
 
-local function updateDrag(input)
-    if not dragData.active or not dragData.object then return end
+-- ========= REPLAY LIST MANAGEMENT =========
+local function UpdateReplayList()
+    CleanupConnections()
     
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        local delta = input.Position - dragData.input.Position
-        dragData.object.Position = UDim2.new(
-            dragData.startPos.X.Scale,
-            dragData.startPos.X.Offset + delta.X,
-            dragData.startPos.Y.Scale,
-            dragData.startPos.Y.Offset + delta.Y
-        )
-    end
+    SafeCall(function()
+        for _, child in pairs(ReplayList:GetChildren()) do
+            if child:IsA("Frame") then child:Destroy() end
+        end
+        
+        local recordingNames = {}
+        for name, _ in pairs(RecordedMovements) do
+            table.insert(recordingNames, name)
+        end
+        table.sort(recordingNames)
+        
+        local yPos = 0
+        for index, name in ipairs(recordingNames) do
+            local rec = RecordedMovements[name]
+            local item = Instance.new("Frame")
+            item.Size = UDim2.new(1, -8, 0, 16)
+            item.Position = UDim2.new(0, 4, 0, yPos)
+            item.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            item.Parent = ReplayList
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 4)
+            corner.Parent = item
+            
+            local nameBox = Instance.new("TextBox")
+            nameBox.Size = UDim2.new(0, 120, 1, 0)
+            nameBox.Position = UDim2.new(0, 4, 0, 0)
+            nameBox.BackgroundTransparency = 1
+            nameBox.Text = name
+            nameBox.TextColor3 = Color3.new(1, 1, 1)
+            nameBox.Font = Enum.Font.Gotham
+            nameBox.TextSize = 8
+            nameBox.PlaceholderText = "Rename..."
+            nameBox.Parent = item
+            
+            local playBtn = Instance.new("TextButton")
+            playBtn.Size = UDim2.fromOffset(30, 12)
+            playBtn.Position = UDim2.new(1, -60, 0.5, -6)
+            playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+            playBtn.Text = "PLAY"
+            playBtn.TextColor3 = Color3.new(1, 1, 1)
+            playBtn.Font = Enum.Font.GothamBold
+            playBtn.TextSize = 6
+            playBtn.AutoButtonColor = false
+            playBtn.Parent = item
+            
+            local playCorner = Instance.new("UICorner")
+            playCorner.CornerRadius = UDim.new(0, 3)
+            playCorner.Parent = playBtn
+            
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.fromOffset(30, 12)
+            delBtn.Position = UDim2.new(1, -25, 0.5, -6)
+            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            delBtn.Text = "DEL"
+            delBtn.TextColor3 = Color3.new(1, 1, 1)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 6
+            delBtn.AutoButtonColor = false
+            delBtn.Parent = item
+            
+            local delCorner = Instance.new("UICorner")
+            delCorner.CornerRadius = UDim.new(0, 3)
+            delCorner.Parent = delBtn
+            
+            nameBox.FocusLost:Connect(function(enterPressed)
+                SafeCall(function()
+                    if enterPressed and nameBox.Text ~= "" and nameBox.Text ~= name then
+                        RecordedMovements[nameBox.Text] = RecordedMovements[name]
+                        RecordedMovements[name] = nil
+                        UpdateReplayList()
+                    else
+                        nameBox.Text = name
+                    end
+                end)
+            end)
+            
+            local playConn = playBtn.MouseButton1Click:Connect(function()
+                SafeCall(function()
+                    if not IsPlaying then
+                        PlayRecording(name)
+                    end
+                end)
+            end)
+            AddConnection(playConn)
+            
+            local delConn = delBtn.MouseButton1Click:Connect(function()
+                SafeCall(function()
+                    RecordedMovements[name] = nil
+                    UpdateReplayList()
+                    UpdateStatus("Deleted: " .. name)
+                end)
+            end)
+            AddConnection(delConn)
+            
+            yPos = yPos + 18
+        end
+        
+        ReplayList.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    end)
 end
 
-local function endDrag(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragData.active = false
-        dragData.object = nil
-    end
+-- ========= STUDIO UI UPDATE =========
+local function UpdateStudioUI()
+    SafeCall(function()
+        local currentPos = TimelinePosition > 0 and TimelinePosition or #CurrentRecording.Frames
+        FrameLabel.Text = string.format("Frames: %d / 30000 | Pos: %d", #CurrentRecording.Frames, currentPos)
+    end)
 end
 
--- Connect drag events to Header
-SimpleUI:AddConnection(Header.InputBegan:Connect(function(input)
-    startDrag(input, MainFrame)
-end))
-
--- Connect drag events to MiniButton
-SimpleUI:AddConnection(MiniButton.InputBegan:Connect(function(input)
-    startDrag(input, MiniButton)
-end))
-
-SimpleUI:AddConnection(UserInputService.InputChanged:Connect(updateDrag))
-SimpleUI:AddConnection(UserInputService.InputEnded:Connect(endDrag))
-
--- Minimize/Restore
-local isMinimized = false
-
-local function restoreUI()
-    MiniButton.Visible = false
-    MainFrame.Visible = true
-    MainFrame.Size = UDim2.new(0, 0, 0, 0)
+-- ========= RECORDING STUDIO FUNCTIONS =========
+local function StartStudioRecording()
+    if IsRecording then return end
     
-    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Size = UDim2.new(0, 300, 0, 400)
-    }):Play()
-    isMinimized = false
+    SafeCall(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            StatusLabel.Text = "❌ Character not found!"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+        
+        IsRecording = true
+        IsFallDetected = false
+        isCurrentlyFalling = false
+        LastSafeFrame = 0
+        TimelinePosition = 0
+        IsTimelineMode = false
+        FallCheckEnabled = true
+        timelineGroundedStart = nil
+        CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Studio_" .. os.date("%H%M%S")}
+        lastRecordTime = 0
+        lastRecordPos = nil
+        
+        RecordBtn.Text = "⏹ STOP"
+        RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
+        StatusLabel.Text = "🎬 Recording... Move your character"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        
+        recordConnection = RunService.Heartbeat:Connect(function()
+            SafeCall(function()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") or #CurrentRecording.Frames >= MAX_FRAMES then
+                    return
+                end
+                
+                local hrp = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                
+                if IsTimelineMode then
+                    local moveState = GetCurrentMoveState(hum, hrp)
+                    if moveState == "Grounded" then
+                        if not timelineGroundedStart then
+                            timelineGroundedStart = tick()
+                        elseif tick() - timelineGroundedStart > 2 then
+                            IsTimelineMode = false
+                            FallCheckEnabled = true
+                            StatusLabel.Text = "✅ Auto-resumed recording"
+                            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+                            timelineGroundedStart = nil
+                        end
+                    else
+                        timelineGroundedStart = nil
+                    end
+                    return
+                end
+                
+                local moveState = GetCurrentMoveState(hum, hrp)
+                
+                if IsFallDetected and FallCheckEnabled then
+                    IsTimelineMode = true
+                    StatusLabel.Text = "⚠️ FALL DETECTED! Use MUNDUR"
+                    StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
+                    IsFallDetected = false
+                    return
+                end
+                
+                if moveState == "Grounded" or moveState == "Running" then
+                    LastSafeFrame = #CurrentRecording.Frames
+                end
+                
+                local now = tick()
+                if (now - lastRecordTime) < (1 / RECORDING_FPS) then return end
+                
+                local currentPos = hrp.Position
+                local currentVelocity = hrp.AssemblyLinearVelocity
+                
+                if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD and moveState == "Grounded" then
+                    lastRecordTime = now
+                    return
+                end
+                
+                local cf = hrp.CFrame
+                table.insert(CurrentRecording.Frames, {
+                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                    MoveState = moveState,
+                    WalkSpeed = hum and hum.WalkSpeed or 16,
+                    Timestamp = now - CurrentRecording.StartTime
+                })
+                
+                lastRecordTime = now
+                lastRecordPos = currentPos
+                
+                UpdateStudioUI()
+            end)
+        end)
+    end)
 end
 
-MinimizeBtn.MouseButton1Click:Connect(function()
-    if not isMinimized then
-        TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-            Size = UDim2.new(0, 0, 0, 0)
-        }):Play()
-        task.wait(0.3)
+local function StopStudioRecording()
+    IsRecording = false
+    IsFallDetected = false
+    isCurrentlyFalling = false
+    IsTimelineMode = false
+    FallCheckEnabled = true
+    timelineGroundedStart = nil
+    
+    SafeCall(function()
+        if recordConnection then
+            recordConnection:Disconnect()
+            recordConnection = nil
+        end
+        
+        RecordBtn.Text = "● RECORD"
+        RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+        
+        if #CurrentRecording.Frames > 0 then
+            StatusLabel.Text = "✅ Recording stopped (" .. #CurrentRecording.Frames .. " frames)"
+            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        else
+            StatusLabel.Text = "Recording stopped (0 frames)"
+            StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+        end
+    end)
+end
+
+local function RewindTimeline()
+    if not IsRecording then
+        StatusLabel.Text = "❌ Not recording!"
+        return
+    end
+    
+    SafeCall(function()
+        if #CurrentRecording.Frames == 0 then return end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        
+        local hrp = char.HumanoidRootPart
+        
+        -- Calculate frames to delete (1 second = 60 frames)
+        local framesToDelete = TIMELINE_STEP_SECONDS * RECORDING_FPS
+        local targetFrame = math.max(1, #CurrentRecording.Frames - framesToDelete)
+        
+        -- Delete frames from end
+        for i = #CurrentRecording.Frames, targetFrame + 1, -1 do
+            table.remove(CurrentRecording.Frames, i)
+        end
+        
+        -- Teleport to new position
+        if #CurrentRecording.Frames > 0 then
+            local frame = CurrentRecording.Frames[#CurrentRecording.Frames]
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            -- Update last safe frame
+            for i = #CurrentRecording.Frames, 1, -1 do
+                if CurrentRecording.Frames[i].MoveState == "Grounded" then
+                    LastSafeFrame = i
+                    break
+                end
+            end
+            
+            TimelinePosition = #CurrentRecording.Frames
+        end
+        
+        -- Enter timeline mode
+        IsTimelineMode = true
+        FallCheckEnabled = false
+        
+        UpdateStudioUI()
+        StatusLabel.Text = "⏪ Rewound 1 second - Use RESUME"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+        
+        -- Reset fall detection
+        IsFallDetected = false
+        isCurrentlyFalling = false
+        timelineGroundedStart = nil
+    end)
+end
+
+local function ResumeStudioRecording()
+    if not IsRecording then
+        StatusLabel.Text = "❌ Not recording!"
+        return
+    end
+    
+    SafeCall(function()
+        -- Exit timeline mode and resume recording
+        IsTimelineMode = false
+        FallCheckEnabled = true
+        IsFallDetected = false
+        isCurrentlyFalling = false
+        timelineGroundedStart = nil
+        
+        StatusLabel.Text = "▶ Recording resumed from frame " .. #CurrentRecording.Frames
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        
+        UpdateStudioUI()
+    end)
+end
+
+local function SaveStudioRecording()
+    SafeCall(function()
+        if #CurrentRecording.Frames == 0 then
+            StatusLabel.Text = "❌ No frames to save!"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
+        end
+        
+        if IsRecording then
+            StopStudioRecording()
+        end
+        
+        RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
+        UpdateReplayList()
+        
+        StatusLabel.Text = "💾 Saved: " .. CurrentRecording.Name
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        
+        UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
+        
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+        TimelinePosition = 0
+        IsTimelineMode = false
+        timelineGroundedStart = nil
+        UpdateStudioUI()
+        
+        wait(1.5)
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end
+
+local function ClearStudioRecording()
+    SafeCall(function()
+        if IsRecording then
+            StopStudioRecording()
+        end
+        
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+        TimelinePosition = 0
+        IsTimelineMode = false
+        LastSafeFrame = 0
+        timelineGroundedStart = nil
+        
+        UpdateStudioUI()
+        StatusLabel.Text = "🗑️ Cleared - Ready to record"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    end)
+end
+
+-- ========= STUDIO BUTTON EVENTS =========
+RecordBtn.MouseButton1Click:Connect(function()
+    if IsRecording then
+        StopStudioRecording()
+    else
+        StartStudioRecording()
+    end
+end)
+
+RewindBtn.MouseButton1Click:Connect(RewindTimeline)
+ResumeBtn.MouseButton1Click:Connect(ResumeStudioRecording)
+SaveBtn.MouseButton1Click:Connect(SaveStudioRecording)
+ClearBtn.MouseButton1Click:Connect(ClearStudioRecording)
+
+CloseStudioBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if IsRecording then
+            StopStudioRecording()
+        end
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end)
+
+-- ========= FIXED PLAYBACK FUNCTIONS =========
+function PlayRecordingWithPureCFrame(recording, startFrame)
+    if not recording or #recording == 0 then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then return end
+    
+    task.spawn(function()
+        SafeCall(function()
+            hum.AutoRotate = false
+            hum.PlatformStand = false
+            
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            
+            local currentFrame = startFrame or 1
+            
+            while IsPlaying and currentFrame <= #recording do
+                if IsPaused then
+                    if pauseStartTime == 0 then
+                        pauseStartTime = tick()
+                    end
+                    task.wait()
+                    continue
+                else
+                    if pauseStartTime > 0 then
+                        totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                        pauseStartTime = 0
+                    end
+                end
+                
+                char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then break end
+                hum = char:FindFirstChildOfClass("Humanoid")
+                hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then break end
+                
+                local frame = recording[currentFrame]
+                if not frame then break end
+                
+                currentPlaybackFrame = currentFrame
+                
+                pcall(function()
+                    hrp.CFrame = GetFrameCFrame(frame)
+                    hrp.AssemblyLinearVelocity = GetFrameVelocity(frame) * CurrentSpeed
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    
+                    local moveState = frame.MoveState
+                    
+                    if moveState ~= lastMoveState then
+                        lastMoveState = moveState
+                        
+                        if moveState == "Climbing" then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        elseif moveState == "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        elseif moveState == "Falling" then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        elseif moveState == "Swimming" then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        else
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                        end
+                    end
+                    
+                    if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
+                        hum.Health = hum.MaxHealth
+                    end
+                end)
+                
+                if currentFrame % 30 == 0 then
+                    UpdateStatus(string.format("CFrame: %d/%d (%.1f%%)", currentFrame, #recording, (currentFrame / #recording) * 100))
+                end
+                
+                currentFrame = currentFrame + 1
+                task.wait(1 / (RECORDING_FPS * CurrentSpeed))
+            end
+            
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+            
+            if AutoLoop and IsPlaying then
+                UpdateStatus("🔄 Looping...")
+                currentPlaybackFrame = 1
+                playbackStartTime = tick()
+                totalPausedDuration = 0
+                PlayRecordingWithPureCFrame(recording, 1)
+            else
+                IsPlaying = false
+                IsPaused = false
+                lastMoveState = nil
+                CompleteCharacterReset(char)
+                UpdateStatus("🎉 Playback Complete!")
+            end
+        end)
+    end)
+end
+
+function PlayRecordingWithSmartMoveTo(recording, startFrame)
+    if not recording or #recording == 0 then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not hum or not hrp then return end
+    
+    task.spawn(function()
+        SafeCall(function()
+            hum.AutoRotate = true
+            hum.PlatformStand = false
+            
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = false
+                end
+            end
+            
+            local currentFrame = startFrame or 1
+            
+            while IsPlaying and currentFrame <= #recording do
+                if IsPaused then
+                    if pauseStartTime == 0 then
+                        pauseStartTime = tick()
+                    end
+                    task.wait()
+                    continue
+                else
+                    if pauseStartTime > 0 then
+                        totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                        pauseStartTime = 0
+                    end
+                end
+                
+                char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then break end
+                hum = char:FindFirstChildOfClass("Humanoid")
+                hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then break end
+                
+                local frame = recording[currentFrame]
+                if not frame then break end
+                
+                currentPlaybackFrame = currentFrame
+                
+                pcall(function()
+                    local targetPos = GetFramePosition(frame)
+                    local moveState = frame.MoveState
+                    
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    
+                    local distanceToTarget = (hrp.Position - targetPos).Magnitude
+                    
+                    if distanceToTarget > 30 then
+                        hrp.CFrame = GetFrameCFrame(frame)
+                        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame) * CurrentSpeed
+                    elseif distanceToTarget > MOVETO_REACH_DISTANCE then
+                        hum:MoveTo(targetPos)
+                        
+                        local targetCFrame = GetFrameCFrame(frame)
+                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + targetCFrame.LookVector)
+                    end
+                    
+                    if moveState ~= lastMoveState then
+                        lastMoveState = moveState
+                        
+                        if moveState == "Climbing" then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        elseif moveState == "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        elseif moveState == "Falling" then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        elseif moveState == "Swimming" then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        else
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                        end
+                    end
+                    
+                    if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
+                        hum.Health = hum.MaxHealth
+                    end
+                end)
+                
+                if currentFrame % 30 == 0 then
+                    UpdateStatus(string.format("MoveTo: %d/%d (%.1f%%)", currentFrame, #recording, (currentFrame / #recording) * 100))
+                end
+                
+                currentFrame = currentFrame + 1
+                task.wait(1 / (RECORDING_FPS * CurrentSpeed))
+            end
+            
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+            
+            if AutoLoop and IsPlaying then
+                UpdateStatus("🔄 Looping...")
+                currentPlaybackFrame = 1
+                playbackStartTime = tick()
+                totalPausedDuration = 0
+                PlayRecordingWithSmartMoveTo(recording, 1)
+            else
+                IsPlaying = false
+                IsPaused = false
+                lastMoveState = nil
+                CompleteCharacterReset(char)
+                UpdateStatus("🎉 Playback Complete!")
+            end
+        end)
+    end)
+end
+
+function PlayRecording(name)
+    if IsPlaying then return end
+    
+    SafeCall(function()
+        local recording = name and RecordedMovements[name] or next(RecordedMovements) and (select(2, next(RecordedMovements)))
+        if not recording then
+            UpdateStatus("ERROR: No recordings!")
+            return
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            UpdateStatus("ERROR: Character not found!")
+            return
+        end
+        
+        currentRecordingName = name or next(RecordedMovements)
+        
+        IsPlaying = true
+        IsPaused = false
+        totalPausedDuration = 0
+        pauseStartTime = 0
+        lastMoveState = nil
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
+        
+        if distance <= ROUTE_PROXIMITY_THRESHOLD then
+            currentPlaybackFrame = nearestFrame
+            UpdateStatus(string.format("▶ Starting from Frame %d (nearby)", nearestFrame))
+        else
+            currentPlaybackFrame = 1
+            
+            local startPos = GetFramePosition(recording[1])
+            if (hrp.Position - startPos).Magnitude > 50 then
+                hrp.CFrame = CFrame.new(startPos)
+                UpdateStatus("📍 Teleported to start")
+            else
+                UpdateStatus("▶ Starting playback")
+            end
+        end
+        
+        if UseMoveTo then
+            PlayRecordingWithSmartMoveTo(recording, currentPlaybackFrame)
+        else
+            PlayRecordingWithPureCFrame(recording, currentPlaybackFrame)
+        end
+    end)
+end
+
+function StopPlayback()
+    if not IsPlaying then return end
+    
+    SafeCall(function()
+        IsPlaying = false
+        IsPaused = false
+        lastMoveState = nil
+        
+        if moveToConnection then
+            moveToConnection:Disconnect()
+            moveToConnection = nil
+        end
+        
+        local char = player.Character
+        if char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+            
+            CompleteCharacterReset(char)
+        end
+        
+        if ShowVisualization then
+            ClearRouteVisualization()
+        end
+        
+        UpdateStatus("■ Playback Stopped")
+    end)
+end
+
+function PauseResumePlayback()
+    if not IsPlaying then return end
+    
+    SafeCall(function()
+        IsPaused = not IsPaused
+        
+        if IsPaused then
+            UpdateStatus("⏸️ Playback Paused")
+        else
+            UpdateStatus("▶️ Playback Resumed")
+        end
+    end)
+end
+
+function UpdateStatus(msg)
+    SafeCall(function()
+        if Status then
+            Status.Text = msg
+        end
+    end)
+end
+
+-- ========= SPEED CONTROL =========
+local function UpdateSpeedDisplay()
+    SafeCall(function()
+        SpeedDisplay.Text = string.format("%.2fx", CurrentSpeed)
+    end)
+end
+
+SpeedMinus.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if CurrentSpeed > 0.5 then
+            CurrentSpeed = math.max(0.5, CurrentSpeed - 0.25)
+            UpdateSpeedDisplay()
+            UpdateStatus("Speed: " .. string.format("%.2f", CurrentSpeed) .. "x")
+        end
+    end)
+end)
+
+SpeedPlus.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if CurrentSpeed < 10 then
+            CurrentSpeed = math.min(10, CurrentSpeed + 0.25)
+            UpdateSpeedDisplay()
+            UpdateStatus("Speed: " .. string.format("%.2f", CurrentSpeed) .. "x")
+        end
+    end)
+end)
+
+-- ========= FILE MANAGEMENT =========
+local function SaveToFile()
+    SafeCall(function()
+        local filename = FileNameBox.Text
+        if filename == "" then filename = "MyWalk" end
+        filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
+        
+        if not next(RecordedMovements) then
+            UpdateStatus("ERROR: No recordings to save!")
+            return
+        end
+        
+        local data = {
+            recordings = RecordedMovements,
+            settings = {
+                speed = CurrentSpeed,
+                autoHeal = AutoHeal,
+                autoLoop = AutoLoop,
+                useMoveTo = UseMoveTo,
+                showVisualization = ShowVisualization
+            },
+            version = "8.3"
+        }
+        writefile(filename, HttpService:JSONEncode(data))
+        UpdateStatus("💾 Saved: " .. filename)
+    end)
+end
+
+local function LoadFromFile()
+    SafeCall(function()
+        local filename = FileNameBox.Text
+        if filename == "" then filename = "MyWalk" end
+        filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
+        
+        if isfile(filename) then
+            local data = HttpService:JSONDecode(readfile(filename))
+            RecordedMovements = data.recordings or {}
+            CurrentSpeed = data.settings and data.settings.speed or 1
+            AutoHeal = data.settings and data.settings.autoHeal or false
+            AutoLoop = data.settings and data.settings.autoLoop or false
+            UseMoveTo = data.settings and data.settings.useMoveTo or true
+            ShowVisualization = data.settings and data.settings.showVisualization or false
+            
+            UpdateSpeedDisplay()
+            SetMoveToState(UseMoveTo)
+            SetVisualState(ShowVisualization)
+            SetLoopState(AutoLoop)
+            SetHealState(AutoHeal)
+            UpdateReplayList()
+            UpdateStatus("📂 Loaded: " .. filename)
+        else
+            UpdateStatus("❌ ERROR: File not found")
+        end
+    end)
+end
+
+-- ========= MAIN GUI BUTTON EVENTS =========
+OpenStudioBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        MainFrame.Visible = false
+        RecordingStudio.Visible = true
+        StatusLabel.Text = "🎬 Recording Studio Ready"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    end)
+end)
+
+PauseBtn.MouseButton1Click:Connect(function()
+    PauseResumePlayback()
+end)
+
+PlayBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if IsPlaying and IsPaused then
+            PauseResumePlayback()
+        else
+            PlayRecording()
+        end
+    end)
+end)
+
+StopBtn.MouseButton1Click:Connect(function()
+    StopPlayback()
+end)
+
+MoveToBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        UseMoveTo = not UseMoveTo
+        SetMoveToState(UseMoveTo)
+        if UseMoveTo then
+            UpdateStatus("🎯 Mode: Smart MoveTo")
+        else
+            UpdateStatus("🚀 Mode: Pure CFrame")
+        end
+    end)
+end)
+
+VisualBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        ShowVisualization = not ShowVisualization
+        SetVisualState(ShowVisualization)
+        if ShowVisualization then
+            local recording = currentRecordingName and RecordedMovements[currentRecordingName]
+            if not recording and next(RecordedMovements) then
+                recording = select(2, next(RecordedMovements))
+            end
+            if recording then
+                ShowRouteVisualization(recording)
+            end
+        else
+            ClearRouteVisualization()
+        end
+        UpdateStatus("👁️ Visual: " .. (ShowVisualization and "ON" or "OFF"))
+    end)
+end)
+
+LoopBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        AutoLoop = not AutoLoop
+        SetLoopState(AutoLoop)
+        UpdateStatus("🔄 Auto Loop: " .. (AutoLoop and "ON" or "OFF"))
+    end)
+end)
+
+HealBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        AutoHeal = not AutoHeal
+        SetHealState(AutoHeal)
+        UpdateStatus("❤️ Auto Heal: " .. (AutoHeal and "ON" or "OFF"))
+    end)
+end)
+
+SaveFileBtn.MouseButton1Click:Connect(SaveToFile)
+LoadFileBtn.MouseButton1Click:Connect(LoadFromFile)
+
+HideButton.MouseButton1Click:Connect(function()
+    SafeCall(function()
         MainFrame.Visible = false
         MiniButton.Visible = true
-        isMinimized = true
-    else
-        restoreUI()
-    end
+    end)
 end)
 
 MiniButton.MouseButton1Click:Connect(function()
-    if isMinimized then
-        restoreUI()
-    end
-end)
-
-CloseBtn.MouseButton1Click:Connect(function()
-    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-        Size = UDim2.new(0, 0, 0, 0)
-    }):Play()
-    TweenService:Create(MiniButton, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
-        Size = UDim2.new(0, 0, 0, 0)
-    }):Play()
-    task.wait(0.3)
-    SimpleUI:Cleanup()
-    ScreenGui:Destroy()
-end)
-
--- TAB SYSTEM
-function SimpleUI:AddTab(tabName)
-    local tabButton = Instance.new("TextButton")
-    tabButton.Size = UDim2.new(0, 70, 1, 0)
-    tabButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    tabButton.Text = tabName
-    tabButton.TextColor3 = Color3.fromRGB(180, 180, 180)
-    tabButton.Font = Enum.Font.GothamBold
-    tabButton.TextSize = 11
-    tabButton.BorderSizePixel = 0
-    tabButton.AutoButtonColor = false
-    tabButton.Parent = TabContainer
-    
-    local tabCorner = Instance.new("UICorner")
-    tabCorner.CornerRadius = UDim.new(0, 6)
-    tabCorner.Parent = tabButton
-    
-    local tabContent = Instance.new("Frame")
-    tabContent.Size = UDim2.new(1, 0, 0, 0)
-    tabContent.BackgroundTransparency = 1
-    tabContent.Visible = false
-    tabContent.Parent = ContentContainer
-    
-    local tabLayout = Instance.new("UIListLayout")
-    tabLayout.Padding = UDim.new(0, 8)
-    tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    tabLayout.Parent = tabContent
-    
-    local tabPadding = Instance.new("UIPadding")
-    tabPadding.PaddingTop = UDim.new(0, 5)
-    tabPadding.PaddingBottom = UDim.new(0, 5)
-    tabPadding.Parent = tabContent
-    
-    local tab = {
-        Name = tabName,
-        Button = tabButton,
-        Content = tabContent
-    }
-    
-    table.insert(self.Tabs, tab)
-    
-    tabButton.MouseButton1Click:Connect(function()
-        self:SwitchTab(tabName)
+    SafeCall(function()
+        MainFrame.Visible = true
+        MiniButton.Visible = false
     end)
-    
-    if #self.Tabs == 1 then
-        self:SwitchTab(tabName)
-    end
-    
-    local tabFunctions = {}
-    
-    -- ADD BUTTON
-    function tabFunctions:AddButton(config)
-        local buttonFrame = Instance.new("Frame")
-        buttonFrame.Size = UDim2.new(1, 0, 0, 32)
-        buttonFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        buttonFrame.BorderSizePixel = 0
-        buttonFrame.Parent = tabContent
-        
-        local buttonCorner = Instance.new("UICorner")
-        buttonCorner.CornerRadius = UDim.new(0, 6)
-        buttonCorner.Parent = buttonFrame
-        
-        local buttonStroke = Instance.new("UIStroke")
-        buttonStroke.Color = Color3.fromRGB(60, 60, 60)
-        buttonStroke.Thickness = 1
-        buttonStroke.Parent = buttonFrame
-        
-        local button = Instance.new("TextButton")
-        button.Size = UDim2.new(1, 0, 1, 0)
-        button.BackgroundTransparency = 1
-        button.Text = config.Name or "Button"
-        button.TextColor3 = Color3.fromRGB(255, 255, 255)
-        button.Font = Enum.Font.GothamBold
-        button.TextSize = 11
-        button.BorderSizePixel = 0
-        button.AutoButtonColor = false
-        button.Parent = buttonFrame
-        
-        button.MouseEnter:Connect(function()
-            TweenService:Create(buttonFrame, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            }):Play()
-        end)
-        
-        button.MouseLeave:Connect(function()
-            TweenService:Create(buttonFrame, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-            }):Play()
-        end)
-        
-        button.MouseButton1Click:Connect(function()
-            if config.Callback then
-                task.spawn(config.Callback)
-            end
-        end)
-        
-        return {
-            Set = function(self, text)
-                button.Text = text
-            end
-        }
-    end
-    
-    -- ADD TOGGLE
-    function tabFunctions:AddToggle(config)
-        local toggleState = config.Default or false
-        
-        local toggleFrame = Instance.new("Frame")
-        toggleFrame.Size = UDim2.new(1, 0, 0, 28)
-        toggleFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        toggleFrame.BorderSizePixel = 0
-        toggleFrame.Parent = tabContent
-        
-        local toggleCorner = Instance.new("UICorner")
-        toggleCorner.CornerRadius = UDim.new(0, 6)
-        toggleCorner.Parent = toggleFrame
-        
-        local toggleStroke = Instance.new("UIStroke")
-        toggleStroke.Color = Color3.fromRGB(60, 60, 60)
-        toggleStroke.Thickness = 1
-        toggleStroke.Parent = toggleFrame
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.6, 0, 1, 0)
-        label.Position = UDim2.new(0, 8, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = config.Name or "Toggle"
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 11
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = toggleFrame
-        
-        local toggleButton = Instance.new("TextButton")
-        toggleButton.Size = UDim2.new(0, 38, 0, 18)
-        toggleButton.Position = UDim2.new(1, -42, 0.5, -9)
-        toggleButton.BackgroundColor3 = toggleState and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(60, 60, 60)
-        toggleButton.Text = ""
-        toggleButton.BorderSizePixel = 0
-        toggleButton.AutoButtonColor = false
-        toggleButton.Parent = toggleFrame
-        
-        local toggleCorner2 = Instance.new("UICorner")
-        toggleCorner2.CornerRadius = UDim.new(1, 0)
-        toggleCorner2.Parent = toggleButton
-        
-        local toggleDot = Instance.new("Frame")
-        toggleDot.Size = UDim2.new(0, 14, 0, 14)
-        toggleDot.Position = UDim2.new(0, toggleState and 22 or 2, 0.5, -7)
-        toggleDot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        toggleDot.BorderSizePixel = 0
-        toggleDot.Parent = toggleButton
-        
-        local dotCorner = Instance.new("UICorner")
-        dotCorner.CornerRadius = UDim.new(1, 0)
-        dotCorner.Parent = toggleDot
-        
-        local function toggle()
-            toggleState = not toggleState
-            
-            TweenService:Create(toggleButton, TweenInfo.new(0.2), {
-                BackgroundColor3 = toggleState and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(60, 60, 60)
-            }):Play()
-            
-            TweenService:Create(toggleDot, TweenInfo.new(0.2), {
-                Position = UDim2.new(0, toggleState and 22 or 2, 0.5, -7)
-            }):Play()
-            
-            if config.Callback then
-                task.spawn(config.Callback, toggleState)
-            end
-        end
-        
-        toggleButton.MouseButton1Click:Connect(toggle)
-        
-        return {
-            Set = function(self, state)
-                if state ~= toggleState then
-                    toggle()
-                end
-            end,
-            Get = function(self)
-                return toggleState
-            end
-        }
-    end
-    
-    -- ADD SLIDER (Simple Click-Based, Mobile Friendly)
-    function tabFunctions:AddSlider(config)
-        local sliderValue = config.Default or config.Min or 0
-        local dragging = false
-        
-        local sliderFrame = Instance.new("Frame")
-        sliderFrame.Size = UDim2.new(1, 0, 0, 45)
-        sliderFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        sliderFrame.BorderSizePixel = 0
-        sliderFrame.Parent = tabContent
-        
-        local sliderCorner = Instance.new("UICorner")
-        sliderCorner.CornerRadius = UDim.new(0, 6)
-        sliderCorner.Parent = sliderFrame
-        
-        local sliderStroke = Instance.new("UIStroke")
-        sliderStroke.Color = Color3.fromRGB(60, 60, 60)
-        sliderStroke.Thickness = 1
-        sliderStroke.Parent = sliderFrame
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -16, 0, 18)
-        label.Position = UDim2.new(0, 8, 0, 3)
-        label.BackgroundTransparency = 1
-        label.Text = (config.Name or "Slider") .. ": " .. sliderValue
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 11
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = sliderFrame
-        
-        local track = Instance.new("Frame")
-        track.Size = UDim2.new(1, -16, 0, 6)
-        track.Position = UDim2.new(0, 8, 1, -18)
-        track.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        track.BorderSizePixel = 0
-        track.Parent = sliderFrame
-        
-        local trackCorner = Instance.new("UICorner")
-        trackCorner.CornerRadius = UDim.new(1, 0)
-        trackCorner.Parent = track
-        
-        local fill = Instance.new("Frame")
-        fill.Size = UDim2.new(0, 0, 1, 0)
-        fill.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-        fill.BorderSizePixel = 0
-        fill.Parent = track
-        
-        local fillCorner = Instance.new("UICorner")
-        fillCorner.CornerRadius = UDim.new(1, 0)
-        fillCorner.Parent = fill
-        
-        local sliderButton = Instance.new("TextButton")
-        sliderButton.Size = UDim2.new(1, 0, 1, 0)
-        sliderButton.BackgroundTransparency = 1
-        sliderButton.Text = ""
-        sliderButton.BorderSizePixel = 0
-        sliderButton.AutoButtonColor = false
-        sliderButton.Parent = track
-        
-        local function updateSlider(input)
-            local posX
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                posX = input.Position.X
-            else
-                return
-            end
-            
-            local relativeX = math.clamp((posX - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-            
-            local newValue = config.Min + (config.Max - config.Min) * relativeX
-            if config.Increment then
-                newValue = math.floor(newValue / config.Increment + 0.5) * config.Increment
-            else
-                newValue = math.floor(newValue + 0.5)
-            end
-            
-            newValue = math.clamp(newValue, config.Min, config.Max)
-            
-            if newValue ~= sliderValue then
-                sliderValue = newValue
-                fill.Size = UDim2.new(relativeX, 0, 1, 0)
-                label.Text = (config.Name or "Slider") .. ": " .. sliderValue
-                
-                if config.Callback then
-                    task.spawn(config.Callback, sliderValue)
-                end
-            end
-        end
-        
-        sliderButton.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                updateSlider(input)
-            end
-        end)
-        
-        sliderButton.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                updateSlider(input)
-            end
-        end)
-        
-        sliderButton.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-        
-        local initialPercent = (sliderValue - config.Min) / (config.Max - config.Min)
-        fill.Size = UDim2.new(initialPercent, 0, 1, 0)
-        
-        return {
-            Set = function(self, value)
-                sliderValue = math.clamp(value, config.Min, config.Max)
-                local percent = (sliderValue - config.Min) / (config.Max - config.Min)
-                fill.Size = UDim2.new(percent, 0, 1, 0)
-                label.Text = (config.Name or "Slider") .. ": " .. sliderValue
-            end,
-            Get = function(self)
-                return sliderValue
-            end
-        }
-    end
-    
-    -- ADD TEXTBOX
-    function tabFunctions:AddTextbox(config)
-        local textboxFrame = Instance.new("Frame")
-        textboxFrame.Size = UDim2.new(1, 0, 0, 42)
-        textboxFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        textboxFrame.BorderSizePixel = 0
-        textboxFrame.Parent = tabContent
-        
-        local textboxCorner = Instance.new("UICorner")
-        textboxCorner.CornerRadius = UDim.new(0, 6)
-        textboxCorner.Parent = textboxFrame
-        
-        local textboxStroke = Instance.new("UIStroke")
-        textboxStroke.Color = Color3.fromRGB(60, 60, 60)
-        textboxStroke.Thickness = 1
-        textboxStroke.Parent = textboxFrame
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -16, 0, 16)
-        label.Position = UDim2.new(0, 8, 0, 2)
-        label.BackgroundTransparency = 1
-        label.Text = config.Name or "Textbox"
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 10
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = textboxFrame
-        
-        local textbox = Instance.new("TextBox")
-        textbox.Size = UDim2.new(1, -16, 0, 20)
-        textbox.Position = UDim2.new(0, 8, 0, 19)
-        textbox.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-        textbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        textbox.Font = Enum.Font.Gotham
-        textbox.TextSize = 10
-        textbox.PlaceholderText = config.Placeholder or "Enter text..."
-        textbox.Text = config.Default or ""
-        textbox.ClearTextOnFocus = false
-        textbox.BorderSizePixel = 0
-        textbox.Parent = textboxFrame
-        
-        local textboxInnerCorner = Instance.new("UICorner")
-        textboxInnerCorner.CornerRadius = UDim.new(0, 4)
-        textboxInnerCorner.Parent = textbox
-        
-        textbox.FocusLost:Connect(function(enterPressed)
-            if enterPressed and config.Callback then
-                task.spawn(config.Callback, textbox.Text)
-            end
-        end)
-        
-        return {
-            Set = function(self, text)
-                textbox.Text = text
-            end,
-            Get = function(self)
-                return textbox.Text
-            end
-        }
-    end
-    
-    -- ADD MULTI-LINE TEXTBOX (Untuk Code Editor)
-    function tabFunctions:AddMultiLineTextbox(config)
-        local textboxFrame = Instance.new("Frame")
-        textboxFrame.Size = UDim2.new(1, 0, 0, config.Height or 80)
-        textboxFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        textboxFrame.BorderSizePixel = 0
-        textboxFrame.Parent = tabContent
-        
-        local textboxCorner = Instance.new("UICorner")
-        textboxCorner.CornerRadius = UDim.new(0, 6)
-        textboxCorner.Parent = textboxFrame
-        
-        local textboxStroke = Instance.new("UIStroke")
-        textboxStroke.Color = Color3.fromRGB(60, 60, 60)
-        textboxStroke.Thickness = 1
-        textboxStroke.Parent = textboxFrame
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -16, 0, 16)
-        label.Position = UDim2.new(0, 8, 0, 2)
-        label.BackgroundTransparency = 1
-        label.Text = config.Name or "Code Editor"
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 10
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = textboxFrame
-        
-        local scrollingFrame = Instance.new("ScrollingFrame")
-        scrollingFrame.Size = UDim2.new(1, -16, 1, -25)
-        scrollingFrame.Position = UDim2.new(0, 8, 0, 19)
-        scrollingFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-        scrollingFrame.BorderSizePixel = 0
-        scrollingFrame.ScrollBarThickness = 6
-        scrollingFrame.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-        scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        scrollingFrame.Parent = textboxFrame
-        
-        local textbox = Instance.new("TextBox")
-        textbox.Size = UDim2.new(1, 0, 1, 0)
-        textbox.BackgroundTransparency = 1
-        textbox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        textbox.Font = Enum.Font.Gotham
-        textbox.TextSize = 10
-        textbox.PlaceholderText = config.Placeholder or "Paste your lua code here..."
-        textbox.Text = config.Default or ""
-        textbox.ClearTextOnFocus = false
-        textbox.MultiLine = true
-        textbox.TextWrapped = true
-        textbox.TextXAlignment = Enum.TextXAlignment.Left
-        textbox.TextYAlignment = Enum.TextYAlignment.Top
-        textbox.BorderSizePixel = 0
-        textbox.Parent = scrollingFrame
-        
-        local textboxInnerCorner = Instance.new("UICorner")
-        textboxInnerCorner.CornerRadius = UDim.new(0, 4)
-        textboxInnerCorner.Parent = scrollingFrame
-        
-        textbox:GetPropertyChangedSignal("Text"):Connect(function()
-            scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, textbox.TextBounds.Y + 10)
-        end)
-        
-        return {
-            Set = function(self, text)
-                textbox.Text = text
-            end,
-            Get = function(self)
-                return textbox.Text
-            end,
-            Instance = textbox
-        }
-    end
-    
-    -- ADD DROPDOWN
-    function tabFunctions:AddDropdown(config)
-        local dropdownState = config.Default or config.Options[1]
-        local dropdownOpen = false
-        
-        local dropdownFrame = Instance.new("Frame")
-        dropdownFrame.Size = UDim2.new(1, 0, 0, 28)
-        dropdownFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-        dropdownFrame.BorderSizePixel = 0
-        dropdownFrame.Parent = tabContent
-        
-        local dropdownCorner = Instance.new("UICorner")
-        dropdownCorner.CornerRadius = UDim.new(0, 6)
-        dropdownCorner.Parent = dropdownFrame
-        
-        local dropdownStroke = Instance.new("UIStroke")
-        dropdownStroke.Color = Color3.fromRGB(60, 60, 60)
-        dropdownStroke.Thickness = 1
-        dropdownStroke.Parent = dropdownFrame
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0.5, 0, 1, 0)
-        label.Position = UDim2.new(0, 8, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = config.Name or "Dropdown"
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 11
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = dropdownFrame
-        
-        local currentText = Instance.new("TextLabel")
-        currentText.Size = UDim2.new(0.35, 0, 1, 0)
-        currentText.Position = UDim2.new(0.5, 0, 0, 0)
-        currentText.BackgroundTransparency = 1
-        currentText.Text = dropdownState
-        currentText.TextColor3 = Color3.fromRGB(200, 200, 200)
-        currentText.Font = Enum.Font.Gotham
-        currentText.TextSize = 10
-        currentText.TextXAlignment = Enum.TextXAlignment.Right
-        currentText.TextTruncate = Enum.TextTruncate.AtEnd
-        currentText.Parent = dropdownFrame
-        
-        local arrow = Instance.new("TextLabel")
-        arrow.Size = UDim2.new(0, 18, 1, 0)
-        arrow.Position = UDim2.new(1, -20, 0, 0)
-        arrow.BackgroundTransparency = 1
-        arrow.Text = "▼"
-        arrow.TextColor3 = Color3.fromRGB(200, 200, 200)
-        arrow.Font = Enum.Font.Gotham
-        arrow.TextSize = 10
-        arrow.Parent = dropdownFrame
-        
-        local dropdownButton = Instance.new("TextButton")
-        dropdownButton.Size = UDim2.new(1, 0, 1, 0)
-        dropdownButton.BackgroundTransparency = 1
-        dropdownButton.Text = ""
-        dropdownButton.BorderSizePixel = 0
-        dropdownButton.AutoButtonColor = false
-        dropdownButton.Parent = dropdownFrame
-        
-        local optionsFrame = Instance.new("Frame")
-        optionsFrame.Size = UDim2.new(0, 0, 0, 0)
-        optionsFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        optionsFrame.BorderSizePixel = 0
-        optionsFrame.Visible = false
-        optionsFrame.ZIndex = 200
-        optionsFrame.Parent = ScreenGui
-        
-        local optionsCorner = Instance.new("UICorner")
-        optionsCorner.CornerRadius = UDim.new(0, 6)
-        optionsCorner.Parent = optionsFrame
-        
-        local optionsStroke = Instance.new("UIStroke")
-        optionsStroke.Color = Color3.fromRGB(60, 60, 60)
-        optionsStroke.Thickness = 1
-        optionsStroke.Parent = optionsFrame
-        
-        local optionsScroll = Instance.new("ScrollingFrame")
-        optionsScroll.Size = UDim2.new(1, 0, 1, 0)
-        optionsScroll.BackgroundTransparency = 1
-        optionsScroll.BorderSizePixel = 0
-        optionsScroll.ScrollBarThickness = 4
-        optionsScroll.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-        optionsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-        optionsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        optionsScroll.ZIndex = 201
-        optionsScroll.Parent = optionsFrame
-        
-        local optionsLayout = Instance.new("UIListLayout")
-        optionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-        optionsLayout.Parent = optionsScroll
-        
-        for _, option in ipairs(config.Options) do
-            local optionButton = Instance.new("TextButton")
-            optionButton.Size = UDim2.new(1, 0, 0, 28)
-            optionButton.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-            optionButton.Text = option
-            optionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-            optionButton.Font = Enum.Font.Gotham
-            optionButton.TextSize = 10
-            optionButton.BorderSizePixel = 0
-            optionButton.AutoButtonColor = false
-            optionButton.ZIndex = 202
-            optionButton.Parent = optionsScroll
-            
-            optionButton.MouseEnter:Connect(function()
-                TweenService:Create(optionButton, TweenInfo.new(0.1), {
-                    BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-                }):Play()
-            end)
-            
-            optionButton.MouseLeave:Connect(function()
-                TweenService:Create(optionButton, TweenInfo.new(0.1), {
-                    BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-                }):Play()
-            end)
-            
-            optionButton.MouseButton1Click:Connect(function()
-                dropdownState = option
-                currentText.Text = option
-                optionsFrame.Visible = false
-                dropdownOpen = false
-                arrow.Text = "▼"
-                
-                if config.Callback then
-                    task.spawn(config.Callback, option)
-                end
-            end)
-        end
-        
-        local function updatePosition()
-            local pos = dropdownFrame.AbsolutePosition
-            local size = dropdownFrame.AbsoluteSize
-            optionsFrame.Position = UDim2.fromOffset(pos.X, pos.Y + size.Y + 4)
-            optionsFrame.Size = UDim2.new(0, size.X, 0, math.min(#config.Options * 28, 140))
-        end
-        
-        dropdownButton.MouseButton1Click:Connect(function()
-            dropdownOpen = not dropdownOpen
-            
-            if dropdownOpen then
-                updatePosition()
-                arrow.Text = "▲"
-            else
-                arrow.Text = "▼"
-            end
-            
-            optionsFrame.Visible = dropdownOpen
-        end)
-        
-        SimpleUI:AddConnection(UserInputService.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 and dropdownOpen then
-                local mousePos = UserInputService:GetMouseLocation()
-                local dropPos = dropdownFrame.AbsolutePosition
-                local dropSize = dropdownFrame.AbsoluteSize
-                local optPos = optionsFrame.AbsolutePosition
-                local optSize = optionsFrame.AbsoluteSize
-                
-                local inDrop = mousePos.X >= dropPos.X and mousePos.X <= dropPos.X + dropSize.X and
-                              mousePos.Y >= dropPos.Y and mousePos.Y <= dropPos.Y + dropSize.Y
-                
-                local inOpt = mousePos.X >= optPos.X and mousePos.X <= optPos.X + optSize.X and
-                             mousePos.Y >= optPos.Y and mousePos.Y <= optPos.Y + optSize.Y
-                
-                if not inDrop and not inOpt then
-                    optionsFrame.Visible = false
-                    dropdownOpen = false
-                    arrow.Text = "▼"
-                end
-            end
-        end))
-        
-        return {
-            Set = function(self, option)
-                dropdownState = option
-                currentText.Text = option
-            end,
-            Get = function(self)
-                return dropdownState
-            end
-        }
-    end
-    
-    -- ADD LABEL
-    function tabFunctions:AddLabel(text)
-        local labelFrame = Instance.new("Frame")
-        labelFrame.Size = UDim2.new(1, 0, 0, 22)
-        labelFrame.BackgroundTransparency = 1
-        labelFrame.Parent = tabContent
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -8, 1, 0)
-        label.Position = UDim2.new(0, 8, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Text = text or "Label"
-        label.TextColor3 = Color3.fromRGB(200, 200, 200)
-        label.Font = Enum.Font.Gotham
-        label.TextSize = 10
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = labelFrame
-        
-        return {
-            Set = function(self, newText)
-                label.Text = newText
-            end
-        }
-    end
-    
-    -- ADD SECTION
-    function tabFunctions:AddSection(text)
-        local sectionFrame = Instance.new("Frame")
-        sectionFrame.Size = UDim2.new(1, 0, 0, 25)
-        sectionFrame.BackgroundTransparency = 1
-        sectionFrame.Parent = tabContent
-        
-        local sectionLabel = Instance.new("TextLabel")
-        sectionLabel.Size = UDim2.new(1, -8, 1, 0)
-        sectionLabel.Position = UDim2.new(0, 8, 0, 0)
-        sectionLabel.BackgroundTransparency = 1
-        sectionLabel.Text = text or "Section"
-        sectionLabel.TextColor3 = Color3.fromRGB(100, 150, 255)
-        sectionLabel.Font = Enum.Font.GothamBold
-        sectionLabel.TextSize = 12
-        sectionLabel.TextXAlignment = Enum.TextXAlignment.Left
-        sectionLabel.Parent = sectionFrame
-        
-        local divider = Instance.new("Frame")
-        divider.Size = UDim2.new(1, -8, 0, 1)
-        divider.Position = UDim2.new(0, 8, 1, -4)
-        divider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-        divider.BorderSizePixel = 0
-        divider.Parent = sectionFrame
-    end
-    
-    return tabFunctions
-end
+end)
 
-function SimpleUI:SwitchTab(tabName)
-    for _, tab in pairs(self.Tabs) do
-        tab.Content.Visible = (tab.Name == tabName)
+CloseButton.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        if IsRecording then StopStudioRecording() end
+        if IsPlaying then StopPlayback() end
+        CleanupConnections()
+        ClearRouteVisualization()
+        ScreenGui:Destroy()
+    end)
+end)
+
+-- ========= HOTKEYS =========
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    SafeCall(function()
+        if input.KeyCode == Enum.KeyCode.F9 then
+            if RecordingStudio.Visible then
+                if IsRecording then
+                    StopStudioRecording()
+                else
+                    StartStudioRecording()
+                end
+            end
+        elseif input.KeyCode == Enum.KeyCode.F10 then
+            if IsPlaying then 
+                StopPlayback() 
+            else 
+                PlayRecording() 
+            end
+        elseif input.KeyCode == Enum.KeyCode.F11 then
+            MainFrame.Visible = not MainFrame.Visible
+            MiniButton.Visible = not MainFrame.Visible
+        elseif input.KeyCode == Enum.KeyCode.F7 then
+            PauseResumePlayback()
+        elseif input.KeyCode == Enum.KeyCode.F8 then
+            if RecordingStudio.Visible then
+                RecordingStudio.Visible = false
+                MainFrame.Visible = true
+            else
+                MainFrame.Visible = false
+                RecordingStudio.Visible = true
+            end
+        elseif input.KeyCode == Enum.KeyCode.F6 then
+            if IsRecording and RecordingStudio.Visible then
+                RewindTimeline()
+            end
+        elseif input.KeyCode == Enum.KeyCode.F5 then
+            if RecordingStudio.Visible and #CurrentRecording.Frames > 0 then
+                SaveStudioRecording()
+            end
+        end
+    end)
+end)
+
+-- ========= AUTO HEAL SYSTEM =========
+RunService.Heartbeat:Connect(function()
+    SafeCall(function()
+        if not AutoHeal then return end
         
-        if tab.Name == tabName then
-            TweenService:Create(tab.Button, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(0, 150, 255)
-            }):Play()
-            tab.Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-            self.CurrentTab = tab
+        local char = player.Character
+        if not char then return end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        
+        if hum.Health < hum.MaxHealth * 0.5 then
+            hum.Health = hum.MaxHealth
+        end
+    end)
+end)
+
+-- ========= ANTI-STUCK DETECTION =========
+local lastPosition = nil
+local stuckTimer = 0
+local STUCK_THRESHOLD = 3
+
+RunService.Heartbeat:Connect(function()
+    SafeCall(function()
+        if not IsPlaying or IsPaused then 
+            lastPosition = nil
+            stuckTimer = 0
+            return 
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        
+        local hrp = char.HumanoidRootPart
+        local currentPos = hrp.Position
+        
+        if lastPosition then
+            local distance = (currentPos - lastPosition).Magnitude
+            
+            if distance < 1 then
+                stuckTimer = stuckTimer + task.wait()
+                
+                if stuckTimer >= STUCK_THRESHOLD then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        
+                        if UseMoveTo and currentPlaybackFrame < #RecordedMovements[currentRecordingName] then
+                            currentPlaybackFrame = currentPlaybackFrame + 5
+                        end
+                    end
+                    
+                    stuckTimer = 0
+                    UpdateStatus("⚠️ Stuck detected - attempting recovery")
+                end
+            else
+                stuckTimer = 0
+            end
+        end
+        
+        lastPosition = currentPos
+    end)
+end)
+
+-- ========= CHARACTER RESPAWN HANDLER =========
+player.CharacterAdded:Connect(function(newChar)
+    SafeCall(function()
+        wait(1)
+        
+        if IsRecording then
+            StopStudioRecording()
+            UpdateStatus("⚠️ Recording stopped - Character respawned")
+        end
+        
+        if IsPlaying then
+            StopPlayback()
+            UpdateStatus("⚠️ Playback stopped - Character respawned")
+        end
+    end)
+end)
+
+-- ========= PROGRESS BAR =========
+local ProgressFrame = Instance.new("Frame")
+ProgressFrame.Size = UDim2.new(1, -16, 0, 6)
+ProgressFrame.Position = UDim2.new(0, 8, 1, -30)
+ProgressFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ProgressFrame.BorderSizePixel = 0
+ProgressFrame.Visible = false
+ProgressFrame.Parent = MainFrame
+
+local ProgressCorner = Instance.new("UICorner")
+ProgressCorner.CornerRadius = UDim.new(0, 3)
+ProgressCorner.Parent = ProgressFrame
+
+local ProgressBar = Instance.new("Frame")
+ProgressBar.Size = UDim2.new(0, 0, 1, 0)
+ProgressBar.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
+ProgressBar.BorderSizePixel = 0
+ProgressBar.Parent = ProgressFrame
+
+local BarCorner = Instance.new("UICorner")
+BarCorner.CornerRadius = UDim.new(0, 3)
+BarCorner.Parent = ProgressBar
+
+RunService.Heartbeat:Connect(function()
+    SafeCall(function()
+        if IsPlaying and currentRecordingName and RecordedMovements[currentRecordingName] then
+            ProgressFrame.Visible = true
+            local progress = currentPlaybackFrame / #RecordedMovements[currentRecordingName]
+            ProgressBar.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
         else
-            TweenService:Create(tab.Button, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-            }):Play()
-            tab.Button.TextColor3 = Color3.fromRGB(180, 180, 180)
+            ProgressFrame.Visible = false
         end
-    end
-end
+    end)
+end)
 
--- =======================================
--- EMPTY UI - READY FOR CUSTOM CONTENT
--- =======================================
+-- ========= INITIALIZATION =========
+SafeCall(function()
+    UpdateReplayList()
+    UpdateStatus("✅ Auto Walk Pro v8.3 - Ready!")
+    UpdateSpeedDisplay()
+end)
 
--- Buat tab utama (kosong)
-local MainTab = SimpleUI:AddTab("Main")
-
--- Anda bisa menambahkan komponen di sini sesuai kebutuhan
--- Contoh:
--- MainTab:AddSection("Your Section")
--- MainTab:AddButton({Name = "Your Button", Callback = function() end})
--- MainTab:AddToggle({Name = "Your Toggle", Callback = function(value) end})
-
-return SimpleUI
+-- ========= FINAL CONFIRMATION =========
+task.wait(1)
+SafeCall(function()
+    UpdateStatus("✅ All Systems Operational")
+end)
