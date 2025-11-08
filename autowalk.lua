@@ -510,8 +510,8 @@ end)
 
 -- ========= RECORDING STUDIO GUI (230x230) =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 230)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -115)
+RecordingStudio.Size = UDim2.fromOffset(230, 280)
+RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -140)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -668,6 +668,132 @@ StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 8
 StatusLabel.Parent = StudioContent
+
+-- Info Panel
+local InfoFrame = Instance.new("Frame")
+InfoFrame.Size = UDim2.fromOffset(214, 50)
+InfoFrame.Position = UDim2.fromOffset(5, 198)
+InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+InfoFrame.BorderSizePixel = 0
+InfoFrame.Visible = true
+InfoFrame.Parent = StudioContent
+
+local InfoCorner = Instance.new("UICorner")
+InfoCorner.CornerRadius = UDim.new(0, 6)
+InfoCorner.Parent = InfoFrame
+
+local InfoStroke = Instance.new("UIStroke")
+InfoStroke.Color = Color3.fromRGB(60, 60, 70)
+InfoStroke.Thickness = 1
+InfoStroke.Parent = InfoFrame
+
+local InfoTitle = Instance.new("TextLabel")
+InfoTitle.Size = UDim2.new(1, -8, 0, 12)
+InfoTitle.Position = UDim2.fromOffset(4, 2)
+InfoTitle.BackgroundTransparency = 1
+InfoTitle.Text = "📊 RECORDING INFO"
+InfoTitle.TextColor3 = Color3.fromRGB(150, 200, 255)
+InfoTitle.Font = Enum.Font.GothamBold
+InfoTitle.TextSize = 8
+InfoTitle.TextXAlignment = Enum.TextXAlignment.Left
+InfoTitle.Parent = InfoFrame
+
+local InfoDuration = Instance.new("TextLabel")
+InfoDuration.Size = UDim2.new(1, -8, 0, 10)
+InfoDuration.Position = UDim2.fromOffset(4, 16)
+InfoDuration.BackgroundTransparency = 1
+InfoDuration.Text = "Duration: 0.00s"
+InfoDuration.TextColor3 = Color3.fromRGB(200, 200, 220)
+InfoDuration.Font = Enum.Font.Gotham
+InfoDuration.TextSize = 7
+InfoDuration.TextXAlignment = Enum.TextXAlignment.Left
+InfoDuration.Parent = InfoFrame
+
+local InfoDistance = Instance.new("TextLabel")
+InfoDistance.Size = UDim2.new(1, -8, 0, 10)
+InfoDistance.Position = UDim2.fromOffset(4, 28)
+InfoDistance.BackgroundTransparency = 1
+InfoDistance.Text = "Distance: 0.00 studs"
+InfoDistance.TextColor3 = Color3.fromRGB(200, 200, 220)
+InfoDistance.Font = Enum.Font.Gotham
+InfoDistance.TextSize = 7
+InfoDistance.TextXAlignment = Enum.TextXAlignment.Left
+InfoDistance.Parent = InfoFrame
+
+local InfoFPS = Instance.new("TextLabel")
+InfoFPS.Size = UDim2.new(1, -8, 0, 10)
+InfoFPS.Position = UDim2.fromOffset(4, 40)
+InfoFPS.BackgroundTransparency = 1
+InfoFPS.Text = "FPS: 60 | Quality: Perfect"
+InfoFPS.TextColor3 = Color3.fromRGB(100, 255, 150)
+InfoFPS.Font = Enum.Font.Gotham
+InfoFPS.TextSize = 7
+InfoFPS.TextXAlignment = Enum.TextXAlignment.Left
+InfoFPS.Parent = InfoFrame
+
+-- Indicators
+local ReverseIndicator = Instance.new("Frame")
+ReverseIndicator.Size = UDim2.fromOffset(60, 20)
+ReverseIndicator.Position = UDim2.fromOffset(5, 253)
+ReverseIndicator.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+ReverseIndicator.BorderSizePixel = 0
+ReverseIndicator.Visible = false
+ReverseIndicator.Parent = StudioContent
+
+local ReverseCorner = Instance.new("UICorner")
+ReverseCorner.CornerRadius = UDim.new(0, 5)
+ReverseCorner.Parent = ReverseIndicator
+
+local ReverseText = Instance.new("TextLabel")
+ReverseText.Size = UDim2.new(1, 0, 1, 0)
+ReverseText.BackgroundTransparency = 1
+ReverseText.Text = "⏪ REV"
+ReverseText.TextColor3 = Color3.new(1, 1, 1)
+ReverseText.Font = Enum.Font.GothamBold
+ReverseText.TextSize = 9
+ReverseText.Parent = ReverseIndicator
+
+local ForwardIndicator = Instance.new("Frame")
+ForwardIndicator.Size = UDim2.fromOffset(60, 20)
+ForwardIndicator.Position = UDim2.fromOffset(70, 253)
+ForwardIndicator.BackgroundColor3 = Color3.fromRGB(200, 120, 80)
+ForwardIndicator.BorderSizePixel = 0
+ForwardIndicator.Visible = false
+ForwardIndicator.Parent = StudioContent
+
+local ForwardCorner = Instance.new("UICorner")
+ForwardCorner.CornerRadius = UDim.new(0, 5)
+ForwardCorner.Parent = ForwardIndicator
+
+local ForwardText = Instance.new("TextLabel")
+ForwardText.Size = UDim2.new(1, 0, 1, 0)
+ForwardText.BackgroundTransparency = 1
+ForwardText.Text = "⏩ FWD"
+ForwardText.TextColor3 = Color3.new(1, 1, 1)
+ForwardText.Font = Enum.Font.GothamBold
+ForwardText.TextSize = 9
+ForwardText.Parent = ForwardIndicator
+
+local TimelineModeIndicator = Instance.new("Frame")
+TimelineModeIndicator.Size = UDim2.fromOffset(80, 20)
+TimelineModeIndicator.Position = UDim2.fromOffset(135, 253)
+TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
+TimelineModeIndicator.BorderSizePixel = 0
+TimelineModeIndicator.Visible = false
+TimelineModeIndicator.Parent = StudioContent
+
+local TimelineCorner = Instance.new("UICorner")
+TimelineCorner.CornerRadius = UDim.new(0, 5)
+TimelineCorner.Parent = TimelineModeIndicator
+
+local TimelineText = Instance.new("TextLabel")
+TimelineText.Size = UDim2.new(1, 0, 1, 0)
+TimelineText.BackgroundTransparency = 1
+TimelineText.Text = "⚠️ PAUSED"
+TimelineText.TextColor3 = Color3.new(1, 1, 1)
+TimelineText.Font = Enum.Font.GothamBold
+TimelineText.TextSize = 8
+TimelineText.Parent = TimelineModeIndicator
 
 -- ========= CLEAN MAIN GUI (250x200) =========
 local MainFrame = Instance.new("Frame")
@@ -973,6 +1099,58 @@ ListCorner.Parent = ReplayList
 local ListLayout = Instance.new("UIListLayout")
 ListLayout.Padding = UDim.new(0, 2)
 ListLayout.Parent = ReplayList
+
+-- Progress Bar
+local ProgressFrame = Instance.new("Frame")
+ProgressFrame.Size = UDim2.new(1, -16, 0, 6)
+ProgressFrame.Position = UDim2.new(0, 8, 1, -30)
+ProgressFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ProgressFrame.BorderSizePixel = 0
+ProgressFrame.Visible = false
+ProgressFrame.Parent = MainFrame
+
+local ProgressCorner = Instance.new("UICorner")
+ProgressCorner.CornerRadius = UDim.new(0, 3)
+ProgressCorner.Parent = ProgressFrame
+
+local ProgressBar = Instance.new("Frame")
+ProgressBar.Size = UDim2.new(0, 0, 1, 0)
+ProgressBar.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
+ProgressBar.BorderSizePixel = 0
+ProgressBar.Parent = ProgressFrame
+
+local BarCorner = Instance.new("UICorner")
+BarCorner.CornerRadius = UDim.new(0, 3)
+BarCorner.Parent = ProgressBar
+
+-- Notification System
+local NotificationFrame = Instance.new("Frame")
+NotificationFrame.Size = UDim2.fromOffset(200, 40)
+NotificationFrame.Position = UDim2.new(0.5, -100, 0, -50)
+NotificationFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+NotificationFrame.BorderSizePixel = 0
+NotificationFrame.Visible = false
+NotificationFrame.Parent = ScreenGui
+
+local NotifCorner = Instance.new("UICorner")
+NotifCorner.CornerRadius = UDim.new(0, 8)
+NotifCorner.Parent = NotificationFrame
+
+local NotifStroke = Instance.new("UIStroke")
+NotifStroke.Color = Color3.fromRGB(100, 255, 150)
+NotifStroke.Thickness = 2
+NotifStroke.Parent = NotificationFrame
+
+local NotifText = Instance.new("TextLabel")
+NotifText.Size = UDim2.new(1, -16, 1, 0)
+NotifText.Position = UDim2.fromOffset(8, 0)
+NotifText.BackgroundTransparency = 1
+NotifText.Text = ""
+NotifText.TextColor3 = Color3.fromRGB(100, 255, 150)
+NotifText.Font = Enum.Font.GothamBold
+NotifText.TextSize = 10
+NotifText.TextWrapped = true
+NotifText.Parent = NotificationFrame
 
 -- ========= ROUTE VISUALIZATION =========
 local routeParts = {}
@@ -2326,29 +2504,7 @@ player.CharacterAdded:Connect(function(newChar)
     end)
 end)
 
--- ========= PROGRESS BAR =========
-local ProgressFrame = Instance.new("Frame")
-ProgressFrame.Size = UDim2.new(1, -16, 0, 6)
-ProgressFrame.Position = UDim2.new(0, 8, 1, -30)
-ProgressFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ProgressFrame.BorderSizePixel = 0
-ProgressFrame.Visible = false
-ProgressFrame.Parent = MainFrame
-
-local ProgressCorner = Instance.new("UICorner")
-ProgressCorner.CornerRadius = UDim.new(0, 3)
-ProgressCorner.Parent = ProgressFrame
-
-local ProgressBar = Instance.new("Frame")
-ProgressBar.Size = UDim2.new(0, 0, 1, 0)
-ProgressBar.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
-ProgressBar.BorderSizePixel = 0
-ProgressBar.Parent = ProgressFrame
-
-local BarCorner = Instance.new("UICorner")
-BarCorner.CornerRadius = UDim.new(0, 3)
-BarCorner.Parent = ProgressBar
-
+-- ========= PROGRESS BAR UPDATE =========
 RunService.Heartbeat:Connect(function()
     SafeCall(function()
         if IsPlaying and currentRecordingName and RecordedMovements[currentRecordingName] then
@@ -2360,242 +2516,6 @@ RunService.Heartbeat:Connect(function()
         end
     end)
 end)
-
--- ========= INITIALIZATION =========
-SafeCall(function()
-    UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.5 - Enhanced Reverse Ready!")
-    UpdateSpeedDisplay()
-end)
-
--- ========= R15 INITIALIZATION =========
-task.spawn(function()
-    task.wait(1)
-    local char = player.Character
-    if char then
-        local charType = GetCharacterType()
-        if charType == "R15" then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = false
-                humanoid.AutoRotate = false
-            end
-        end
-    end
-end)
-
--- ========= FINAL CONFIRMATION =========
-task.wait(1)
-SafeCall(function()
-    UpdateStatus("✅ All Systems Operational - Reverse System Active!")
-    print("=".rep(60))
-    print("AUTO WALK PRO v8.5 - ENHANCED REVERSE SYSTEM")
-    print("=".rep(60))
-    print("✅ Recording Studio: Enhanced with Reverse/Forward")
-    print("✅ Fall Detection: Auto-pause with frame deletion")
-    print("✅ Seamless Transition: Smooth resume after fall")
-    print("✅ Reverse Playback: Navigate backwards through recording")
-    print("✅ Forward Playback: Navigate forwards through recording")
-    print("✅ Universal Character: Full R6/R15 support")
-    print("=".rep(60))
-    print("HOTKEYS:")
-    print("F3  - Resume recording after reverse/forward")
-    print("F4  - Toggle Forward playback (in Recording Studio)")
-    print("F5  - Save current recording")
-    print("F6  - Toggle Reverse playback (in Recording Studio)")
-    print("F7  - Pause/Resume playback")
-    print("F8  - Toggle Studio/Main GUI")
-    print("F9  - Start/Stop recording")
-    print("F10 - Play/Stop playback")
-    print("F11 - Show/Hide GUI")
-    print("=".rep(60))
-    print("STUDIO CONTROLS:")
-    print("⏪ MUNDUR  - Reverse through recording (deletes fall frames)")
-    print("⏩ MAJU    - Forward through recording")
-    print("▶ RESUME  - Continue recording with seamless transition")
-    print("💾 SAVE   - Save recording to list")
-    print("🗑️ CLEAR  - Clear current recording")
-    print("=".rep(60))
-    print("FEATURES:")
-    print("• Auto Fall Detection - Detects and handles falls")
-    print("• Frame Deletion - Removes frames before fall")
-    print("• Seamless Transition - Smooth connection after fall")
-    print("• Reverse Navigation - Go back to find safe position")
-    print("• Forward Navigation - Skip ahead in recording")
-    print("• Auto-Resume - Continues recording smoothly")
-    print("=".rep(60))
-    print("STATUS: Ready to use!")
-    print("=".rep(60))
-end)
-
--- ========= VISUAL FEEDBACK FOR REVERSE/FORWARD =========
-local ReverseIndicator = Instance.new("Frame")
-ReverseIndicator.Size = UDim2.fromOffset(60, 20)
-ReverseIndicator.Position = UDim2.fromOffset(5, 198)
-ReverseIndicator.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
-ReverseIndicator.BorderSizePixel = 0
-ReverseIndicator.Visible = false
-ReverseIndicator.Parent = StudioContent
-
-local ReverseCorner = Instance.new("UICorner")
-ReverseCorner.CornerRadius = UDim.new(0, 5)
-ReverseCorner.Parent = ReverseIndicator
-
-local ReverseText = Instance.new("TextLabel")
-ReverseText.Size = UDim2.new(1, 0, 1, 0)
-ReverseText.BackgroundTransparency = 1
-ReverseText.Text = "⏪ REV"
-ReverseText.TextColor3 = Color3.new(1, 1, 1)
-ReverseText.Font = Enum.Font.GothamBold
-ReverseText.TextSize = 9
-ReverseText.Parent = ReverseIndicator
-
-local ForwardIndicator = Instance.new("Frame")
-ForwardIndicator.Size = UDim2.fromOffset(60, 20)
-ForwardIndicator.Position = UDim2.fromOffset(70, 198)
-ForwardIndicator.BackgroundColor3 = Color3.fromRGB(200, 120, 80)
-ForwardIndicator.BorderSizePixel = 0
-ForwardIndicator.Visible = false
-ForwardIndicator.Parent = StudioContent
-
-local ForwardCorner = Instance.new("UICorner")
-ForwardCorner.CornerRadius = UDim.new(0, 5)
-ForwardCorner.Parent = ForwardIndicator
-
-local ForwardText = Instance.new("TextLabel")
-ForwardText.Size = UDim2.new(1, 0, 1, 0)
-ForwardText.BackgroundTransparency = 1
-ForwardText.Text = "⏩ FWD"
-ForwardText.TextColor3 = Color3.new(1, 1, 1)
-ForwardText.Font = Enum.Font.GothamBold
-ForwardText.TextSize = 9
-ForwardText.Parent = ForwardIndicator
-
-local TimelineModeIndicator = Instance.new("Frame")
-TimelineModeIndicator.Size = UDim2.fromOffset(80, 20)
-TimelineModeIndicator.Position = UDim2.fromOffset(135, 198)
-TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(255, 150, 50)
-TimelineModeIndicator.BorderSizePixel = 0
-TimelineModeIndicator.Visible = false
-TimelineModeIndicator.Parent = StudioContent
-
-local TimelineCorner = Instance.new("UICorner")
-TimelineCorner.CornerRadius = UDim.new(0, 5)
-TimelineCorner.Parent = TimelineModeIndicator
-
-local TimelineText = Instance.new("TextLabel")
-TimelineText.Size = UDim2.new(1, 0, 1, 0)
-TimelineText.BackgroundTransparency = 1
-TimelineText.Text = "⚠️ PAUSED"
-TimelineText.TextColor3 = Color3.new(1, 1, 1)
-TimelineText.Font = Enum.Font.GothamBold
-TimelineText.TextSize = 8
-TimelineText.Parent = TimelineModeIndicator
-
--- ========= INDICATOR UPDATE LOOP =========
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if RecordingStudio.Visible then
-            ReverseIndicator.Visible = IsReversing
-            ForwardIndicator.Visible = IsForwarding
-            TimelineModeIndicator.Visible = IsTimelineMode and not IsReversing and not IsForwarding
-            
-            if IsReversing then
-                local pulse = math.abs(math.sin(tick() * 3))
-                ReverseIndicator.BackgroundColor3 = Color3.fromRGB(
-                    80 + pulse * 40,
-                    120 + pulse * 40,
-                    200 + pulse * 55
-                )
-            end
-            
-            if IsForwarding then
-                local pulse = math.abs(math.sin(tick() * 3))
-                ForwardIndicator.BackgroundColor3 = Color3.fromRGB(
-                    200 + pulse * 55,
-                    120 + pulse * 40,
-                    80 + pulse * 40
-                )
-            end
-            
-            if IsTimelinMode and not IsReversing and not IsForwarding then
-                local pulse = math.abs(math.sin(tick() * 2))
-                TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(
-                    255,
-                    150 + pulse * 50,
-                    50 + pulse * 30
-                )
-            end
-        end
-    end)
-end)
-
--- ========= ENHANCED STUDIO INFO DISPLAY =========
-local InfoFrame = Instance.new("Frame")
-InfoFrame.Size = UDim2.fromOffset(214, 50)
-InfoFrame.Position = UDim2.fromOffset(5, 220)
-InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-InfoFrame.BorderSizePixel = 0
-InfoFrame.Visible = true
-InfoFrame.Parent = RecordingStudio
-
-local InfoCorner = Instance.new("UICorner")
-InfoCorner.CornerRadius = UDim.new(0, 6)
-InfoCorner.Parent = InfoFrame
-
-local InfoStroke = Instance.new("UIStroke")
-InfoStroke.Color = Color3.fromRGB(60, 60, 70)
-InfoStroke.Thickness = 1
-InfoStroke.Parent = InfoFrame
-
-local InfoTitle = Instance.new("TextLabel")
-InfoTitle.Size = UDim2.new(1, -8, 0, 12)
-InfoTitle.Position = UDim2.fromOffset(4, 2)
-InfoTitle.BackgroundTransparency = 1
-InfoTitle.Text = "📊 RECORDING INFO"
-InfoTitle.TextColor3 = Color3.fromRGB(150, 200, 255)
-InfoTitle.Font = Enum.Font.GothamBold
-InfoTitle.TextSize = 8
-InfoTitle.TextXAlignment = Enum.TextXAlignment.Left
-InfoTitle.Parent = InfoFrame
-
-local InfoDuration = Instance.new("TextLabel")
-InfoDuration.Size = UDim2.new(1, -8, 0, 10)
-InfoDuration.Position = UDim2.fromOffset(4, 16)
-InfoDuration.BackgroundTransparency = 1
-InfoDuration.Text = "Duration: 0.00s"
-InfoDuration.TextColor3 = Color3.fromRGB(200, 200, 220)
-InfoDuration.Font = Enum.Font.Gotham
-InfoDuration.TextSize = 7
-InfoDuration.TextXAlignment = Enum.TextXAlignment.Left
-InfoDuration.Parent = InfoFrame
-
-local InfoDistance = Instance.new("TextLabel")
-InfoDistance.Size = UDim2.new(1, -8, 0, 10)
-InfoDistance.Position = UDim2.fromOffset(4, 28)
-InfoDistance.BackgroundTransparency = 1
-InfoDistance.Text = "Distance: 0.00 studs"
-InfoDistance.TextColor3 = Color3.fromRGB(200, 200, 220)
-InfoDistance.Font = Enum.Font.Gotham
-InfoDistance.TextSize = 7
-InfoDistance.TextXAlignment = Enum.TextXAlignment.Left
-InfoDistance.Parent = InfoFrame
-
-local InfoFPS = Instance.new("TextLabel")
-InfoFPS.Size = UDim2.new(1, -8, 0, 10)
-InfoFPS.Position = UDim2.fromOffset(4, 40)
-InfoFPS.BackgroundTransparency = 1
-InfoFPS.Text = "FPS: 60 | Quality: Perfect"
-InfoFPS.TextColor3 = Color3.fromRGB(100, 255, 150)
-InfoFPS.Font = Enum.Font.Gotham
-InfoFPS.TextSize = 7
-InfoFPS.TextXAlignment = Enum.TextXAlignment.Left
-InfoFPS.Parent = InfoFrame
-
--- Adjust Studio size to fit info panel
-RecordingStudio.Size = UDim2.fromOffset(230, 280)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -140)
-StudioContent.Size = UDim2.new(1, -16, 1, -36)
 
 -- ========= INFO UPDATE SYSTEM =========
 local totalDistance = 0
@@ -2645,196 +2565,45 @@ RunService.Heartbeat:Connect(function()
     end)
 end)
 
--- ========= SEAMLESS TRANSITION VISUAL FEEDBACK =========
-local function ShowTransitionEffect()
+-- ========= INDICATOR UPDATE LOOP =========
+RunService.Heartbeat:Connect(function()
     SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        
-        local effect = Instance.new("Part")
-        effect.Size = Vector3.new(4, 0.2, 4)
-        effect.Position = hrp.Position
-        effect.Anchored = true
-        effect.CanCollide = false
-        effect.Transparency = 0.5
-        effect.Color = Color3.fromRGB(100, 255, 150)
-        effect.Material = Enum.Material.Neon
-        effect.Parent = workspace
-        
-        local tween = TweenService:Create(effect, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            Size = Vector3.new(8, 0.1, 8),
-            Transparency = 1
-        })
-        
-        tween:Play()
-        
-        task.delay(1, function()
-            if effect and effect.Parent then
-                effect:Destroy()
+        if RecordingStudio.Visible then
+            ReverseIndicator.Visible = IsReversing
+            ForwardIndicator.Visible = IsForwarding
+            TimelineModeIndicator.Visible = IsTimelineMode and not IsReversing and not IsForwarding
+            
+            if IsReversing then
+                local pulse = math.abs(math.sin(tick() * 3))
+                ReverseIndicator.BackgroundColor3 = Color3.fromRGB(
+                    80 + pulse * 40,
+                    120 + pulse * 40,
+                    200 + pulse * 55
+                )
             end
-        end)
-    end)
-end
-
--- ========= ENHANCED RESUME WITH TRANSITION EFFECT =========
-local originalResumeFunction = ResumeStudioRecording
-
-ResumeStudioRecording = function()
-    originalResumeFunction()
-    ShowTransitionEffect()
-end
-
--- ========= FALL DETECTION VISUAL WARNING =========
-local function ShowFallWarning()
-    SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        
-        for i = 1, 3 do
-            local warning = Instance.new("Part")
-            warning.Size = Vector3.new(1, 1, 1)
-            warning.Position = hrp.Position + Vector3.new(0, i * 2, 0)
-            warning.Anchored = true
-            warning.CanCollide = false
-            warning.Transparency = 0.3
-            warning.Color = Color3.fromRGB(255, 100, 100)
-            warning.Material = Enum.Material.Neon
-            warning.Shape = Enum.PartType.Ball
-            warning.Parent = workspace
             
-            local tween = TweenService:Create(warning, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Position = warning.Position + Vector3.new(0, 5, 0),
-                Transparency = 1,
-                Size = Vector3.new(0.2, 0.2, 0.2)
-            })
-            
-            tween:Play()
-            
-            task.delay(0.8, function()
-                if warning and warning.Parent then
-                    warning:Destroy()
-                end
-            end)
-        end
-    end)
-end
-
--- ========= ENHANCED FALL DETECTION WITH VISUAL =========
-local originalFallDetection = GetCurrentMoveState
-
-GetCurrentMoveState = function(hum, hrp)
-    local state = originalFallDetection(hum, hrp)
-    
-    if state == "Falling" and IsFallDetected and not isCurrentlyFalling then
-        ShowFallWarning()
-    end
-    
-    return state
-end
-
--- ========= SAFE POSITION MARKER =========
-local safePositionMarker = nil
-
-local function ShowSafePositionMarker()
-    SafeCall(function()
-        if safePositionMarker then
-            safePositionMarker:Destroy()
-            safePositionMarker = nil
-        end
-        
-        if not LastSafePosition then return end
-        
-        local marker = Instance.new("Part")
-        marker.Size = Vector3.new(2, 0.5, 2)
-        marker.Position = LastSafePosition + Vector3.new(0, -2, 0)
-        marker.Anchored = true
-        marker.CanCollide = false
-        marker.Transparency = 0.6
-        marker.Color = Color3.fromRGB(100, 255, 150)
-        marker.Material = Enum.Material.Neon
-        marker.Parent = workspace
-        
-        local rotation = 0
-        local rotateConn = RunService.Heartbeat:Connect(function()
-            if marker and marker.Parent then
-                rotation = rotation + 2
-                marker.Orientation = Vector3.new(0, rotation, 0)
-            else
-                if rotateConn then
-                    rotateConn:Disconnect()
-                end
+            if IsForwarding then
+                local pulse = math.abs(math.sin(tick() * 3))
+                ForwardIndicator.BackgroundColor3 = Color3.fromRGB(
+                    200 + pulse * 55,
+                    120 + pulse * 40,
+                    80 + pulse * 40
+                )
             end
-        end)
-        
-        safePositionMarker = marker
-    end)
-end
-
--- ========= UPDATE SAFE MARKER ON REVERSE =========
-local originalStopReverse = StopReversePlayback
-
-StopReversePlayback = function()
-    originalStopReverse()
-    ShowSafePositionMarker()
-end
-
--- ========= CLEANUP SAFE MARKER ON RESUME =========
-local originalResumeCleanup = ResumeStudioRecording
-
-ResumeStudioRecording = function()
-    SafeCall(function()
-        if safePositionMarker then
-            local tween = TweenService:Create(safePositionMarker, TweenInfo.new(0.5), {
-                Transparency = 1,
-                Size = Vector3.new(4, 1, 4)
-            })
-            tween:Play()
             
-            task.delay(0.5, function()
-                if safePositionMarker and safePositionMarker.Parent then
-                    safePositionMarker:Destroy()
-                    safePositionMarker = nil
-                end
-            end)
+            if IsTimelineMode and not IsReversing and not IsForwarding then
+                local pulse = math.abs(math.sin(tick() * 2))
+                TimelineModeIndicator.BackgroundColor3 = Color3.fromRGB(
+                    255,
+                    150 + pulse * 50,
+                    50 + pulse * 30
+                )
+            end
         end
     end)
-    
-    originalResumeCleanup()
-end
+end)
 
 -- ========= NOTIFICATION SYSTEM =========
-local NotificationFrame = Instance.new("Frame")
-NotificationFrame.Size = UDim2.fromOffset(200, 40)
-NotificationFrame.Position = UDim2.new(0.5, -100, 0, -50)
-NotificationFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-NotificationFrame.BorderSizePixel = 0
-NotificationFrame.Visible = false
-NotificationFrame.Parent = ScreenGui
-
-local NotifCorner = Instance.new("UICorner")
-NotifCorner.CornerRadius = UDim.new(0, 8)
-NotifCorner.Parent = NotificationFrame
-
-local NotifStroke = Instance.new("UIStroke")
-NotifStroke.Color = Color3.fromRGB(100, 255, 150)
-NotifStroke.Thickness = 2
-NotifStroke.Parent = NotificationFrame
-
-local NotifText = Instance.new("TextLabel")
-NotifText.Size = UDim2.new(1, -16, 1, 0)
-NotifText.Position = UDim2.fromOffset(8, 0)
-NotifText.BackgroundTransparency = 1
-NotifText.Text = ""
-NotifText.TextColor3 = Color3.fromRGB(100, 255, 150)
-NotifText.Font = Enum.Font.GothamBold
-NotifText.TextSize = 10
-NotifText.TextWrapped = true
-NotifText.Parent = NotificationFrame
-
 local function ShowNotification(message, color, duration)
     SafeCall(function()
         NotifText.Text = message
@@ -2877,17 +2646,32 @@ UpdateStatus = function(msg)
     end
 end
 
+-- ========= INITIALIZATION =========
+SafeCall(function()
+    UpdateReplayList()
+    UpdateStatus("✅ Auto Walk Pro v8.5 - Enhanced Reverse Ready!")
+    UpdateSpeedDisplay()
+end)
+
+-- ========= R15 INITIALIZATION =========
+task.spawn(function()
+    task.wait(1)
+    local char = player.Character
+    if char then
+        local charType = GetCharacterType()
+        if charType == "R15" then
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.PlatformStand = false
+                humanoid.AutoRotate = false
+            end
+        end
+    end
+end)
+
 -- ========= FINAL STATUS UPDATE =========
 task.wait(0.5)
 SafeCall(function()
     ShowNotification("✅ AUTO WALK PRO v8.5 Ready!", Color3.fromRGB(100, 255, 150), 3)
     UpdateStatus("✅ Enhanced Reverse System - All Systems Go!")
 end)
-
--- ========= END OF SCRIPT =========
-print("✅ Auto Walk Pro v8.5 - Enhanced Reverse System Loaded Successfully!")
-print("📌 Created by ByaruL System Integration")
-print("🎬 Recording Studio with Advanced Timeline Control")
-print("⏪ Reverse/Forward Navigation with Fall Recovery")
-print("🔄 Seamless Transition System Active")
-print("=".rep(60))
