@@ -1,4 +1,4 @@
--- ByaruL AutoWalk v6.0 - PERFECT SYNC AUTO LOOP & RESPAWN
+-- ByaruL AutoWalk v6.0 - OPTIMIZED PERFORMANCE
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -8,19 +8,16 @@ local player = Players.LocalPlayer
 
 wait(1)
 
--- ========= PERFECT SYNC CONFIGURATION =========
+-- ========= OPTIMIZED CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.01
 local RESUME_DISTANCE = 15
 local CATCHUP_SPEED_MULTIPLIER = 1.3
 
--- ========= ENHANCED MOVEMENT CONFIG =========
-local NATURAL_MOVEMENT = true
-local USE_MOVEMENT_DIRECTION = true
+-- ========= SIMPLIFIED MOVEMENT CONFIG =========
 local SMOOTH_PLAYBACK = true
 local SMART_RESUME = true
-local USE_REAL_TIME_JUMP = true
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -181,7 +178,7 @@ local function RestoreFullUserControl()
     end
 end
 
--- ========= ENHANCED JUMP CONTROL =========
+-- ========= SIMPLIFIED JUMP CONTROL =========
 local function DisableJump()
     local char = player.Character
     if char then
@@ -203,7 +200,7 @@ local function EnableJump()
     end
 end
 
--- ========= ENHANCED FRAME DATA SYSTEM =========
+-- ========= SIMPLIFIED FRAME DATA SYSTEM =========
 local function CreateFrameData()
     local char = player.Character
     if not char then return nil end
@@ -212,10 +209,7 @@ local function CreateFrameData()
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not humanoid then return nil end
     
-    local moveDirection = humanoid.MoveDirection
-    
     return {
-        MD = {moveDirection.X, moveDirection.Y, moveDirection.Z},
         WS = humanoid.WalkSpeed,
         J = humanoid.Jump,
         JP = humanoid.JumpPower,
@@ -283,7 +277,6 @@ local function MoveToPosition(targetPos, moveSpeed)
         return true
     end
     
-    humanoid:Move(direction)
     humanoid.WalkSpeed = moveSpeed
     
     if direction.Magnitude > 0.1 then
@@ -293,12 +286,11 @@ local function MoveToPosition(targetPos, moveSpeed)
     return false
 end
 
--- ========= ENHANCED REAL-TIME JUMP SYSTEM =========
-local function ApplyRealTimeJump(humanoid, jumpState, jumpPower)
+-- ========= SIMPLIFIED JUMP SYSTEM =========
+local function ApplyJump(humanoid, jumpState)
     if not humanoid then return end
     
-    if jumpState and humanoid.FloorMaterial ~= Enum.Material.Air then
-        humanoid.JumpPower = jumpPower or 50
+    if jumpState then
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
     end
 end
@@ -395,7 +387,7 @@ local function PlaySingleRecording(recordingName)
         local frame = recording[currentFrame]
         if not frame then return end
 
-        -- APPLY FRAME
+        -- APPLY FRAME - SIMPLIFIED
         pcall(function()
             hrp.CFrame = GetFrameCFrame(frame)
             
@@ -403,19 +395,11 @@ local function PlaySingleRecording(recordingName)
                 humanoid.WalkSpeed = frame.WS * CurrentSpeed
             end
             
-            -- ENHANCED JUMP SYSTEM
-            if USE_REAL_TIME_JUMP then
-                ApplyRealTimeJump(humanoid, frame.J, frame.JP)
-            else
-                if frame.J and not lastJump then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+            -- SIMPLIFIED JUMP SYSTEM
+            if frame.J and not lastJump then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
             end
             lastJump = frame.J
-            
-            if USE_MOVEMENT_DIRECTION then
-                humanoid:Move(Vector3.new(frame.MD[1], frame.MD[2], frame.MD[3]))
-            end
         end)
     end)
     
@@ -582,7 +566,7 @@ local function StopAutoLoopAll()
     PlaySound("Stop")
 end
 
--- ========= ENHANCED PLAYBACK SYSTEM =========
+-- ========= SIMPLIFIED PLAYBACK SYSTEM =========
 local function PlayEnhancedRecording(recording, startFrame, replayName)
     if not recording or #recording == 0 then return end
     
@@ -593,7 +577,6 @@ local function PlayEnhancedRecording(recording, startFrame, replayName)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not humanoid then return end
 
-    currentReplayName = replayName or "unknown"
     local currentFrame = startFrame or 1
     playbackStartTime = tick()
     totalPausedDuration = 0
@@ -683,18 +666,11 @@ local function PlayEnhancedRecording(recording, startFrame, replayName)
             
             humanoid.WalkSpeed = frame.WS * CurrentSpeed
             
-            if USE_REAL_TIME_JUMP then
-                ApplyRealTimeJump(humanoid, frame.J, frame.JP)
-            else
-                if frame.J and not lastJumpState then
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+            -- SIMPLIFIED JUMP SYSTEM
+            if frame.J and not lastJumpState then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
             end
             lastJumpState = frame.J
-            
-            if USE_MOVEMENT_DIRECTION then
-                humanoid:Move(Vector3.new(frame.MD[1], frame.MD[2], frame.MD[3]))
-            end
             
             currentPlaybackFrame = currentFrame
         end)
@@ -703,7 +679,7 @@ local function PlayEnhancedRecording(recording, startFrame, replayName)
     AddConnection(playbackConnection)
 end
 
--- ========= ENHANCED RECORDING SYSTEM =========
+-- ========= SIMPLIFIED RECORDING SYSTEM =========
 function StartRecording()
     if IsRecording then return end
     
@@ -887,7 +863,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL v6.0 - PERFECT SYNC"
+Title.Text = "ByaruL v6.0 - OPTIMIZED"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -1078,7 +1054,6 @@ local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 164, 75, 78, 22,
 
 -- SMART FEATURES TOGGLE
 local SmartResumeBtn, AnimateSmartResume = CreateToggle("Smart Resume", 0, 100, 117, 22, true)
-local RealJumpBtn, AnimateRealJump = CreateToggle("Real Jump", 123, 100, 117, 22, true)
 
 -- ========= TEXTBOX LAYOUT =========
 local SpeedBox = Instance.new("TextBox")
@@ -1269,12 +1244,6 @@ end)
 SmartResumeBtn.MouseButton1Click:Connect(function()
     SMART_RESUME = not SMART_RESUME
     AnimateSmartResume(SMART_RESUME)
-    PlaySound("Toggle")
-end)
-
-RealJumpBtn.MouseButton1Click:Connect(function()
-    USE_REAL_TIME_JUMP = not USE_REAL_TIME_JUMP
-    AnimateRealJump(USE_REAL_TIME_JUMP)
     PlaySound("Toggle")
 end)
 
@@ -1568,7 +1537,6 @@ local function CreateMergedReplay()
         
         for frameIndex, frame in ipairs(checkpoint) do
             local newFrame = {
-                MD = {frame.MD[1], frame.MD[2], frame.MD[3]},
                 WS = frame.WS,
                 J = frame.J,
                 JP = frame.JP,
@@ -1755,9 +1723,9 @@ function UpdateRecordList()
             for _, frame in ipairs(rec) do
                 totalSeconds = totalSeconds + frame.DT
             end
-            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • PERFECT SYNC"
+            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • OPTIMIZED"
         else
-            infoLabel.Text = "❌ 0:00 • 0 frames • PERFECT SYNC"
+            infoLabel.Text = "❌ 0:00 • 0 frames • OPTIMIZED"
         end
         
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
@@ -1893,5 +1861,5 @@ player.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("✅ ByaruL AutoWalk v6.0 - PERFECT SYNC SYSTEM Loaded!")
-print("🎯 Features: Perfect Auto Loop + Respawn Sync, Enhanced Real-Time Jump, Smart Resume")
+print("✅ ByaruL AutoWalk v6.0 - OPTIMIZED PERFORMANCE Loaded!")
+print("🎯 Features: Perfect Auto Loop + Respawn Sync, Simplified Movement, Smart Resume")
