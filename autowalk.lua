@@ -1,377 +1,245 @@
-
--- ========= AUTO WALK PRO v8.4 - BYARUL SYSTEM INTEGRATION =========
--- GUI AutoWalk Pro v8.3 + Recording System ByaruL v2.6
--- Perfect Timeline + Enhanced Playback + R15 Support
-
+-- ByaruL AutoWalk v6.0 - ENHANCED FRAME DATA SYSTEM
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
+
 wait(1)
 
--- ========= CONFIGURATION =========
+-- ========= ENHANCED CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.015
-local VELOCITY_SCALE = 1
-local VELOCITY_Y_SCALE = 1
-local ROUTE_PROXIMITY_THRESHOLD = 10
-local TIMELINE_STEP_SECONDS = 1
+local MIN_DISTANCE_THRESHOLD = 0.01
+local RESUME_DISTANCE = 15
+local CATCHUP_SPEED_MULTIPLIER = 1.3
 
--- ========= REAL-TIME PLAYBACK CONFIG =========
-local INTERPOLATION_ENABLED = true
-local INTERPOLATION_ALPHA = 0.45
-local MIN_INTERPOLATION_DISTANCE = 0.3
+-- ========= ENHANCED MOVEMENT CONFIG =========
+local SMOOTH_PLAYBACK = true
+local SMART_RESUME = true
 
--- ========= UNIVERSAL CHARACTER SUPPORT =========
-local UNIVERSAL_MODE = true
-local DYNAMIC_GROUND_OFFSET = true
-local R6_OFFSET = 3.2
-local R15_OFFSET = 4.8
-local FALLBACK_OFFSET = 3.5
-
--- ========= FALL DETECTION CONFIG =========
-local FALL_TIME_THRESHOLD = 1.0
-local FALL_HEIGHT_THRESHOLD = 20
-
--- ========= CORE VARIABLES =========
+-- ========= VARIABLES =========
 local IsRecording = false
 local IsPlaying = false
 local IsPaused = false
-local UseMoveTo = false
 local CurrentSpeed = 1
+local CurrentWalkSpeed = 16
 local RecordedMovements = {}
+local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
-local AutoHeal = false
+local SelectedReplays = {}
+
+local AutoRespawn = false
+local InfiniteJump = false
 local AutoLoop = false
 local recordConnection = nil
 local playbackConnection = nil
+local loopConnection = nil
+local jumpConnection = nil
 local lastRecordTime = 0
 local lastRecordPos = nil
-local ShowVisualization = false
+local checkpointNames = {}
+local PathVisualization = {}
+local ShowPaths = false
+local CurrentPauseMarker = nil
 
--- ========= ANTI-FALL VARIABLES =========
-local IsFallDetected = false
-local LastSafeFrame = 0
-local fallStartTime = 0
-local fallStartHeight = 0
-local isCurrentlyFalling = false
-local FallCheckEnabled = true
+-- ========= PERFECT SYNC CONTROL =========
+local IsAutoLoopPlaying = false
+local CurrentLoopIndex = 1
+local CurrentReplayAttempts = 0
+local MAX_REPLAY_ATTEMPTS = 2
+local IsRespawning = false
 
--- ========= PAUSE/RESUME VARIABLES =========
+-- ========= STATE PRESERVATION =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
 local currentPlaybackFrame = 1
-local lastMoveState = nil
-local currentRecordingName = ""
-
--- ========= TIMELINE NAVIGATION VARIABLES =========
-local TimelinePosition = 0
-local IsTimelineMode = false
-local timelineGroundedStart = nil
-
--- ========= REAL-TIME PLAYBACK VARIABLES =========
-local lastPlaybackCFrame = nil
-local lastPlaybackVelocity = Vector3.new(0, 0, 0)
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
 local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 
--- ========= EVENT CLEANUP =========
-local eventConnections = {}
+-- ========= MEMORY MANAGEMENT =========
+local activeConnections = {}
 
-local function AddConnection(conn)
-    table.insert(eventConnections, conn)
+local function AddConnection(connection)
+    table.insert(activeConnections, connection)
 end
 
-local function CleanupConnections()
-    for _, conn in pairs(eventConnections) do
-        pcall(function()
-            if conn and conn.Connected then
-                conn:Disconnect()
-            end
-        end)
+local function CleanupAllConnections()
+    for _, conn in ipairs(activeConnections) do
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            pcall(function() conn:Disconnect() end)
+        end
     end
-    eventConnections = {}
-end
-
--- ========= ENHANCED PCALL WRAPPER =========
-local function SafeCall(func, ...)
-    local success, result = pcall(func, ...)
-    return success, result
-end
-
--- ========= UNIVERSAL CHARACTER DETECTION =========
-local function GetCharacterType()
-    local char = player.Character
-    if not char then return "Unknown" end
+    activeConnections = {}
     
+    local connections = {recordConnection, playbackConnection, loopConnection, jumpConnection}
+    for _, conn in pairs(connections) do
+        if conn then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+    
+    recordConnection = nil
+    playbackConnection = nil
+    loopConnection = nil
+    jumpConnection = nil
+end
+
+-- ========= ENHANCED FRAME DATA SYSTEM =========
+local function CreateFrameData()
+    local char = player.Character
+    if not char then return nil end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return "Unknown" end
+    if not hrp or not humanoid then return nil end
     
-    if humanoid.RigType == Enum.HumanoidRigType.R6 then
-        return "R6"
-    elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
-        return "R15"
+    -- Get current state
+    local currentState = humanoid:GetState()
+    local stateName = tostring(currentState):gsub("Enum.HumanoidStateType.", "")
+    
+    -- Get velocity
+    local velocity = hrp.AssemblyLinearVelocity
+    local moveDirection = humanoid.MoveDirection
+    
+    -- Get floor information
+    local grounded = humanoid.FloorMaterial ~= Enum.Material.Air
+    local floorNormal = Vector3.new(0, 1, 0)
+    
+    -- Try to get more accurate floor normal
+    if grounded then
+        local rayOrigin = hrp.Position
+        local rayDirection = Vector3.new(0, -5, 0)
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {char}
+        
+        local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        if raycastResult then
+            floorNormal = raycastResult.Normal
+        end
     end
     
-    local leftLeg = char:FindFirstChild("Left Leg")
-    local leftLowerLeg = char:FindFirstChild("LeftLowerLeg")
-    
-    if leftLeg and not leftLowerLeg then
-        return "R6"
-    elseif leftLowerLeg then
-        return "R15"
-    end
-    
-    return "Unknown"
+    return {
+        t = tick(), -- timestamp
+        p = {hrp.Position.X, hrp.Position.Y, hrp.Position.Z}, -- position
+        lv = {hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Y, hrp.CFrame.LookVector.Z}, -- look vector
+        up = {hrp.CFrame.UpVector.X, hrp.CFrame.UpVector.Y, hrp.CFrame.UpVector.Z}, -- up vector
+        vel = {velocity.X, velocity.Y, velocity.Z}, -- velocity
+        ws = humanoid.WalkSpeed, -- walk speed
+        state = stateName, -- humanoid state
+        md = {moveDirection.X, moveDirection.Y, moveDirection.Z}, -- move direction
+        autoRotate = humanoid.AutoRotate,
+        platformStand = humanoid.PlatformStand,
+        jump = humanoid.Jump, -- jump state (edge trigger)
+        grounded = grounded,
+        floorNormal = {floorNormal.X, floorNormal.Y, floorNormal.Z},
+        dt = 0 -- delta time (will be set during recording)
+    }
 end
 
-local function GetDynamicGroundOffset()
-    if not DYNAMIC_GROUND_OFFSET then
-        return FALLBACK_OFFSET
-    end
+local function GetFrameCFrame(frame)
+    local position = Vector3.new(frame.p[1], frame.p[2], frame.p[3])
+    local lookVector = Vector3.new(frame.lv[1], frame.lv[2], frame.lv[3])
+    local upVector = Vector3.new(frame.up[1], frame.up[2], frame.up[3])
     
-    local charType = GetCharacterType()
-    if charType == "R6" then
-        return R6_OFFSET
-    elseif charType == "R15" then
-        return R15_OFFSET
-    else
-        return FALLBACK_OFFSET
-    end
+    return CFrame.fromMatrix(position, lookVector:Cross(upVector), upVector, lookVector)
 end
 
-local function GetOptimalGroundOffset()
-    local charType = GetCharacterType()
-    
-    if charType == "R6" then
-        return 3.2
-    elseif charType == "R15" then
-        return 4.8
-    else
-        return FALLBACK_OFFSET
-    end
+local function GetFramePosition(frame)
+    return Vector3.new(frame.p[1], frame.p[2], frame.p[3])
 end
 
--- ========= ENHANCED GROUND DETECTION =========
-local function GetEnhancedGroundHeight(position, character)
-    local rayOrigin = Vector3.new(position.X, position.Y + 8, position.Z)
-    local rayDirection = Vector3.new(0, -20, 0)
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    if character then
-        raycastParams.FilterDescendantsInstances = {character}
-    end
+local function ApplyFrameData(frame, humanoid, hrp)
+    if not frame or not humanoid or not hrp then return end
     
-    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-    if rayResult then
-        return rayResult.Position.Y
-    end
-    
-    return position.Y - 5
-end
-
-local function AdjustPositionToGround(position)
-    local char = player.Character
-    local groundHeight = GetEnhancedGroundHeight(position, char)
-    local offset = GetOptimalGroundOffset()
-    
-    local charType = GetCharacterType()
-    if charType == "R15" then
-        offset = offset + 0.2
-    end
-    
-    return Vector3.new(position.X, groundHeight + offset, position.Z)
-end
-
--- ========= R15 VELOCITY CONTROL =========
-local function ApplyUniversalVelocity(character, velocity)
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    local charType = GetCharacterType()
-    
-    if charType == "R15" then
-        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-        if not bodyVelocity then
-            bodyVelocity = Instance.new("BodyVelocity")
-            bodyVelocity.Name = "AutoWalkBodyVelocity"
-            bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
-            bodyVelocity.Parent = hrp
+    pcall(function()
+        -- Apply CFrame first
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- Apply humanoid properties
+        humanoid.WalkSpeed = frame.ws * CurrentSpeed
+        humanoid.AutoRotate = frame.autoRotate
+        humanoid.PlatformStand = frame.platformStand
+        
+        -- Apply jump (edge trigger)
+        if frame.jump and not humanoid.Jump then
+            humanoid.Jump = true
+        elseif not frame.jump and humanoid.Jump then
+            humanoid.Jump = false
         end
         
-        local currentVel = bodyVelocity.Velocity
-        local smoothVelocity = currentVel:Lerp(velocity, 0.3)
-        bodyVelocity.Velocity = smoothVelocity
-        
-        return true
-    else
-        SafeCall(function()
-            hrp.AssemblyLinearVelocity = velocity
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end)
-        return true
-    end
-end
-
--- ========= CHARACTER RESET =========
-local function CompleteCharacterReset(char)
-    SafeCall(function()
-        if not char or not char:IsDescendantOf(workspace) then return end
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not humanoid or not hrp then return end
-        
-        humanoid.PlatformStand = false
-        humanoid.AutoRotate = true
-        humanoid.WalkSpeed = 16
-        humanoid.JumpPower = 50
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-        
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                part.CanCollide = true
-            end
+        -- Apply velocity if available
+        if frame.vel then
+            hrp.AssemblyLinearVelocity = Vector3.new(frame.vel[1], frame.vel[2], frame.vel[3])
         end
         
-        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-        if bodyVelocity then
-            bodyVelocity:Destroy()
+        -- Try to apply humanoid state
+        local stateEnum = Enum.HumanoidStateType[frame.state]
+        if stateEnum then
+            humanoid:ChangeState(stateEnum)
         end
     end)
 end
 
--- ========= FALL DETECTION =========
-local function GetCurrentMoveState(hum, hrp)
-    if not hum then return "Grounded" end
-    
-    local state = hum:GetState()
-    
-    if state == Enum.HumanoidStateType.Freefall then
-        if not isCurrentlyFalling then
-            isCurrentlyFalling = true
-            fallStartTime = tick()
-            fallStartHeight = hrp.Position.Y
-        end
-        
-        local fallDuration = tick() - fallStartTime
-        local fallDistance = fallStartHeight - hrp.Position.Y
-        
-        if FallCheckEnabled and (fallDuration > FALL_TIME_THRESHOLD and fallDistance > FALL_HEIGHT_THRESHOLD) then
-            IsFallDetected = true
-            return "Falling"
-        end
-        
-        return "Falling"
-    else
-        if isCurrentlyFalling then
-            isCurrentlyFalling = false
-            fallStartTime = 0
-            fallStartHeight = 0
+-- ========= ENHANCED CHARACTER MANAGEMENT =========
+local function ResetCharacter()
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Health = 0
         end
     end
-    
-    if hrp.Position.Y < -50 then
-        IsFallDetected = true
-        return "Falling"
-    end
-    
-    if state == Enum.HumanoidStateType.Jumping then
-        return "Jumping"
-    elseif state == Enum.HumanoidStateType.Climbing then
-        return "Climbing"
-    elseif state == Enum.HumanoidStateType.Swimming then
-        return "Swimming"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then
-        return "Grounded"
-    else
-        return "Grounded"
-    end
 end
 
--- ========= FRAME DATA FUNCTIONS =========
-local function GetFramePosition(frame)
-    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-end
-
-local function GetFrameCFrame(frame)
-    local pos = GetFramePosition(frame)
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+local function WaitForRespawn()
+    local startTime = tick()
+    local timeout = 10
     
-    pos = AdjustPositionToGround(pos)
-    
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    ) or Vector3.new(0, 0, 0)
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
-
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
-end
-
--- ========= FIND NEAREST FRAME =========
-local function FindNearestFrame(recording, position)
-    if not recording or #recording == 0 then return 1, math.huge end
-    
-    local nearestFrame = 1
-    local nearestDistance = math.huge
-    
-    for i, frame in ipairs(recording) do
-        local framePos = GetFramePosition(frame)
-        local distance = (framePos - position).Magnitude
-        
-        if distance < nearestDistance then
-            nearestDistance = distance
-            nearestFrame = i
+    repeat
+        task.wait(0.1)
+        if tick() - startTime > timeout then
+            warn("⚠️ Respawn timeout!")
+            return false
         end
-    end
+    until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
     
-    return nearestFrame, nearestDistance
+    task.wait(1) -- Extra stabilization time
+    return true
 end
 
--- ========= INTERPOLATION FUNCTION =========
-local function SmoothCFrameLerp(currentCF, targetCF, alpha)
-    if not INTERPOLATION_ENABLED then
-        return targetCF
-    end
-    
-    local currentPos = currentCF.Position
-    local targetPos = targetCF.Position
-    local distance = (targetPos - currentPos).Magnitude
-    
-    if distance > 25 then
-        return targetCF
-    end
-    
-    if distance < MIN_INTERPOLATION_DISTANCE then
-        return targetCF
-    end
-    
-    local newPos = currentPos:Lerp(targetPos, alpha)
-    local newCF = currentCF:Lerp(targetCF, alpha)
-    
-    return CFrame.new(newPos) * (newCF - newCF.Position)
+local function IsCharacterReady()
+    local char = player.Character
+    if not char then return false end
+    if not char:FindFirstChild("HumanoidRootPart") then return false end
+    if not char:FindFirstChildOfClass("Humanoid") then return false end
+    if char.Humanoid.Health <= 0 then return false end
+    return true
 end
 
--- ========= PAUSE STATE MANAGEMENT =========
+local function CompleteCharacterReset(char)
+    if not char or not char:IsDescendantOf(workspace) then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+    pcall(function()
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = prePauseJumpPower or 50
+        humanoid.Jump = false
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    end)
+end
+
+-- ========= STATE MANAGEMENT SYSTEM =========
 local function SaveHumanoidState()
     local char = player.Character
     if not char then return end
@@ -385,214 +253,570 @@ local function SaveHumanoidState()
     end
 end
 
-local function RestoreHumanoidState()
+local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
     if humanoid then
-        humanoid.AutoRotate = prePauseAutoRotate
-        humanoid.WalkSpeed = prePauseWalkSpeed
-        humanoid.JumpPower = prePauseJumpPower
+        humanoid.AutoRotate = true
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = prePauseJumpPower or 50
+        humanoid.PlatformStand = false
+        humanoid.Jump = false
+        humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    end
+    
+    if hrp then
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
 end
 
--- ========= UNIVERSAL STATE CONTROL =========
-local function UniversalStateControl(humanoid, targetState)
-    if not humanoid then return end
+-- ========= SMART RESUME SYSTEM =========
+local function FindNearestResumeFrame(recording, currentPos)
+    if not recording or #recording == 0 then return 1 end
     
-    SafeCall(function()
-        if targetState == "Climbing" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-        elseif targetState == "Jumping" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        elseif targetState == "Swimming" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
-        elseif targetState == "Falling" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-        else
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+    local nearestFrame = 1
+    local minDistance = math.huge
+    
+    for i = 1, math.min(#recording, 5000), 5 do
+        local framePos = GetFramePosition(recording[i])
+        local distance = (currentPos - framePos).Magnitude
+        
+        if distance < minDistance and distance < RESUME_DISTANCE then
+            minDistance = distance
+            nearestFrame = i
         end
+    end
+    
+    if minDistance >= RESUME_DISTANCE then
+        return 1
+    end
+    
+    return nearestFrame
+end
+
+-- ========= ENHANCED AUTO LOOP SYSTEM =========
+local function PlaySingleRecording(recordingName)
+    local recording = RecordedMovements[recordingName]
+    if not recording or #recording == 0 then 
+        return false 
+    end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        return false 
+    end
+    
+    local hrp = char.HumanoidRootPart
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return false end
+    
+    -- Reset state sebelum playback
+    pcall(function()
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = false
+        humanoid.Sit = false
+        humanoid.Jump = false
+    end)
+    
+    local playbackStart = tick()
+    local totalPaused = 0
+    local pauseStart = 0
+    local currentFrame = 1
+    
+    -- Smart Resume: Cari frame terdekat
+    if SMART_RESUME then
+        local nearest = FindNearestResumeFrame(recording, hrp.Position)
+        currentFrame = math.max(1, nearest - 10)
+    end
+    
+    local completed = false
+    local failed = false
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not AutoLoop or not IsAutoLoopPlaying then
+            connection:Disconnect()
+            return
+        end
+        
+        -- Pause handling
+        if IsPaused then
+            if pauseStart == 0 then
+                pauseStart = tick()
+            end
+            return
+        else
+            if pauseStart > 0 then
+                totalPaused = totalPaused + (tick() - pauseStart)
+                pauseStart = 0
+            end
+        end
+        
+        -- Character check
+        if not char or not char.Parent or not hrp or not humanoid or humanoid.Health <= 0 then
+            failed = true
+            connection:Disconnect()
+            return
+        end
+        
+        -- Frame calculation
+        local currentTime = tick()
+        local effectiveTime = (currentTime - playbackStart - totalPaused) * CurrentSpeed
+        
+        local targetFrame = 1
+        local accumulated = 0
+        
+        for i = currentFrame, math.min(currentFrame + 100, #recording) do
+            accumulated = accumulated + recording[i].dt
+            if accumulated >= effectiveTime then
+                targetFrame = i
+                break
+            end
+        end
+        
+        currentFrame = targetFrame
+        
+        -- End condition
+        if currentFrame >= #recording then
+            completed = true
+            connection:Disconnect()
+            return
+        end
+        
+        local frame = recording[currentFrame]
+        if not frame then return end
+
+        -- Apply enhanced frame data
+        ApplyFrameData(frame, humanoid, hrp)
+    end)
+    
+    -- Wait for completion
+    local startWait = tick()
+    while AutoLoop and IsAutoLoopPlaying and not completed and not failed do
+        if tick() - startWait > (#recording * 2) + 5 then
+            break
+        end
+        task.wait(0.05)
+    end
+    
+    if connection then
+        connection:Disconnect()
+    end
+    
+    return completed, failed
+end
+
+local function StartAutoLoopAll()
+    if IsAutoLoopPlaying then return end
+    if not AutoLoop then return end
+    
+    if #RecordingOrder == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    -- Cleanup sebelum memulai
+    CleanupAllConnections()
+    
+    PlaySound("Play")
+    
+    CurrentLoopIndex = 1
+    IsAutoLoopPlaying = true
+    CurrentReplayAttempts = 0
+    
+    -- Gunakan task.spawn untuk memisahkan thread
+    task.spawn(function()
+        while AutoLoop and IsAutoLoopPlaying do
+            if CurrentLoopIndex > #RecordingOrder then
+                CurrentLoopIndex = 1
+            end
+            
+            local recordingName = RecordingOrder[CurrentLoopIndex]
+            
+            -- Character ready check
+            local charReady = false
+            for i = 1, 3 do
+                if IsCharacterReady() then
+                    charReady = true
+                    break
+                end
+                task.wait(0.5)
+            end
+            
+            if not charReady then
+                if AutoRespawn then
+                    ResetCharacter()
+                    task.wait(2)
+                else
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    task.wait(0.5)
+                    continue
+                end
+            end
+            
+            -- Perfect Sync: Reset hanya di loop pertama dengan AutoRespawn
+            local shouldReset = false
+            if AutoRespawn and CurrentLoopIndex == 1 then
+                shouldReset = true
+            end
+            
+            if shouldReset then
+                print("🔄 Resetting character for new loop")
+                ResetCharacter()
+                local success = WaitForRespawn()
+                if not success then
+                    print("❌ Respawn failed! Stopping loop.")
+                    AutoLoop = false
+                    IsAutoLoopPlaying = false
+                    AnimateLoop(false)
+                    break
+                end
+                
+                print("⏳ Waiting for character to fully load...")
+                task.wait(1.5)
+            end
+            
+            -- Tunggu karakter ready untuk kasus mati tanpa auto respawn
+            if not IsCharacterReady() then
+                print("💀 Character died, waiting for respawn...")
+                local maxWaitTime = 15
+                local startWait = tick()
+                
+                while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                    if tick() - startWait > maxWaitTime then
+                        print("❌ Respawn timeout! Stopping loop.")
+                        AutoLoop = false
+                        IsAutoLoopPlaying = false
+                        AnimateLoop(false)
+                        break
+                    end
+                    task.wait(0.5)
+                end
+                
+                if not AutoLoop or not IsAutoLoopPlaying then break end
+                
+                print("⏳ Character respawned, waiting to stabilize...")
+                task.wait(1.0)
+            end
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            -- Main playback
+            local success, failed = PlaySingleRecording(recordingName)
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            -- Handle result
+            if success then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                CurrentReplayAttempts = 0
+            elseif failed then
+                CurrentReplayAttempts = CurrentReplayAttempts + 1
+                if CurrentReplayAttempts >= 2 then
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    CurrentReplayAttempts = 0
+                end
+            else
+                CurrentLoopIndex = CurrentLoopIndex + 1
+            end
+            
+            -- Delay antar recordings
+            local delayEnd = tick() + 0.8
+            while tick() < delayEnd do
+                if not AutoLoop or not IsAutoLoopPlaying then break end
+                task.wait(0.1)
+            end
+        end
+        
+        IsAutoLoopPlaying = false
+        CleanupAllConnections()
+        RestoreFullUserControl()
+    end)
+end
+
+local function StopAutoLoopAll()
+    AutoLoop = false
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    IsPaused = false
+    
+    if loopConnection then
+        task.cancel(loopConnection)
+        loopConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
+end
+
+-- ========= ENHANCED PLAYBACK SYSTEM =========
+local function PlayEnhancedRecording(recording, startFrame, replayName)
+    if not recording or #recording == 0 then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return end
+
+    local currentFrame = startFrame or 1
+    playbackStartTime = tick()
+    totalPausedDuration = 0
+    pauseStartTime = 0
+
+    -- Smart Resume
+    if SMART_RESUME and startFrame == 1 then
+        local nearestFrame = FindNearestResumeFrame(recording, hrp.Position)
+        if nearestFrame > 1 then
+            currentFrame = nearestFrame
+        end
+    end
+
+    SaveHumanoidState()
+
+    playbackConnection = RunService.Heartbeat:Connect(function()
+        if not IsPlaying then
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            return
+        end
+        
+        if IsPaused then
+            if pauseStartTime == 0 then
+                pauseStartTime = tick()
+                RestoreFullUserControl()
+            end
+            return
+        else
+            if pauseStartTime > 0 then
+                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                pauseStartTime = 0
+            end
+        end
+
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            IsPlaying = false
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            return
+        end
+
+        hrp = char:FindFirstChild("HumanoidRootPart")
+        humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then
+            IsPlaying = false
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            return
+        end
+
+        local currentTime = tick()
+        local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+        
+        local targetFrame = 1
+        local accumulatedTime = 0
+        
+        for i = 1, #recording do
+            accumulatedTime = accumulatedTime + recording[i].dt
+            if accumulatedTime >= effectiveTime then
+                targetFrame = i
+                break
+            end
+        end
+        
+        currentFrame = targetFrame
+
+        if currentFrame >= #recording then
+            IsPlaying = false
+            IsPaused = false
+            RestoreFullUserControl()
+            playbackConnection:Disconnect()
+            PlaySound("Stop")
+            return
+        end
+
+        local frame = recording[currentFrame]
+        if not frame then return end
+
+        ApplyFrameData(frame, humanoid, hrp)
+        currentPlaybackFrame = currentFrame
+    end)
+    
+    AddConnection(playbackConnection)
+end
+
+-- ========= ENHANCED RECORDING SYSTEM =========
+function StartRecording()
+    if IsRecording then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
+        return
+    end
+    
+    IsRecording = true
+    CurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+    lastRecordTime = tick()
+    lastRecordPos = nil
+    
+    RecordBtnBig.Text = "STOP RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10)
+    
+    PlaySound("RecordStart")
+    
+    recordConnection = RunService.Heartbeat:Connect(function()
+        if not IsRecording then return end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") or #CurrentRecording.Frames >= MAX_FRAMES then
+            StopRecording()
+            return
+        end
+        
+        local currentTime = tick()
+        local deltaTime = currentTime - lastRecordTime
+        
+        if deltaTime >= (1 / RECORDING_FPS) then
+            local hrp = char.HumanoidRootPart
+            local currentPos = hrp.Position
+            
+            if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                lastRecordTime = currentTime
+                return
+            end
+            
+            local frameData = CreateFrameData()
+            if frameData then
+                frameData.dt = deltaTime
+                table.insert(CurrentRecording.Frames, frameData)
+                lastRecordTime = currentTime
+                lastRecordPos = currentPos
+                
+                FrameLabel.Text = string.format("Frames: %d", #CurrentRecording.Frames)
+            end
+        end
+    end)
+    
+    AddConnection(recordConnection)
+end
+
+function StopRecording()
+    if not IsRecording then return end
+    IsRecording = false
+    
+    if recordConnection then
+        recordConnection:Disconnect()
+        recordConnection = nil
+    end
+    
+    if #CurrentRecording.Frames > 0 then
+        AutoSaveRecording()
+    end
+    
+    RecordBtnBig.Text = "RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    
+    PlaySound("RecordStop")
+    FrameLabel.Text = "Frames: 0"
+end
+
+-- ========= PAUSE/RESUME SYSTEM =========
+function PausePlayback()
+    if not IsPlaying and not IsAutoLoopPlaying then return end
+    
+    IsPaused = not IsPaused
+    
+    if IsPaused then
+        PauseBtnBig.Text = "RESUME"
+        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
+        RestoreFullUserControl()
+        PlaySound("Click")
+    else
+        PauseBtnBig.Text = "PAUSE"
+        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        SaveHumanoidState()
+        PlaySound("Click")
+    end
+end
+
+function StopPlayback()
+    if AutoLoop then
+        StopAutoLoopAll()
+        AnimateLoop(false)
+    end
+    
+    if not IsPlaying then return end
+    IsPlaying = false
+    IsPaused = false
+    
+    if playbackConnection then
+        playbackConnection:Disconnect()
+        playbackConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
+end
+
+-- ========= SOUND EFFECTS =========
+local SoundEffects = {
+    Click = "rbxassetid://4499400560",
+    Toggle = "rbxassetid://7468131335", 
+    RecordStart = "rbxassetid://4499400560",
+    RecordStop = "rbxassetid://4499400560",
+    Play = "rbxassetid://4499400560",
+    Stop = "rbxassetid://4499400560",
+    Error = "rbxassetid://7772283448",
+    Success = "rbxassetid://2865227271"
+}
+
+local function PlaySound(soundType)
+    pcall(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = SoundEffects[soundType] or SoundEffects.Click
+        sound.Volume = 0.3
+        sound.Parent = workspace
+        sound:Play()
+        game:GetService("Debris"):AddItem(sound, 2)
     end)
 end
 
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AutoWalkProV84"
+ScreenGui.Name = "AutoWalkByaruL"
 ScreenGui.ResetOnSpawn = false
 
-SafeCall(function()
-    if player:FindFirstChild("PlayerGui") then
-        ScreenGui.Parent = player.PlayerGui
-    else
-        wait(2)
-        ScreenGui.Parent = player:WaitForChild("PlayerGui")
-    end
-end)
-
--- ========= RECORDING STUDIO GUI (230x205) =========
-local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 205)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -102.5)
-RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BorderSizePixel = 0
-RecordingStudio.Active = true
-RecordingStudio.Draggable = true
-RecordingStudio.Visible = false
-RecordingStudio.Parent = ScreenGui
-
-local StudioCorner = Instance.new("UICorner")
-StudioCorner.CornerRadius = UDim.new(0, 10)
-StudioCorner.Parent = RecordingStudio
-
-local StudioStroke = Instance.new("UIStroke")
-StudioStroke.Color = Color3.fromRGB(100, 150, 255)
-StudioStroke.Thickness = 2
-StudioStroke.Parent = RecordingStudio
-
--- Studio Header
-local StudioHeader = Instance.new("Frame")
-StudioHeader.Size = UDim2.new(1, 0, 0, 28)
-StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-StudioHeader.BorderSizePixel = 0
-StudioHeader.Parent = RecordingStudio
-
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 10)
-HeaderCorner.Parent = StudioHeader
-
-local StudioTitle = Instance.new("TextLabel")
-StudioTitle.Size = UDim2.new(1, -30, 1, 0)
-StudioTitle.Position = UDim2.new(0, 10, 0, 0)
-StudioTitle.BackgroundTransparency = 1
-StudioTitle.Text = "🎬 RECORDING STUDIO"
-StudioTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
-StudioTitle.Font = Enum.Font.GothamBold
-StudioTitle.TextSize = 11
-StudioTitle.TextXAlignment = Enum.TextXAlignment.Left
-StudioTitle.Parent = StudioHeader
-
-local CloseStudioBtn = Instance.new("TextButton")
-CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
-CloseStudioBtn.Position = UDim2.new(1, -24, 0.5, -10)
-CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-CloseStudioBtn.Text = "×"
-CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
-CloseStudioBtn.Font = Enum.Font.GothamBold
-CloseStudioBtn.TextSize = 14
-CloseStudioBtn.Parent = StudioHeader
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 5)
-CloseCorner.Parent = CloseStudioBtn
-
--- Studio Content
-local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -16, 1, -36)
-StudioContent.Position = UDim2.new(0, 8, 0, 32)
-StudioContent.BackgroundTransparency = 1
-StudioContent.Parent = RecordingStudio
-
--- Helper function
-local function CreateStudioBtn(text, x, y, w, h, color)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(w, h)
-    btn.Position = UDim2.fromOffset(x, y)
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 9
-    btn.AutoButtonColor = false
-    btn.Parent = StudioContent
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
-    corner.Parent = btn
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
-    
-    btn.MouseEnter:Connect(function()
-        SafeCall(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(
-                    math.min(color.R * 255 + 30, 255),
-                    math.min(color.G * 255 + 30, 255),
-                    math.min(color.B * 255 + 30, 255)
-                )
-            }):Play()
-        end)
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        SafeCall(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-        end)
-    end)
-    
-    return btn
+if syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = game:GetService("CoreGui")
+elseif gethui then
+    ScreenGui.Parent = gethui()
+elseif game:GetService("CoreGui"):FindFirstChild("RobloxGui") then
+    ScreenGui.Parent = game:GetService("CoreGui")
+else
+    ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- Top Row Buttons
-local RecordBtn = CreateStudioBtn("● RECORD", 5, 5, 68, 30, Color3.fromRGB(200, 50, 60))
-local SaveBtn = CreateStudioBtn("💾 SAVE", 78, 5, 68, 30, Color3.fromRGB(100, 200, 100))
-local ClearBtn = CreateStudioBtn("🗑️ CLEAR", 151, 5, 68, 30, Color3.fromRGB(150, 50, 60))
-
--- Frame Counter
-local FrameLabel = Instance.new("TextLabel")
-FrameLabel.Size = UDim2.fromOffset(214, 28)
-FrameLabel.Position = UDim2.fromOffset(5, 40)
-FrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-FrameLabel.Text = "Frames: 0 / 30000 | Pos: 0"
-FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-FrameLabel.Font = Enum.Font.GothamBold
-FrameLabel.TextSize = 10
-FrameLabel.Parent = StudioContent
-
-local FrameCorner = Instance.new("UICorner")
-FrameCorner.CornerRadius = UDim.new(0, 5)
-FrameCorner.Parent = FrameLabel
-
-local FrameStroke = Instance.new("UIStroke")
-FrameStroke.Color = Color3.fromRGB(60, 60, 70)
-FrameStroke.Thickness = 1
-FrameStroke.Parent = FrameLabel
-
--- Timeline Label
-local TimelineLabel = Instance.new("TextLabel")
-TimelineLabel.Size = UDim2.fromOffset(214, 20)
-TimelineLabel.Position = UDim2.fromOffset(5, 73)
-TimelineLabel.BackgroundTransparency = 1
-TimelineLabel.Text = "Timeline Control (1 sec/step)"
-TimelineLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-TimelineLabel.Font = Enum.Font.Gotham
-TimelineLabel.TextSize = 8
-TimelineLabel.Parent = StudioContent
-
--- Timeline Buttons
-local RewindBtn = CreateStudioBtn("⏪ MUNDUR", 5, 98, 104, 35, Color3.fromRGB(80, 120, 200))
-local ResumeBtn = CreateStudioBtn("▶ RESUME", 114, 98, 105, 35, Color3.fromRGB(40, 180, 80))
-
--- Status Label
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.fromOffset(214, 20)
-StatusLabel.Position = UDim2.fromOffset(5, 138)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Ready to record"
-StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 8
-StatusLabel.Parent = StudioContent
-
--- ========= CLEAN MAIN GUI (250x200) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 200)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.Size = UDim2.fromOffset(250, 350) 
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
@@ -602,41 +826,44 @@ local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 12)
 MainCorner.Parent = MainFrame
 
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(60, 60, 60)
-MainStroke.Thickness = 2
-MainStroke.Parent = MainFrame
-
--- Main Header
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 32)
-Header.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 Header.BorderSizePixel = 0
 Header.Parent = MainFrame
 
-local MainHeaderCorner = Instance.new("UICorner")
-MainHeaderCorner.CornerRadius = UDim.new(0, 12)
-MainHeaderCorner.Parent = Header
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 12)
+HeaderCorner.Parent = Header
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -60, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "AUTO WALK PRO v8.4"
-Title.TextColor3 = Color3.fromRGB(100, 255, 150)
+Title.Text = "ByaruL v6.0 - ENHANCED DATA"
+Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
-Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
 
+local FrameLabel = Instance.new("TextLabel")
+FrameLabel.Size = UDim2.new(0, 70, 1, 0)
+FrameLabel.Position = UDim2.new(0, 5, 0, 0)
+FrameLabel.BackgroundTransparency = 1
+FrameLabel.Text = "Frame: 0"
+FrameLabel.TextColor3 = Color3.fromRGB(255,255,255)
+FrameLabel.Font = Enum.Font.GothamBold
+FrameLabel.TextSize = 9
+FrameLabel.Parent = Header
+
 local HideButton = Instance.new("TextButton")
-HideButton.Size = UDim2.fromOffset(20, 20)
-HideButton.Position = UDim2.new(1, -50, 0.5, -10)
-HideButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+HideButton.Size = UDim2.fromOffset(25, 25)
+HideButton.Position = UDim2.new(1, -60, 0.5, -12)
+HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
-HideButton.TextSize = 12
+HideButton.TextSize = 14
 HideButton.Parent = Header
 
 local HideCorner = Instance.new("UICorner")
@@ -644,38 +871,38 @@ HideCorner.CornerRadius = UDim.new(0, 6)
 HideCorner.Parent = HideButton
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.fromOffset(20, 20)
-CloseButton.Position = UDim2.new(1, -25, 0.5, -10)
-CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-CloseButton.Text = "×"
+CloseButton.Size = UDim2.fromOffset(25, 25)
+CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
+CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
+CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 14
+CloseButton.TextSize = 12
 CloseButton.Parent = Header
 
-local CloseCorner2 = Instance.new("UICorner")
-CloseCorner2.CornerRadius = UDim.new(0, 6)
-CloseCorner2.Parent = CloseButton
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
 
--- Content Area
 local Content = Instance.new("ScrollingFrame")
-Content.Size = UDim2.new(1, -16, 1, -40)
-Content.Position = UDim2.new(0, 8, 0, 36)
+Content.Size = UDim2.new(1, -10, 1, -42)
+Content.Position = UDim2.new(0, 5, 0, 36)
 Content.BackgroundTransparency = 1
-Content.ScrollBarThickness = 4
-Content.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-Content.CanvasSize = UDim2.new(0, 0, 0, 400)
+Content.ScrollBarThickness = 6
+Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+Content.ScrollingDirection = Enum.ScrollingDirection.Y
+Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+Content.CanvasSize = UDim2.new(0, 0, 0, 800)
 Content.Parent = MainFrame
 
--- Mini Button
 local MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
-MiniButton.Position = UDim2.new(0, 20, 0.5, -20)
+MiniButton.Position = UDim2.new(0.5, -22.5, 0, -30)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-MiniButton.Text = "AWP"
-MiniButton.TextColor3 = Color3.fromRGB(100, 255, 150)
+MiniButton.Text = "⚙️"
+MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 12
+MiniButton.TextSize = 25
 MiniButton.Visible = false
 MiniButton.Active = true
 MiniButton.Draggable = true
@@ -685,13 +912,8 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
-local MiniStroke = Instance.new("UIStroke")
-MiniStroke.Color = Color3.fromRGB(100, 255, 150)
-MiniStroke.Thickness = 2
-MiniStroke.Parent = MiniButton
-
--- ========= CLEAN GUI COMPONENTS =========
-local function CreateElegantButton(text, x, y, w, h, color, parent)
+-- Enhanced Button Creation
+local function CreateButton(text, x, y, w, h, color, parent)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(w, h)
     btn.Position = UDim2.fromOffset(x, y)
@@ -699,7 +921,7 @@ local function CreateElegantButton(text, x, y, w, h, color, parent)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.TextSize = 9
     btn.AutoButtonColor = false
     btn.Parent = parent or Content
     
@@ -708,1287 +930,918 @@ local function CreateElegantButton(text, x, y, w, h, color, parent)
     corner.Parent = btn
     
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(60, 60, 60)
-    stroke.Thickness = 1
+    stroke.Color = Color3.fromRGB(0,0,0)
+    stroke.Thickness = 1.0
+    stroke.Transparency = 0.0
     stroke.Parent = btn
     
     btn.MouseEnter:Connect(function()
-        SafeCall(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(
-                math.min(color.R * 255 + 20, 255),
-                math.min(color.G * 255 + 20, 255), 
-                math.min(color.B * 255 + 20, 255)
-            )}):Play()
-        end)
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.new(
+                math.min(color.R * 1.2, 1),
+                math.min(color.G * 1.2, 1),
+                math.min(color.B * 1.2, 1)
+            )
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.3
+        }):Play()
     end)
     
     btn.MouseLeave:Connect(function()
-        SafeCall(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-        end)
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundColor3 = color
+        }):Play()
+        TweenService:Create(stroke, TweenInfo.new(0.2), {
+            Transparency = 0.7
+        }):Play()
     end)
     
     return btn
 end
 
-local function CreateElegantTextBox(placeholder, x, y, w, h, parent)
-    local box = Instance.new("TextBox")
-    box.Size = UDim2.fromOffset(w, h)
-    box.Position = UDim2.fromOffset(x, y)
-    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    box.Text = ""
-    box.PlaceholderText = placeholder
-    box.TextColor3 = Color3.fromRGB(200,220)
-    box.Font = Enum.Font.Gotham
-    box.TextSize = 10
-    box.Parent = parent or Content
+local function CreateToggle(text, x, y, w, h, default)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btn.Text = ""
+    btn.Parent = Content
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
-    corner.Parent = box
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
     
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(60, 60, 60)
-    stroke.Thickness = 1
-    stroke.Parent = box
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, w - 28, 1, 0)
+    label.Position = UDim2.new(0, 4, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(200, 200, 220)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 7
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = btn
     
-    box.Focused:Connect(function()
-        SafeCall(function()
-            TweenService:Create(box, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(35, 35, 35)}):Play()
-            TweenService:Create(stroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(100, 255, 150)}):Play()
-        end)
-    end)
+    local toggle = Instance.new("Frame")
+    toggle.Size = UDim2.fromOffset(22, 12)
+    toggle.Position = UDim2.new(1, -25, 0.5, -6)
+    toggle.BackgroundColor3 = default and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+    toggle.BorderSizePixel = 0
+    toggle.Parent = btn
     
-    box.FocusLost:Connect(function()
-        SafeCall(function()
-            TweenService:Create(box, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 25)}):Play()
-            TweenService:Create(stroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(60, 60, 60)}):Play()
-        end)
-    end)
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggle
     
-    return box
-end
-
-local function CreateToggleButton(text, x, y, w, h, defaultState)
-    local btn = CreateElegantButton(text, x, y, w, h, defaultState and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(80, 80, 80))
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(8, 8)
+    knob.Position = default and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(220, 220, 230)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggle
     
-    local isOn = defaultState
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
     
-    local function UpdateButton()
-        if isOn then
-            btn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-            btn.Text = text .. " ON"
-        else
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-            btn.Text = text .. " OFF"
-        end
+    local function Animate(isOn)
+        PlaySound("Toggle")
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
     end
     
-    UpdateButton()
-    
-    btn.MouseEnter:Connect(function()
-        SafeCall(function()
-            if isOn then
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(60, 200, 100)}):Play()
-            else
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(100, 100, 100)}):Play()
-            end
-        end)
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        SafeCall(function()
-            if isOn then
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 180, 80)}):Play()
-            else
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(80, 80, 80)}):Play()
-            end
-        end)
-    end)
-    
-    return btn, function() return isOn end, function(state) 
-        isOn = state 
-        UpdateButton()
-    end
+    return btn, Animate
 end
 
--- Status Label
-local Status = Instance.new("TextLabel")
-Status.Size = UDim2.fromOffset(234, 20)
-Status.Position = UDim2.fromOffset(0, 380)
-Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Status.BackgroundTransparency = 0
-Status.Text = "System Ready - v8.4"
-Status.TextColor3 = Color3.fromRGB(100, 255, 150)
-Status.Font = Enum.Font.Gotham
-Status.TextSize = 9
-Status.TextXAlignment = Enum.TextXAlignment.Center
-Status.Parent = Content
+-- ========= UI ELEMENTS =========
+local RecordBtnBig = CreateButton("RECORDING", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
+local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
+local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
+local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 
-local StatusCorner = Instance.new("UICorner")
-StatusCorner.CornerRadius = UDim.new(0, 6)
-StatusCorner.Parent = Status
+-- TOGGLE LAYOUT
+local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 78, 22, false)
+local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 82, 75, 78, 22, false)
+local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 164, 75, 78, 22, false)
 
-local StatusStroke = Instance.new("UIStroke")
-StatusStroke.Color = Color3.fromRGB(60, 60, 60)
-StatusStroke.Thickness = 1
-StatusStroke.Parent = Status
+-- SMART FEATURES TOGGLE
+local SmartResumeBtn, AnimateSmartResume = CreateToggle("Smart Resume", 0, 100, 117, 22, true)
 
--- Main GUI Layout
-local OpenStudioBtn = CreateElegantButton("🎬 RECORDING STUDIO", 10, 5, 230, 30, Color3.fromRGB(100, 150, 255))
+-- ========= TEXTBOX LAYOUT =========
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.fromOffset(55, 26)
+SpeedBox.Position = UDim2.fromOffset(5, 127)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+SpeedBox.BorderSizePixel = 0
+SpeedBox.Text = "1.00"
+SpeedBox.PlaceholderText = "Speed..."
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 11
+SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = Content
 
-local PauseBtn = CreateElegantButton("⏸ PAUSE", 10, 40, 70, 26, Color3.fromRGB(255, 150, 50))
-local PlayBtn = CreateElegantButton("▶ PLAY", 85, 40, 70, 26, Color3.fromRGB(40, 180, 80))
-local StopBtn = CreateElegantButton("■ STOP", 160, 40, 70, 26, Color3.fromRGB(150, 50, 60))
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 6)
+SpeedCorner.Parent = SpeedBox
 
-local MoveToBtn, GetMoveToState, SetMoveToState = CreateToggleButton("MoveTo", 10, 75, 110, 24, false)
-local VisualBtn, GetVisualState, SetVisualState = CreateToggleButton("Visual", 125, 75, 110, 24, false)
-local LoopBtn, GetLoopState, SetLoopState = CreateToggleButton("Loop", 10, 105, 110, 24, false)
-local HealBtn, GetHealState, SetHealState = CreateToggleButton("Heal", 125, 105, 110, 24, false)
+local FilenameBox = Instance.new("TextBox")
+FilenameBox.Size = UDim2.fromOffset(110, 26)
+FilenameBox.Position = UDim2.fromOffset(65, 127)
+FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+FilenameBox.BorderSizePixel = 0
+FilenameBox.Text = ""
+FilenameBox.PlaceholderText = "Custom File..."
+FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+FilenameBox.Font = Enum.Font.GothamBold
+FilenameBox.TextSize = 11
+FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
+FilenameBox.ClearTextOnFocus = false
+FilenameBox.Parent = Content
 
-local FileNameBox = CreateElegantTextBox("filename", 10, 140, 150, 24)
-local SaveFileBtn = CreateElegantButton("SAVE", 165, 140, 35, 24, Color3.fromRGB(40, 140, 70))
-local LoadFileBtn = CreateElegantButton("LOAD", 205, 140, 35, 24, Color3.fromRGB(140, 100, 40))
+local FilenameCorner = Instance.new("UICorner")
+FilenameCorner.CornerRadius = UDim.new(0, 6)
+FilenameCorner.Parent = FilenameBox
 
-local SpeedMinus = CreateElegantButton("-", 10, 175, 50, 24, Color3.fromRGB(60, 60, 60))
-local SpeedPlus = CreateElegantButton("+", 190, 175, 50, 24, Color3.fromRGB(60, 60, 60))
+local WalkSpeedBox = Instance.new("TextBox")
+WalkSpeedBox.Size = UDim2.fromOffset(55, 26)
+WalkSpeedBox.Position = UDim2.fromOffset(180, 127)
+WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+WalkSpeedBox.BorderSizePixel = 0
+WalkSpeedBox.Text = "16"
+WalkSpeedBox.PlaceholderText = "8-200"
+WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+WalkSpeedBox.Font = Enum.Font.GothamBold
+WalkSpeedBox.TextSize = 11
+WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+WalkSpeedBox.ClearTextOnFocus = false
+WalkSpeedBox.Parent = Content
 
-local SpeedDisplay = Instance.new("TextLabel")
-SpeedDisplay.Size = UDim2.fromOffset(120, 24)
-SpeedDisplay.Position = UDim2.fromOffset(65, 175)
-SpeedDisplay.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-SpeedDisplay.BackgroundTransparency = 0
-SpeedDisplay.Text = "1.00x"
-SpeedDisplay.TextColor3 = Color3.fromRGB(100, 255, 150)
-SpeedDisplay.Font = Enum.Font.Gotham
-SpeedDisplay.TextSize = 11
-SpeedDisplay.TextXAlignment = Enum.TextXAlignment.Center
-SpeedDisplay.Parent = Content
+local WalkSpeedCorner = Instance.new("UICorner")
+WalkSpeedCorner.CornerRadius = UDim.new(0, 6)
+WalkSpeedCorner.Parent = WalkSpeedBox
 
-local SpeedCorner2 = Instance.new("UICorner")
-SpeedCorner2.CornerRadius = UDim.new(0, 6)
-SpeedCorner2.Parent = SpeedDisplay
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 158, 117, 26, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 123, 158, 117, 26, Color3.fromRGB(59, 15, 116))
 
-local SpeedStroke = Instance.new("UIStroke")
-SpeedStroke.Color = Color3.fromRGB(60, 60, 60)
-SpeedStroke.Thickness = 1
-SpeedStroke.Parent = SpeedDisplay
+local PathToggleBtn = CreateButton("SHOW RUTE", 0, 189, 117, 26, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 123, 189, 117, 26, Color3.fromRGB(59, 15, 116))
 
--- Replay List
-local ReplayList = Instance.new("ScrollingFrame")
-ReplayList.Size = UDim2.new(1, 0, 0, 170)
-ReplayList.Position = UDim2.fromOffset(0, 205)
-ReplayList.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ReplayList.BorderSizePixel = 0
-ReplayList.ScrollBarThickness = 4
-ReplayList.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 80)
-ReplayList.CanvasSize = UDim2.new(0, 0, 0, 0)
-ReplayList.Parent = Content
+-- Record List
+local RecordList = Instance.new("ScrollingFrame")
+RecordList.Size = UDim2.new(1, 0, 0, 120)
+RecordList.Position = UDim2.fromOffset(0, 220)
+RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+RecordList.BorderSizePixel = 0
+RecordList.ScrollBarThickness = 6
+RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
+RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+RecordList.CanvasSize = UDim2.new(0, 0, 0, 0)
+RecordList.Parent = Content
 
 local ListCorner = Instance.new("UICorner")
 ListCorner.CornerRadius = UDim.new(0, 6)
-ListCorner.Parent = ReplayList
+ListCorner.Parent = RecordList
 
-local ListLayout = Instance.new("UIListLayout")
-ListLayout.Padding = UDim.new(0, 2)
-ListLayout.Parent = ReplayList
-
--- ========= ROUTE VISUALIZATION =========
-local routeParts = {}
-local routeBeams = {}
-
-local function ClearRouteVisualization()
-    SafeCall(function()
-        for _, part in pairs(routeParts) do
-            if part and part.Parent then
-                part:Destroy()
-            end
-        end
-        for _, beam in pairs(routeBeams) do
-            if beam and beam.Parent then
-                beam:Destroy()
-            end
-        end
-        routeParts = {}
-        routeBeams = {}
-    end)
+-- Speed validation function
+local function ValidateSpeed(speedText)
+    local speed = tonumber(speedText)
+    if not speed then return false, "Invalid number" end
+    if speed < 0.25 or speed > 30 then return false, "Speed must be between 0.25 and 30" end
+    local roundedSpeed = math.floor((speed * 4) + 0.5) / 4
+    return true, roundedSpeed
 end
 
-local function ShowRouteVisualization(recording)
-    ClearRouteVisualization()
-    
-    if not recording or #recording == 0 or not ShowVisualization then return end
-    
-    SafeCall(function()
-        local folder = Instance.new("Folder")
-        folder.Name = "RouteVisualization"
-        folder.Parent = workspace
-        
-        local lastPart = nil
-        local step = math.max(10, math.floor(#recording / 500))
-        
-        for i = 1, #recording, step do
-            local frame = recording[i]
-            local pos = GetFramePosition(frame)
-            
-            local part = Instance.new("Part")
-            part.Size = Vector3.new(0.3, 0.3, 0.3)
-            part.Position = pos
-            part.Anchored = true
-            part.CanCollide = false
-            part.Transparency = 0.4
-            part.Color = Color3.fromRGB(100, 255, 150)
-            part.Material = Enum.Material.Neon
-            part.Shape = Enum.PartType.Ball
-            part.Parent = folder
-            
-            table.insert(routeParts, part)
-            
-            if lastPart then
-                local beam = Instance.new("Beam")
-                beam.Attachment0 = Instance.new("Attachment")
-                beam.Attachment0.Parent = lastPart
-                beam.Attachment1 = Instance.new("Attachment")
-                beam.Attachment1.Parent = part
-                beam.Color = ColorSequence.new(Color3.fromRGB(100, 255, 150))
-                beam.Width0 = 0.15
-                beam.Width1 = 0.15
-                beam.Brightness = 2
-                beam.Parent = folder
-                
-                table.insert(routeBeams, beam)
-                table.insert(routeBeams, beam.Attachment0)
-                table.insert(routeBeams, beam.Attachment1)
-            end
-            
-            lastPart = part
-        end
-    end)
-end
-
--- ========= REPLAY LIST MANAGEMENT =========
-local function UpdateReplayList()
-    CleanupConnections()
-    
-    SafeCall(function()
-        for _, child in pairs(ReplayList:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
-        end
-        
-        local recordingNames = {}
-        for name, _ in pairs(RecordedMovements) do
-            table.insert(recordingNames, name)
-        end
-        table.sort(recordingNames)
-        
-        local yPos = 0
-        for index, name in ipairs(recordingNames) do
-            local rec = RecordedMovements[name]
-            local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -8, 0, 16)
-            item.Position = UDim2.new(0, 4, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-            item.Parent = ReplayList
-            
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 4)
-            corner.Parent = item
-            
-            local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(0, 120, 1, 0)
-            nameBox.Position = UDim2.new(0, 4, 0, 0)
-            nameBox.BackgroundTransparency = 1
-            nameBox.Text = name
-            nameBox.TextColor3 = Color3.new(1, 1, 1)
-            nameBox.Font = Enum.Font.Gotham
-            nameBox.TextSize = 8
-            nameBox.PlaceholderText = "Rename..."
-            nameBox.Parent = item
-            
-            local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(30, 12)
-            playBtn.Position = UDim2.new(1, -60, 0.5, -6)
-            playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-            playBtn.Text = "PLAY"
-            playBtn.TextColor3 = Color3.new(1, 1, 1)
-            playBtn.Font = Enum.Font.GothamBold
-            playBtn.TextSize = 6
-            playBtn.AutoButtonColor = false
-            playBtn.Parent = item
-            
-            local playCorner = Instance.new("UICorner")
-            playCorner.CornerRadius = UDim.new(0, 3)
-            playCorner.Parent = playBtn
-            
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(30, 12)
-            delBtn.Position = UDim2.new(1, -25, 0.5, -6)
-            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "DEL"
-            delBtn.TextColor3 = Color3.new(1, 1, 1)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 6
-            delBtn.AutoButtonColor = false
-            delBtn.Parent = item
-            
-            local delCorner = Instance.new("UICorner")
-            delCorner.CornerRadius = UDim.new(0, 3)
-            delCorner.Parent = delBtn
-            
-            nameBox.FocusLost:Connect(function(enterPressed)
-                SafeCall(function()
-                    if enterPressed and nameBox.Text ~= "" and nameBox.Text ~= name then
-                        RecordedMovements[nameBox.Text] = RecordedMovements[name]
-                        RecordedMovements[name] = nil
-                        UpdateReplayList()
-                    else
-                        nameBox.Text = name
-                    end
-                end)
-            end)
-            
-            local playConn = playBtn.MouseButton1Click:Connect(function()
-                SafeCall(function()
-                    if not IsPlaying then
-                        PlayRecording(name)
-                    end
-                end)
-            end)
-            AddConnection(playConn)
-            
-            local delConn = delBtn.MouseButton1Click:Connect(function()
-                SafeCall(function()
-                    RecordedMovements[name] = nil
-                    UpdateReplayList()
-                    UpdateStatus("Deleted: " .. name)
-                end)
-            end)
-            AddConnection(delConn)
-            
-            yPos = yPos + 18
-        end
-        
-        ReplayList.CanvasSize = UDim2.new(0, 0, 0, yPos)
-    end)
-end
-
--- ========= STUDIO UI UPDATE =========
-local function UpdateStudioUI()
-    SafeCall(function()
-        local currentPos = TimelinePosition > 0 and TimelinePosition or #CurrentRecording.Frames
-        FrameLabel.Text = string.format("Frames: %d / 30000 | Pos: %d", #CurrentRecording.Frames, currentPos)
-    end)
-end
-
--- ========= RECORDING STUDIO FUNCTIONS =========
-local function StartStudioRecording()
-    if IsRecording then return end
-    
-    SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            StatusLabel.Text = "❌ Character not found!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        IsRecording = true
-        IsFallDetected = false
-        isCurrentlyFalling = false
-        LastSafeFrame = 0
-        TimelinePosition = 0
-        IsTimelineMode = false
-        FallCheckEnabled = true
-        timelineGroundedStart = nil
-        CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Studio_" .. os.date("%H%M%S")}
-        lastRecordTime = 0
-        lastRecordPos = nil
-        
-        RecordBtn.Text = "⏹ STOP"
-        RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
-        StatusLabel.Text = "🎬 Recording... Move your character"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
-        recordConnection = RunService.Heartbeat:Connect(function()
-            SafeCall(function()
-                local char = player.Character
-                if not char or not char:FindFirstChild("HumanoidRootPart") or #CurrentRecording.Frames >= MAX_FRAMES then
-                    return
-                end
-                
-                local hrp = char.HumanoidRootPart
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                
-                if IsTimelineMode then
-                    local moveState = GetCurrentMoveState(hum, hrp)
-                    if moveState == "Grounded" then
-                        if not timelineGroundedStart then
-                            timelineGroundedStart = tick()
-                        elseif tick() - timelineGroundedStart > 2 then
-                            IsTimelineMode = false
-                            FallCheckEnabled = true
-                            StatusLabel.Text = "✅ Auto-resumed recording"
-                            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-                            timelineGroundedStart = nil
-                        end
-                    else
-                        timelineGroundedStart = nil
-                    end
-                    return
-                end
-                
-                local moveState = GetCurrentMoveState(hum, hrp)
-                
-                if IsFallDetected and FallCheckEnabled then
-                    IsTimelineMode = true
-                    StatusLabel.Text = "⚠️ FALL DETECTED! Use MUNDUR"
-                    StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
-                    IsFallDetected = false
-                    return
-                end
-                
-                if moveState == "Grounded" or moveState == "Running" then
-                    LastSafeFrame = #CurrentRecording.Frames
-                end
-                
-                local now = tick()
-                if (now - lastRecordTime) < (1 / RECORDING_FPS) then return end
-                
-                local currentPos = hrp.Position
-                local currentVelocity = hrp.AssemblyLinearVelocity
-                
-                if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD and moveState == "Grounded" then
-                    lastRecordTime = now
-                    return
-                end
-                
-                local cf = hrp.CFrame
-                table.insert(CurrentRecording.Frames, {
-                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                    MoveState = moveState,
-                    WalkSpeed = hum and hum.WalkSpeed or 16,
-                    Timestamp = now - CurrentRecording.StartTime
-                })
-                
-                lastRecordTime = now
-                lastRecordPos = currentPos
-                
-                UpdateStudioUI()
-            end)
-        end)
-    end)
-end
-
-local function StopStudioRecording()
-    IsRecording = false
-    IsFallDetected = false
-    isCurrentlyFalling = false
-    IsTimelineMode = false
-    FallCheckEnabled = true
-    timelineGroundedStart = nil
-    
-    SafeCall(function()
-        if recordConnection then
-            recordConnection:Disconnect()
-            recordConnection = nil
-        end
-        
-        RecordBtn.Text = "● RECORD"
-        RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        
-        if #CurrentRecording.Frames > 0 then
-            StatusLabel.Text = "✅ Recording stopped (" .. #CurrentRecording.Frames .. " frames)"
-            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        else
-            StatusLabel.Text = "Recording stopped (0 frames)"
-            StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
-    end)
-end
-
-local function RewindTimeline()
-    if not IsRecording then
-        StatusLabel.Text = "❌ Not recording!"
-        return
-    end
-    
-    SafeCall(function()
-        if #CurrentRecording.Frames == 0 then return end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char.HumanoidRootPart
-        
-        local framesToDelete = TIMELINE_STEP_SECONDS * RECORDING_FPS
-        local targetFrame = math.max(1, #CurrentRecording.Frames - framesToDelete)
-        
-        for i = #CurrentRecording.Frames, targetFrame + 1, -1 do
-            table.remove(CurrentRecording.Frames, i)
-        end
-        
-        if #CurrentRecording.Frames > 0 then
-            local frame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            hrp.CFrame = GetFrameCFrame(frame)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            
-            for i = #CurrentRecording.Frames, 1, -1 do
-                if CurrentRecording.Frames[i].MoveState == "Grounded" then
-                    LastSafeFrame = i
-                    break
-                end
-            end
-            
-            TimelinePosition = #CurrentRecording.Frames
-        end
-        
-        IsTimelineMode = true
-        FallCheckEnabled = false
-        
-        UpdateStudioUI()
-        StatusLabel.Text = "⏪ Rewound 1 second - Use RESUME"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
-        
-        IsFallDetected = false
-        isCurrentlyFalling = false
-        timelineGroundedStart = nil
-    end)
-end
-
-local function ResumeStudioRecording()
-    if not IsRecording then
-        StatusLabel.Text = "❌ Not recording!"
-        return
-    end
-    
-    SafeCall(function()
-        IsTimelineMode = false
-        FallCheckEnabled = true
-        IsFallDetected = false
-        isCurrentlyFalling = false
-        timelineGroundedStart = nil
-        
-        StatusLabel.Text = "▶ Recording resumed from frame " .. #CurrentRecording.Frames
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
-        UpdateStudioUI()
-    end)
-end
-
-local function SaveStudioRecording()
-    SafeCall(function()
-        if #CurrentRecording.Frames == 0 then
-            StatusLabel.Text = "❌ No frames to save!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        if IsRecording then
-            StopStudioRecording()
-        end
-        
-        RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
-        UpdateReplayList()
-        
-        StatusLabel.Text = "💾 Saved: " .. CurrentRecording.Name
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
-        UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
-        
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
-        TimelinePosition = 0
-        IsTimelineMode = false
-        timelineGroundedStart = nil
-        UpdateStudioUI()
-        
-        wait(1.5)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end
-
-local function ClearStudioRecording()
-    SafeCall(function()
-        if IsRecording then
-            StopStudioRecording()
-        end
-        
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
-        TimelinePosition = 0
-        IsTimelineMode = false
-        LastSafeFrame = 0
-        timelineGroundedStart = nil
-        
-        UpdateStudioUI()
-        StatusLabel.Text = "🗑️ Cleared - Ready to record"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-    end)
-end
-
--- ========= STUDIO BUTTON EVENTS =========
-RecordBtn.MouseButton1Click:Connect(function()
-    if IsRecording then
-        StopStudioRecording()
+SpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateSpeed(SpeedBox.Text)
+    if success then
+        CurrentSpeed = result
+        SpeedBox.Text = string.format("%.2f", result)
+        PlaySound("Success")
     else
-        StartStudioRecording()
+        SpeedBox.Text = string.format("%.2f", CurrentSpeed)
+        PlaySound("Error")
     end
 end)
 
-RewindBtn.MouseButton1Click:Connect(RewindTimeline)
-ResumeBtn.MouseButton1Click:Connect(ResumeStudioRecording)
-SaveBtn.MouseButton1Click:Connect(SaveStudioRecording)
-ClearBtn.MouseButton1Click:Connect(ClearStudioRecording)
-
-CloseStudioBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if IsRecording then
-            StopStudioRecording()
-        end
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end)
-
--- ========= BYARUL PLAYBACK SYSTEM =========
-function PlayRecordingWithByarulSystem(recording, startFrame)
-    if not recording or #recording == 0 then return end
-    
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if not hum or not hrp then return end
-    
-    task.spawn(function()
-        SafeCall(function()
-            hum.AutoRotate = false
-            hum.PlatformStand = false
-            
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-            
-            local currentFrame = startFrame or 1
-            playbackStartTime = tick()
-            totalPausedDuration = 0
-            pauseStartTime = 0
-            lastPlaybackState = nil
-            
-            lastPlaybackCFrame = hrp.CFrame
-            lastPlaybackVelocity = Vector3.new(0, 0, 0)
-            
-            playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-                if not IsPlaying then
-                    playbackConnection:Disconnect()
-                    CompleteCharacterReset(char)
-                    return
-                end
-                
-                if IsPaused then
-                    if pauseStartTime == 0 then
-                        pauseStartTime = tick()
-                        RestoreHumanoidState()
-                    end
-                    return
-                else
-                    if pauseStartTime > 0 then
-                        totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                        pauseStartTime = 0
-                        SaveHumanoidState()
-                    end
-                end
-                
-                char = player.Character
-                if not char or not char:FindFirstChild("HumanoidRootPart") then
-                    IsPlaying = false
-                    playbackConnection:Disconnect()
-                    return
-                end
-                
-                hum = char:FindFirstChildOfClass("Humanoid")
-                hrp = char:FindFirstChild("HumanoidRootPart")
-                if not hum or not hrp then
-                    IsPlaying = false
-                    playbackConnection:Disconnect()
-                    return
-                end
-                
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-                
-                local targetFrameIndex = 1
-                for i = 1, #recording do
-                    if GetFrameTimestamp(recording[i]) <= effectiveTime then
-                        targetFrameIndex = i
-                    else
-                        break
-                    end
-                end
-                
-                currentFrame = targetFrameIndex
-                
-                if currentFrame >= #recording then
-                    IsPlaying = false
-                    IsPaused = false
-                    lastPlaybackState = nil
-                    
-                    local finalFrame = recording[#recording]
-                    if finalFrame then
-                        SafeCall(function()
-                            hrp.CFrame = GetFrameCFrame(finalFrame)
-                            ApplyUniversalVelocity(char, Vector3.new(0, 0, 0))
-                        end)
-                    end
-                    
-                    CompleteCharacterReset(char)
-                    playbackConnection:Disconnect()
-                    
-                    if AutoLoop then
-                        task.wait(0.5)
-                        PlayRecording(currentRecordingName)
-                    end
-                    return
-                end
-                
-                local targetFrame = recording[currentFrame]
-                if not targetFrame then return end
-                
-                SafeCall(function()
-                    local targetCFrame = GetFrameCFrame(targetFrame)
-                    local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
-                    
-                    local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
-                    local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
-                    
-                    hrp.CFrame = smoothCFrame
-                    ApplyUniversalVelocity(char, smoothVelocity)
-                    
-                    lastPlaybackCFrame = smoothCFrame
-                    lastPlaybackVelocity = smoothVelocity
-                    
-                    hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-                    
-                    local charType = GetCharacterType()
-                    if charType == "R15" then
-                        if hum then
-                            hum.PlatformStand = false
-                            hum.AutoRotate = false
-                        end
-                    end
-                    
-                    local moveState = targetFrame.MoveState
-                    
-                    if moveState ~= lastPlaybackState then
-                        lastPlaybackState = moveState
-                        UniversalStateControl(hum, moveState)
-                    end
-                    
-                    currentPlaybackFrame = currentFrame
-                    
-                    if FrameLabel then
-                        FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
-                    end
-                    
-                    if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
-                        hum.Health = hum.MaxHealth
-                    end
-                end)
-            end)
-            
-            AddConnection(playbackConnection)
-        end)
-    end)
+-- WalkSpeed validation function
+local function ValidateWalkSpeed(walkSpeedText)
+    local walkSpeed = tonumber(walkSpeedText)
+    if not walkSpeed then return false, "Invalid number" end
+    if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+    return true, walkSpeed
 end
 
--- ========= PLAYBACK FUNCTIONS =========
-function PlayRecording(name)
-    if IsPlaying then return end
-    
-    SafeCall(function()
-        local recording = name and RecordedMovements[name] or next(RecordedMovements) and (select(2, next(RecordedMovements)))
-        if not recording then
-            UpdateStatus("ERROR: No recordings!")
-            return
-        end
+WalkSpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
+    if success then
+        CurrentWalkSpeed = result
+        WalkSpeedBox.Text = tostring(result)
         
         local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            UpdateStatus("ERROR: Character not found!")
-            return
+        if char and char:FindFirstChildOfClass("Humanoid") then
+            char.Humanoid.WalkSpeed = CurrentWalkSpeed
         end
         
-        currentRecordingName = name or next(RecordedMovements)
-        
-        IsPlaying = true
-        IsPaused = false
-        totalPausedDuration = 0
-        pauseStartTime = 0
-        lastMoveState = nil
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
-        
-        if distance <= ROUTE_PROXIMITY_THRESHOLD then
-            currentPlaybackFrame = nearestFrame
-            UpdateStatus(string.format("▶ Starting from Frame %d (nearby)", nearestFrame))
-        else
-            currentPlaybackFrame = 1
-            
-            local startPos = GetFramePosition(recording[1])
-            if (hrp.Position - startPos).Magnitude > 50 then
-                hrp.CFrame = CFrame.new(startPos)
-                UpdateStatus("📍 Teleported to start")
-            else
-                UpdateStatus("▶ Starting playback")
-            end
-        end
-        
-        PlayRecordingWithByarulSystem(recording, currentPlaybackFrame)
-    end)
-end
-
-function StopPlayback()
-    if not IsPlaying then return end
-    
-    SafeCall(function()
-        IsPlaying = false
-        IsPaused = false
-        lastMoveState = nil
-        
-        if playbackConnection then
-            playbackConnection:Disconnect()
-            playbackConnection = nil
-        end
-        
-        local char = player.Character
-        if char then
-            for _, part in pairs(char:GetDescendants()) do
-                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                    part.CanCollide = true
-                end
-            end
-            
-            CompleteCharacterReset(char)
-        end
-        
-        if ShowVisualization then
-            ClearRouteVisualization()
-        end
-        
-        UpdateStatus("■ Playback Stopped")
-    end)
-end
-
-function PauseResumePlayback()
-    if not IsPlaying then return end
-    
-    SafeCall(function()
-        IsPaused = not IsPaused
-        
-        if IsPaused then
-            UpdateStatus("⏸️ Playback Paused")
-        else
-            UpdateStatus("▶️ Playback Resumed")
-        end
-    end)
-end
-
-function UpdateStatus(msg)
-    SafeCall(function()
-        if Status then
-            Status.Text = msg
-        end
-    end)
-end
-
--- ========= SPEED CONTROL =========
-local function UpdateSpeedDisplay()
-    SafeCall(function()
-        SpeedDisplay.Text = string.format("%.2fx", CurrentSpeed)
-    end)
-end
-
-SpeedMinus.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if CurrentSpeed > 0.5 then
-            CurrentSpeed = math.max(0.5, CurrentSpeed - 0.25)
-            UpdateSpeedDisplay()
-            UpdateStatus("Speed: " .. string.format("%.2f", CurrentSpeed) .. "x")
-        end
-    end)
+        PlaySound("Success")
+    else
+        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
+        PlaySound("Error")
+    end
 end)
 
-SpeedPlus.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if CurrentSpeed < 10 then
-            CurrentSpeed = math.min(10, CurrentSpeed + 0.25)
-            UpdateSpeedDisplay()
-            UpdateStatus("Speed: " .. string.format("%.2f", CurrentSpeed) .. "x")
-        end
-    end)
+-- ========= BUTTON EVENTS =========
+RecordBtnBig.MouseButton1Click:Connect(function()
+    if IsRecording then StopRecording() else StartRecording() end
 end)
 
--- ========= FILE MANAGEMENT =========
-local function SaveToFile()
-    SafeCall(function()
-        local filename = FileNameBox.Text
-        if filename == "" then filename = "MyWalk" end
-        filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
-        
-        if not next(RecordedMovements) then
-            UpdateStatus("ERROR: No recordings to save!")
-            return
-        end
-        
-        local data = {
-            recordings = RecordedMovements,
-            settings = {
-                speed = CurrentSpeed,
-                autoHeal = AutoHeal,
-                autoLoop = AutoLoop,
-                useMoveTo = UseMoveTo,
-                showVisualization = ShowVisualization
-            },
-            version = "8.4"
-        }
-        writefile(filename, HttpService:JSONEncode(data))
-        UpdateStatus("💾 Saved: " .. filename)
-    end)
-end
-
-local function LoadFromFile()
-    SafeCall(function()
-        local filename = FileNameBox.Text
-        if filename == "" then filename = "MyWalk" end
-        filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
-        
-        if isfile(filename) then
-            local data = HttpService:JSONDecode(readfile(filename))
-            RecordedMovements = data.recordings or {}
-            CurrentSpeed = data.settings and data.settings.speed or 1
-            AutoHeal = data.settings and data.settings.autoHeal or false
-            AutoLoop = data.settings and data.settings.autoLoop or false
-            UseMoveTo = data.settings and data.settings.useMoveTo or false
-            ShowVisualization = data.settings and data.settings.showVisualization or false
-            
-            UpdateSpeedDisplay()
-            SetMoveToState(UseMoveTo)
-            SetVisualState(ShowVisualization)
-            SetLoopState(AutoLoop)
-            SetHealState(AutoHeal)
-            UpdateReplayList()
-            UpdateStatus("📂 Loaded: " .. filename)
-        else
-            UpdateStatus("❌ ERROR: File not found")
-        end
-    end)
-end
-
--- ========= MAIN GUI BUTTON EVENTS =========
-OpenStudioBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        MainFrame.Visible = false
-        RecordingStudio.Visible = true
-        StatusLabel.Text = "🎬 Recording Studio Ready"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-    end)
+PlayBtnBig.MouseButton1Click:Connect(function()
+    if AutoLoop then return end
+    PlayRecording()
 end)
 
-PauseBtn.MouseButton1Click:Connect(function()
-    PauseResumePlayback()
-end)
-
-PlayBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if IsPlaying and IsPaused then
-            PauseResumePlayback()
-        else
-            PlayRecording()
-        end
-    end)
-end)
-
-StopBtn.MouseButton1Click:Connect(function()
+StopBtnBig.MouseButton1Click:Connect(function()
     StopPlayback()
 end)
 
-MoveToBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        UseMoveTo = not UseMoveTo
-        SetMoveToState(UseMoveTo)
-        if UseMoveTo then
-            UpdateStatus("🎯 Mode: MoveTo (Disabled)")
-        else
-            UpdateStatus("🚀 Mode: CFrame (Active)")
-        end
-    end)
-end)
-
-VisualBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        ShowVisualization = not ShowVisualization
-        SetVisualState(ShowVisualization)
-        if ShowVisualization then
-            local recording = currentRecordingName and RecordedMovements[currentRecordingName]
-            if not recording and next(RecordedMovements) then
-                recording = select(2, next(RecordedMovements))
-            end
-            if recording then
-                ShowRouteVisualization(recording)
-            end
-        else
-            ClearRouteVisualization()
-        end
-        UpdateStatus("👁️ Visual: " .. (ShowVisualization and "ON" or "OFF"))
-    end)
+PauseBtnBig.MouseButton1Click:Connect(function()
+    PausePlayback()
 end)
 
 LoopBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        AutoLoop = not AutoLoop
-        SetLoopState(AutoLoop)
-        UpdateStatus("🔄 Auto Loop: " .. (AutoLoop and "ON" or "OFF"))
-    end)
+    AutoLoop = not AutoLoop
+    AnimateLoop(AutoLoop)
+    
+    if AutoLoop then
+        if not next(RecordedMovements) then
+            AutoLoop = false
+            AnimateLoop(false)
+            PlaySound("Error")
+            return
+        end
+        
+        if IsPlaying then
+            IsPlaying = false
+            IsPaused = false
+            RestoreFullUserControl()
+        end
+        
+        PlaySound("Play")
+        StartAutoLoopAll()
+    else
+        StopAutoLoopAll()
+    end
 end)
 
-HealBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        AutoHeal = not AutoHeal
-        SetHealState(AutoHeal)
-        UpdateStatus("❤️ Auto Heal: " .. (AutoHeal and "ON" or "OFF"))
-    end)
+RespawnBtn.MouseButton1Click:Connect(function()
+    AutoRespawn = not AutoRespawn
+    AnimateRespawn(AutoRespawn)
+    PlaySound("Toggle")
 end)
 
-SaveFileBtn.MouseButton1Click:Connect(SaveToFile)
-LoadFileBtn.MouseButton1Click:Connect(LoadFromFile)
+JumpBtn.MouseButton1Click:Connect(function()
+    InfiniteJump = not InfiniteJump
+    AnimateJump(InfiniteJump)
+    
+    if InfiniteJump then
+        EnableInfiniteJump()
+    else
+        DisableInfiniteJump()
+    end
+    PlaySound("Toggle")
+end)
+
+SmartResumeBtn.MouseButton1Click:Connect(function()
+    SMART_RESUME = not SMART_RESUME
+    AnimateSmartResume(SMART_RESUME)
+    PlaySound("Toggle")
+end)
+
+SaveFileBtn.MouseButton1Click:Connect(function()
+    SaveToJSON()
+end)
+
+LoadFileBtn.MouseButton1Click:Connect(function()
+    LoadFromJSON()
+end)
+
+PathToggleBtn.MouseButton1Click:Connect(function()
+    ShowPaths = not ShowPaths
+    if ShowPaths then
+        PathToggleBtn.Text = "HIDE RUTE"
+        VisualizeAllPaths()
+    else
+        PathToggleBtn.Text = "SHOW RUTE"
+        ClearPathVisualization()
+    end
+end)
+
+MergeBtn.MouseButton1Click:Connect(function()
+    CreateMergedReplay()
+end)
 
 HideButton.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        MainFrame.Visible = false
-        MiniButton.Visible = true
-    end)
+    MainFrame.Visible = false
+    MiniButton.Visible = true
 end)
 
 MiniButton.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        MainFrame.Visible = true
-        MiniButton.Visible = false
-    end)
+    MainFrame.Visible = true
+    MiniButton.Visible = false
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        if IsRecording then StopStudioRecording() end
-        if IsPlaying then StopPlayback() end
-        CleanupConnections()
-        ClearRouteVisualization()
-        ScreenGui:Destroy()
-    end)
+    if IsRecording then StopRecording() end
+    if IsPlaying or AutoLoop then StopPlayback() end
+    if InfiniteJump then DisableInfiniteJump() end
+    CleanupAllConnections()
+    ClearPathVisualization()
+    ScreenGui:Destroy()
 end)
+
+-- ========= INFINITE JUMP SYSTEM =========
+local function EnableInfiniteJump()
+    if jumpConnection then return end
+    
+    jumpConnection = UserInputService.JumpRequest:Connect(function()
+        if InfiniteJump and player.Character then
+            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end
+    end)
+    
+    AddConnection(jumpConnection)
+end
+
+local function DisableInfiniteJump()
+    if jumpConnection then
+        jumpConnection:Disconnect()
+        jumpConnection = nil
+    end
+end
+
+-- ========= PATH VISUALIZATION FUNCTIONS =========
+local function ClearPathVisualization()
+    for _, part in pairs(PathVisualization) do
+        if part and part.Parent then
+            part:Destroy()
+        end
+    end
+    PathVisualization = {}
+    
+    if CurrentPauseMarker and CurrentPauseMarker.Parent then
+        CurrentPauseMarker:Destroy()
+        CurrentPauseMarker = nil
+    end
+end
+
+local function CreatePathSegment(startPos, endPos, color)
+    local part = Instance.new("Part")
+    part.Name = "PathSegment"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.BrickColor = color or BrickColor.new("Really black")
+    part.Transparency = 0.2
+    
+    local distance = (startPos - endPos).Magnitude
+    part.Size = Vector3.new(0.2, 0.2, distance)
+    part.CFrame = CFrame.lookAt((startPos + endPos) / 2, endPos)
+    
+    part.Parent = workspace
+    table.insert(PathVisualization, part)
+    
+    return part
+end
+
+local function VisualizeAllPaths()
+    ClearPathVisualization()
+    
+    if not ShowPaths then return end
+    
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
+        
+        local previousPos = Vector3.new(
+            recording[1].p[1],
+            recording[1].p[2], 
+            recording[1].p[3]
+        )
+        
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.p[1], frame.p[2], frame.p[3])
+            
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
+            end
+        end
+    end
+end
+
+-- ========= AUTOMATIC SAVE SYSTEM =========
+local function AutoSaveRecording()
+    if #CurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    local name = CurrentRecording.Name
+    RecordedMovements[name] = CurrentRecording.Frames
+    table.insert(RecordingOrder, name)
+    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
+    SelectedReplays[name] = false
+    
+    UpdateRecordList()
+    
+    PlaySound("Success")
+    
+    CurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+end
+
+-- ========= ENHANCED PLAYBACK =========
+function PlayRecording(name)
+    if IsPlaying then return end
+    
+    local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
+    if not recording or #recording == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
+        return
+    end
+
+    IsPlaying = true
+    IsPaused = false
+    totalPausedDuration = 0
+    pauseStartTime = 0
+
+    currentPlaybackFrame = 1
+    playbackStartTime = tick()
+
+    SaveHumanoidState()
+    PlaySound("Play")
+
+    PlayEnhancedRecording(recording, currentPlaybackFrame, name)
+end
+
+-- ========= ENHANCED SAVE/LOAD SYSTEM =========
+local function SaveToJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    if not next(RecordedMovements) then
+        PlaySound("Error")
+        return
+    end
+    
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "6.0-Enhanced",
+            Checkpoints = {},
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames
+        }
+        
+        local hasSelected = false
+        for name, isSelected in pairs(SelectedReplays) do
+            if isSelected then
+                hasSelected = true
+                break
+            end
+        end
+        
+        for name, frames in pairs(RecordedMovements) do
+            if not hasSelected or SelectedReplays[name] then
+                local checkpointData = {
+                    Name = name,
+                    DisplayName = checkpointNames[name] or "checkpoint",
+                    Frames = frames
+                }
+                table.insert(saveData.Checkpoints, checkpointData)
+            end
+        end
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        
+        if writefile then
+            writefile(filename, jsonString)
+            PlaySound("Success")
+        else
+            PlaySound("Error")
+        end
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+local function LoadFromJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        if not readfile or not isfile then
+            PlaySound("Error")
+            return
+        end
+        
+        if not isfile(filename) then
+            PlaySound("Error")
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        SelectedReplays = {}
+        
+        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+            local name = checkpointData.Name
+            local frames = checkpointData.Frames
+            
+            if frames then
+                RecordedMovements[name] = frames
+                SelectedReplays[name] = false
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+-- ========= ENHANCED MERGE SYSTEM =========
+local function CreateMergedReplay()
+    if #RecordingOrder < 2 then
+        PlaySound("Error")
+        return
+    end
+    
+    local mergedFrames = {}
+    local totalTimeOffset = 0
+    
+    for _, checkpointName in ipairs(RecordingOrder) do
+        local checkpoint = RecordedMovements[checkpointName]
+        if not checkpoint then continue end
+        
+        for frameIndex, frame in ipairs(checkpoint) do
+            local newFrame = {
+                t = frame.t,
+                p = {frame.p[1], frame.p[2], frame.p[3]},
+                lv = {frame.lv[1], frame.lv[2], frame.lv[3]},
+                up = {frame.up[1], frame.up[2], frame.up[3]},
+                vel = frame.vel and {frame.vel[1], frame.vel[2], frame.vel[3]} or nil,
+                ws = frame.ws,
+                state = frame.state,
+                md = frame.md and {frame.md[1], frame.md[2], frame.md[3]} or nil,
+                autoRotate = frame.autoRotate,
+                platformStand = frame.platformStand,
+                jump = frame.jump,
+                grounded = frame.grounded,
+                floorNormal = frame.floorNormal and {frame.floorNormal[1], frame.floorNormal[2], frame.floorNormal[3]} or nil,
+                dt = frame.dt
+            }
+            table.insert(mergedFrames, newFrame)
+        end
+        
+        if #checkpoint > 0 then
+            totalTimeOffset = totalTimeOffset + 0.1
+        end
+    end
+    
+    local mergedName = "merged_" .. os.date("%H%M%S")
+    RecordedMovements[mergedName] = mergedFrames
+    table.insert(RecordingOrder, mergedName)
+    checkpointNames[mergedName] = "MERGED ALL"
+    SelectedReplays[mergedName] = false
+    
+    UpdateRecordList()
+    PlaySound("Success")
+end
+
+-- ========= REORDER FUNCTIONS =========
+local function MoveRecordingUp(name)
+    local currentIndex = table.find(RecordingOrder, name)
+    if currentIndex and currentIndex > 1 then
+        RecordingOrder[currentIndex] = RecordingOrder[currentIndex - 1]
+        RecordingOrder[currentIndex - 1] = name
+        UpdateRecordList()
+    end
+end
+
+local function MoveRecordingDown(name)
+    local currentIndex = table.find(RecordingOrder, name)
+    if currentIndex and currentIndex < #RecordingOrder then
+        RecordingOrder[currentIndex] = RecordingOrder[currentIndex + 1]
+        RecordingOrder[currentIndex + 1] = name
+        UpdateRecordList()
+    end
+end
+
+-- ========= FORMAT DURATION FUNCTION =========
+local function FormatDuration(seconds)
+    local minutes = math.floor(seconds / 60)
+    local remainingSeconds = math.floor(seconds % 60)
+    return string.format("%d:%02d", minutes, remainingSeconds)
+end
+
+-- ========= UPDATED RECORD LIST =========
+function UpdateRecordList()
+    for _, child in pairs(RecordList:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+    
+    local yPos = 0
+    for index, name in ipairs(RecordingOrder) do
+        local rec = RecordedMovements[name]
+        if not rec then continue end
+        
+        if SelectedReplays[name] == nil then
+            SelectedReplays[name] = false
+        end
+        
+        local item = Instance.new("Frame")
+        item.Size = UDim2.new(1, -6, 0, 50)
+        item.Position = UDim2.new(0, 3, 0, yPos)
+        item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        item.Parent = RecordList
+    
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = item
+        
+        local actionRow = Instance.new("Frame")
+        actionRow.Size = UDim2.new(1, 0, 0, 25)
+        actionRow.BackgroundTransparency = 1
+        actionRow.Parent = item
+        
+        local playBtn = Instance.new("TextButton")
+        playBtn.Size = UDim2.fromOffset(25, 25)
+        playBtn.Position = UDim2.fromOffset(5, 0)
+        playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        playBtn.Text = "▶"
+        playBtn.TextColor3 = Color3.new(1, 1, 1)
+        playBtn.Font = Enum.Font.GothamBold
+        playBtn.TextSize = 12
+        playBtn.Parent = actionRow
+        
+        local playCorner = Instance.new("UICorner")
+        playCorner.CornerRadius = UDim.new(0, 4)
+        playCorner.Parent = playBtn
+        
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(25, 25)
+        delBtn.Position = UDim2.fromOffset(35, 0)
+        delBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        delBtn.Text = "✕"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 12
+        delBtn.Parent = actionRow
+        
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 4)
+        delCorner.Parent = delBtn
+        
+        local nameBox = Instance.new("TextBox")
+        nameBox.Size = UDim2.new(0, 100, 0, 25)
+        nameBox.Position = UDim2.fromOffset(65, 0)
+        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        nameBox.BorderSizePixel = 0
+        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
+        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameBox.Font = Enum.Font.GothamBold
+        nameBox.TextSize = 10
+        nameBox.TextXAlignment = Enum.TextXAlignment.Center
+        nameBox.PlaceholderText = "Enter name..."
+        nameBox.ClearTextOnFocus = false
+        nameBox.Parent = actionRow
+        
+        local nameBoxCorner = Instance.new("UICorner")
+        nameBoxCorner.CornerRadius = UDim.new(0, 4)
+        nameBoxCorner.Parent = nameBox
+        
+        local upBtn = Instance.new("TextButton")
+        upBtn.Size = UDim2.fromOffset(25, 25)
+        upBtn.Position = UDim2.fromOffset(170, 0)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
+        upBtn.Text = "↑"
+        upBtn.TextColor3 = Color3.new(1, 1, 1)
+        upBtn.Font = Enum.Font.GothamBold
+        upBtn.TextSize = 12
+        upBtn.Parent = actionRow
+        
+        local upCorner = Instance.new("UICorner")
+        upCorner.CornerRadius = UDim.new(0, 4)
+        upCorner.Parent = upBtn
+        
+        local downBtn = Instance.new("TextButton")
+        downBtn.Size = UDim2.fromOffset(25, 25)
+        downBtn.Position = UDim2.fromOffset(200, 0)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
+        downBtn.Text = "↓"
+        downBtn.TextColor3 = Color3.new(1, 1, 1)
+        downBtn.Font = Enum.Font.GothamBold
+        downBtn.TextSize = 12
+        downBtn.Parent = actionRow
+        
+        local downCorner = Instance.new("UICorner")
+        downCorner.CornerRadius = UDim.new(0, 4)
+        downCorner.Parent = downBtn
+        
+        local infoRow = Instance.new("Frame")
+        infoRow.Size = UDim2.new(1, 0, 0, 20)
+        infoRow.Position = UDim2.fromOffset(0, 30)
+        infoRow.BackgroundTransparency = 1
+        infoRow.Parent = item
+        
+        local checkbox = Instance.new("TextButton")
+        checkbox.Size = UDim2.fromOffset(16, 16)
+        checkbox.Position = UDim2.fromOffset(10, 2)
+        checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
+        checkbox.Text = SelectedReplays[name] and "✓" or ""
+        checkbox.TextColor3 = Color3.new(1, 1, 1)
+        checkbox.Font = Enum.Font.GothamBold
+        checkbox.TextSize = 10
+        checkbox.Parent = infoRow
+        
+        local checkboxCorner = Instance.new("UICorner")
+        checkboxCorner.CornerRadius = UDim.new(0, 3)
+        checkboxCorner.Parent = checkbox
+        
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(1, -40, 1, 0)
+        infoLabel.Position = UDim2.fromOffset(30, 0)
+        infoLabel.BackgroundTransparency = 1
+        
+        if #rec > 0 then
+            local totalSeconds = 0
+            for _, frame in ipairs(rec) do
+                totalSeconds = totalSeconds + frame.dt
+            end
+            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • ENHANCED"
+        else
+            infoLabel.Text = "❌ 0:00 • 0 frames • ENHANCED"
+        end
+        
+        infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 8
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = infoRow
+        
+        checkbox.MouseButton1Click:Connect(function()
+            SelectedReplays[name] = not SelectedReplays[name]
+            checkbox.BackgroundColor3 = SelectedReplays[name] and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(40, 40, 50)
+            checkbox.Text = SelectedReplays[name] and "✓" or ""
+            PlaySound("Toggle")
+        end)
+        
+        upBtn.MouseButton1Click:Connect(function()
+            if index > 1 then 
+                MoveRecordingUp(name) 
+            end
+        end)
+        
+        downBtn.MouseButton1Click:Connect(function()
+            if index < #RecordingOrder then 
+                MoveRecordingDown(name) 
+            end
+        end)
+        
+        playBtn.MouseButton1Click:Connect(function()
+            if not IsPlaying then 
+                PlayRecording(name) 
+            end
+        end)
+        
+        delBtn.MouseButton1Click:Connect(function()
+            RecordedMovements[name] = nil
+            checkpointNames[name] = nil
+            SelectedReplays[name] = nil
+            local idx = table.find(RecordingOrder, name)
+            if idx then table.remove(RecordingOrder, idx) end
+            UpdateRecordList()
+        end)
+        
+        nameBox.FocusLost:Connect(function()
+            local newName = nameBox.Text
+            if newName and newName ~= "" then
+                checkpointNames[name] = newName
+                PlaySound("Success")
+            end
+        end)
+        
+        yPos = yPos + 53
+    end
+    
+    RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
+end
 
 -- ========= HOTKEYS =========
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
-    
-    SafeCall(function()
-        if input.KeyCode == Enum.KeyCode.F9 then
-            if RecordingStudio.Visible then
-                if IsRecording then
-                    StopStudioRecording()
-                else
-                    StartStudioRecording()
-                end
-            end
-        elseif input.KeyCode == Enum.KeyCode.F10 then
-            if IsPlaying then 
-                StopPlayback() 
-            else 
-                PlayRecording() 
-            end
-        elseif input.KeyCode == Enum.KeyCode.F11 then
-            MainFrame.Visible = not MainFrame.Visible
-            MiniButton.Visible = not MainFrame.Visible
-        elseif input.KeyCode == Enum.KeyCode.F7 then
-            PauseResumePlayback()
-        elseif input.KeyCode == Enum.KeyCode.F8 then
-            if RecordingStudio.Visible then
-                RecordingStudio.Visible = false
-                MainFrame.Visible = true
-            else
-                MainFrame.Visible = false
-                RecordingStudio.Visible = true
-            end
-        elseif input.KeyCode == Enum.KeyCode.F6 then
-            if IsRecording and RecordingStudio.Visible then
-                RewindTimeline()
-            end
-        elseif input.KeyCode == Enum.KeyCode.F5 then
-            if RecordingStudio.Visible and #CurrentRecording.Frames > 0 then
-                SaveStudioRecording()
-            end
-        end
-    end)
-end)
-
--- ========= AUTO HEAL SYSTEM =========
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if not AutoHeal then return end
-        
+    if input.KeyCode == Enum.KeyCode.F9 then
+        if IsRecording then StopRecording() else StartRecording() end
+    elseif input.KeyCode == Enum.KeyCode.F10 then
+        if IsPlaying or AutoLoop then StopPlayback() else PlayRecording() end
+    elseif input.KeyCode == Enum.KeyCode.F11 then
+        MainFrame.Visible = not MainFrame.Visible
+        MiniButton.Visible = not MainFrame.Visible
+    elseif input.KeyCode == Enum.KeyCode.F8 then
         local char = player.Character
-        if not char then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        
-        if hum.Health < hum.MaxHealth * 0.5 then
-            hum.Health = hum.MaxHealth
+        if char then CompleteCharacterReset(char) end
+    elseif input.KeyCode == Enum.KeyCode.F7 then
+        AutoLoop = not AutoLoop
+        AnimateLoop(AutoLoop)
+        if AutoLoop then 
+            StartAutoLoopAll() 
+        else 
+            StopAutoLoopAll() 
         end
-    end)
-end)
-
--- ========= ANTI-STUCK DETECTION =========
-local lastPosition = nil
-local stuckTimer = 0
-local STUCK_THRESHOLD = 3
-
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if not IsPlaying or IsPaused then 
-            lastPosition = nil
-            stuckTimer = 0
-            return 
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char.HumanoidRootPart
-        local currentPos = hrp.Position
-        
-        if lastPosition then
-            local distance = (currentPos - lastPosition).Magnitude
-            
-            if distance < 1 then
-                stuckTimer = stuckTimer + task.wait()
-                
-                if stuckTimer >= STUCK_THRESHOLD then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        
-                        if currentPlaybackFrame < #RecordedMovements[currentRecordingName] then
-                            currentPlaybackFrame = currentPlaybackFrame + 5
-                        end
-                    end
-                    
-                    stuckTimer = 0
-                    UpdateStatus("⚠️ Stuck detected - attempting recovery")
-                end
-            else
-                stuckTimer = 0
-            end
-        end
-        
-        lastPosition = currentPos
-    end)
-end)
-
--- ========= CHARACTER RESPAWN HANDLER =========
-player.CharacterAdded:Connect(function(newChar)
-    SafeCall(function()
-        wait(1)
-        
-        if IsRecording then
-            StopStudioRecording()
-            UpdateStatus("⚠️ Recording stopped - Character respawned")
-        end
-        
-        if IsPlaying then
-            StopPlayback()
-            UpdateStatus("⚠️ Playback stopped - Character respawned")
-        end
-        
-        -- R15 Quick Fix
-        local charType = GetCharacterType()
-        if charType == "R15" then
-            local humanoid = newChar:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = false
-                humanoid.AutoRotate = false
-            end
-        end
-    end)
-end)
-
--- ========= PROGRESS BAR =========
-local ProgressFrame = Instance.new("Frame")
-ProgressFrame.Size = UDim2.new(1, -16, 0, 6)
-ProgressFrame.Position = UDim2.new(0, 8, 1, -30)
-ProgressFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-ProgressFrame.BorderSizePixel = 0
-ProgressFrame.Visible = false
-ProgressFrame.Parent = MainFrame
-
-local ProgressCorner = Instance.new("UICorner")
-ProgressCorner.CornerRadius = UDim.new(0, 3)
-ProgressCorner.Parent = ProgressFrame
-
-local ProgressBar = Instance.new("Frame")
-ProgressBar.Size = UDim2.new(0, 0, 1, 0)
-ProgressBar.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
-ProgressBar.BorderSizePixel = 0
-ProgressBar.Parent = ProgressFrame
-
-local BarCorner = Instance.new("UICorner")
-BarCorner.CornerRadius = UDim.new(0, 3)
-BarCorner.Parent = ProgressBar
-
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if IsPlaying and currentRecordingName and RecordedMovements[currentRecordingName] then
-            ProgressFrame.Visible = true
-            local progress = currentPlaybackFrame / #RecordedMovements[currentRecordingName]
-            ProgressBar.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
+    elseif input.KeyCode == Enum.KeyCode.F6 then
+        SaveToJSON()
+    elseif input.KeyCode == Enum.KeyCode.F5 then
+        AutoRespawn = not AutoRespawn
+        AnimateRespawn(AutoRespawn)
+    elseif input.KeyCode == Enum.KeyCode.F4 then
+        ShowPaths = not ShowPaths
+        if ShowPaths then
+            PathToggleBtn.Text = "HIDE RUTE"
+            VisualizeAllPaths()
         else
-            ProgressFrame.Visible = false
+            PathToggleBtn.Text = "SHOW RUTE"
+            ClearPathVisualization()
         end
-    end)
-end)
-
--- ========= INITIALIZATION =========
-SafeCall(function()
-    UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.4 - Ready!")
-    UpdateSpeedDisplay()
-end)
-
--- ========= R15 INITIALIZATION =========
-task.spawn(function()
-    task.wait(1)
-    local char = player.Character
-    if char then
-        local charType = GetCharacterType()
-        if charType == "R15" then
-            local humanoid = char:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = false
-                humanoid.AutoRotate = false
-            end
+    elseif input.KeyCode == Enum.KeyCode.F3 then
+        SMART_RESUME = not SMART_RESUME
+        AnimateSmartResume(SMART_RESUME)
+    elseif input.KeyCode == Enum.KeyCode.F2 then
+        InfiniteJump = not InfiniteJump
+        AnimateJump(InfiniteJump)
+        if InfiniteJump then
+            EnableInfiniteJump()
+        else
+            DisableInfiniteJump()
         end
     end
 end)
 
--- ========= FINAL CONFIRMATION =========
-task.wait(1)
-SafeCall(function()
-    UpdateStatus("✅ All Systems Operational")
+-- ========= INITIAL SETUP =========
+UpdateRecordList()
+
+task.spawn(function()
+    task.wait(2)
+    local filename = "MyReplays.json"
+    if readfile and isfile and isfile(filename) then
+        LoadFromJSON()
+    end
 end)
+
+player.CharacterRemoving:Connect(function()
+    if IsRecording then
+        StopRecording()
+    end
+    if IsPlaying then
+        IsPlaying = false
+        IsPaused = false
+    end
+end)
+
+player.CharacterAdded:Connect(function(character)
+    task.wait(1)
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = 50
+    end
+end)
+
+print("✅ ByaruL AutoWalk v6.0 - ENHANCED FRAME DATA Loaded!")
+print("🎯 Features: Enhanced Frame Data, Perfect Auto Loop, Smart Resume")
+print("📊 Data Structure: Position, LookVector, Velocity, State, MoveDirection, Ground Detection")
