@@ -1,4 +1,4 @@
--- ByaruL AutoWalk v2.5 - UNIVERSAL R6/R15 SUPPORT VERSION
+-- ByaruL AutoWalk v2.6 - ENHANCED R15 & AUTO LOOP FIX
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -23,8 +23,8 @@ local MIN_INTERPOLATION_DISTANCE = 0.3
 -- ========= UNIVERSAL CHARACTER SUPPORT =========
 local UNIVERSAL_MODE = true
 local DYNAMIC_GROUND_OFFSET = true
-local R6_OFFSET = 2.8
-local R15_OFFSET = 4.2
+local R6_OFFSET = 3.2
+local R15_OFFSET = 4.8
 local FALLBACK_OFFSET = 3.5
 
 -- ========= VARIABLES =========
@@ -74,12 +74,14 @@ local lastPlaybackState = nil
 local lastStateChangeTime = 0
 local STATE_CHANGE_COOLDOWN = 0.1
 
--- ========= SIMPLIFIED AUTO LOOP VARIABLES =========
+-- ========= ENHANCED AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
 local SelectedReplaysList = {}
+local CurrentReplayAttempts = 0
+local MAX_REPLAY_ATTEMPTS = 3
 
 -- ========= MEMORY MANAGEMENT =========
 local activeConnections = {}
@@ -166,7 +168,105 @@ local function GetDynamicGroundOffset()
     end
 end
 
--- ========= ENHANCED GROUND DETECTION =========
+-- ========= ENHANCED CHARACTER HEIGHT DETECTION =========
+local function GetCharacterActualHeight()
+    local char = player.Character
+    if not char then return GetDynamicGroundOffset() end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoid or not hrp then return GetDynamicGroundOffset() end
+    
+    local charType = GetCharacterType()
+    
+    if charType == "R6" then
+        return 4.4
+    elseif charType == "R15" then
+        return 5.8
+    else
+        local head = char:FindFirstChild("Head")
+        local leftFoot = char:FindFirstChild("LeftFoot") or char:FindFirstChild("Left Leg")
+        
+        if head and leftFoot then
+            local height = head.Position.Y - leftFoot.Position.Y + 1.0
+            return math.clamp(height, 4.0, 6.5)
+        end
+    end
+    
+    return GetDynamicGroundOffset()
+end
+
+local function GetOptimalGroundOffset()
+    local charType = GetCharacterType()
+    local actualHeight = GetCharacterActualHeight()
+    
+    if charType == "R6" then
+        return 3.2
+    elseif charType == "R15" then
+        return 4.8
+    else
+        return actualHeight * 0.7
+    end
+end
+
+-- ========= FOOT-AWARE GROUND DETECTION =========
+local function GetFootAwareGroundHeight(position, character)
+    if not character then 
+        return GetEnhancedGroundHeight(position, character) 
+    end
+    
+    local charType = GetCharacterType()
+    local rayOrigin = Vector3.new(position.X, position.Y + 8, position.Z)
+    local rayDirection = Vector3.new(0, -16, 0)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {character}
+    
+    -- For R15, use more accurate ground detection
+    if charType == "R15" then
+        rayDirection = Vector3.new(0, -12, 0)  -- Shorter ray for precision
+        
+        local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        if rayResult then
+            return rayResult.Position.Y
+        end
+        
+        -- Check multiple points for better accuracy
+        local checkOffsets = {
+            Vector3.new(0, 0, 0),
+            Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
+            Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
+            Vector3.new(0.5, 0, 0.5), Vector3.new(-0.5, 0, -0.5)
+        }
+        
+        local groundHeights = {}
+        for _, offset in ipairs(checkOffsets) do
+            local checkOrigin = rayOrigin + offset
+            rayResult = workspace:Raycast(checkOrigin, rayDirection, raycastParams)
+            if rayResult then
+                table.insert(groundHeights, rayResult.Position.Y)
+            end
+        end
+        
+        if #groundHeights > 0 then
+            local total = 0
+            for _, height in ipairs(groundHeights) do
+                total = total + height
+            end
+            return total / #groundHeights
+        end
+    end
+    
+    -- Fallback to enhanced method
+    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    if rayResult then
+        return rayResult.Position.Y
+    end
+    
+    return position.Y - 5
+end
+
 local function GetEnhancedGroundHeight(position, character)
     local rayOrigin = Vector3.new(position.X, position.Y + 8, position.Z)
     local rayDirection = Vector3.new(0, -20, 0)
@@ -201,51 +301,79 @@ end
 
 local function AdjustPositionToGround(position)
     local char = player.Character
-    local groundHeight = GetEnhancedGroundHeight(position, char)
-    local offset = GetDynamicGroundOffset()
+    local groundHeight = GetFootAwareGroundHeight(position, char)
+    local offset = GetOptimalGroundOffset()
+    
+    local charType = GetCharacterType()
+    if charType == "R15" then
+        offset = offset + 0.2
+    end
     
     return Vector3.new(position.X, groundHeight + offset, position.Z)
 end
 
--- ========= UNIVERSAL VELOCITY CONTROL =========
+-- ========= R15-SPECIFIC VELOCITY CONTROL =========
+local function ApplyR15Velocity(character, velocity)
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
+    if not bodyVelocity then
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Name = "AutoWalkBodyVelocity"
+        bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
+        bodyVelocity.Parent = hrp
+    end
+    
+    local currentVel = bodyVelocity.Velocity
+    local smoothVelocity = currentVel:Lerp(velocity, 0.3)
+    bodyVelocity.Velocity = smoothVelocity
+    
+    if humanoid then
+        humanoid.PlatformStand = false
+    end
+    
+    return true
+end
+
 local function ApplyUniversalVelocity(character, velocity)
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
     
-    local success = false
+    local charType = GetCharacterType()
     
-    local s1, e1 = pcall(function()
-        hrp.AssemblyLinearVelocity = velocity
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        success = true
+    if charType == "R15" then
+        return ApplyR15Velocity(character, velocity)
+    else
+        local success = pcall(function()
+            hrp.AssemblyLinearVelocity = velocity
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end)
+        
+        if not success then
+            return ApplyR15Velocity(character, velocity)
+        end
+        return success
+    end
+end
+
+-- ========= CAMERA STABILIZATION SYSTEM =========
+local function StabilizeCamera()
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+    
+    pcall(function()
+        camera.CameraType = Enum.CameraType.Custom
+        camera.CFrame = camera.CFrame
     end)
-    
-    if not success then
-        local s2, e2 = pcall(function()
-            local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-            if not bodyVelocity then
-                bodyVelocity = Instance.new("BodyVelocity")
-                bodyVelocity.Name = "AutoWalkBodyVelocity"
-                bodyVelocity.MaxForce = Vector3.new(4000, 0, 4000)
-                bodyVelocity.Parent = hrp
-            end
-            bodyVelocity.Velocity = velocity
-            success = true
-        end)
+end
+
+local function UpdateCameraStabilization()
+    if IsPlaying or IsAutoLoopPlaying then
+        StabilizeCamera()
     end
-    
-    if not success then
-        local s3, e3 = pcall(function()
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                humanoid.PlatformStand = true
-                hrp.AssemblyLinearVelocity = velocity
-                success = true
-            end
-        end)
-    end
-    
-    return success
 end
 
 -- ========= UNIVERSAL STATE CONTROL =========
@@ -370,6 +498,12 @@ local function CompleteCharacterReset(char)
         humanoid.Sit = false
         ApplyUniversalVelocity(char, Vector3.new(0, 0, 0))
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        
+        -- Clean up BodyVelocity
+        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+        end
     end)
 end
 
@@ -760,6 +894,9 @@ local function PlayRecordingWithCFrame(recording, startFrame)
         if not targetFrame then return end
 
         pcall(function()
+            -- Add camera stabilization
+            UpdateCameraStabilization()
+            
             local targetCFrame = GetFrameCFrame(targetFrame)
             local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
             
@@ -773,6 +910,15 @@ local function PlayRecordingWithCFrame(recording, startFrame)
             lastPlaybackVelocity = smoothVelocity
             
             hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+            
+            -- Special handling for R15
+            local charType = GetCharacterType()
+            if charType == "R15" then
+                if hum then
+                    hum.PlatformStand = false
+                    hum.AutoRotate = false
+                end
+            end
             
             local moveState = targetFrame.MoveState
             local currentStateTime = tick()
@@ -794,7 +940,7 @@ local function PlayRecordingWithCFrame(recording, startFrame)
     AddConnection(playbackConnection)
 end
 
--- ========= SIMPLIFIED AUTO LOOP SYSTEM =========
+-- ========= ENHANCED AUTO LOOP SYSTEM =========
 local function GetSelectedReplaysList()
     local selectedList = {}
     
@@ -832,6 +978,7 @@ local function PlaySingleRecording(recordingName)
     end
     
     local playbackCompleted = false
+    local playbackFailed = false
     
     local singlePlaybackConnection
     singlePlaybackConnection = RunService.Heartbeat:Connect(function(deltaTime)
@@ -859,15 +1006,15 @@ local function PlaySingleRecording(recordingName)
         
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
-            playbackCompleted = false
+            playbackFailed = true
             singlePlaybackConnection:Disconnect()
             return
         end
         
         local hum = char:FindFirstChildOfClass("Humanoid")
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then
-            playbackCompleted = false
+        if not hum or not hrp or hum.Health <= 0 then
+            playbackFailed = true
             singlePlaybackConnection:Disconnect()
             return
         end
@@ -896,6 +1043,8 @@ local function PlaySingleRecording(recordingName)
         if not targetFrame then return end
 
         pcall(function()
+            UpdateCameraStabilization()
+            
             local targetCFrame = GetFrameCFrame(targetFrame)
             local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
             
@@ -921,7 +1070,7 @@ local function PlaySingleRecording(recordingName)
     AddConnection(singlePlaybackConnection)
     
     local startWait = tick()
-    while AutoLoop and IsAutoLoopPlaying and not playbackCompleted do
+    while AutoLoop and IsAutoLoopPlaying and not playbackCompleted and not playbackFailed do
         if tick() - startWait > 120 then
             break
         end
@@ -931,7 +1080,7 @@ local function PlaySingleRecording(recordingName)
     singlePlaybackConnection:Disconnect()
     RestoreFullUserControl()
     
-    return playbackCompleted
+    return playbackCompleted, playbackFailed
 end
 
 local function StartAutoLoopAll()
@@ -955,6 +1104,7 @@ local function StartAutoLoopAll()
     CurrentLoopIndex = 1
     IsAutoLoopPlaying = true
     lastPlaybackState = nil
+    CurrentReplayAttempts = 0
     
     loopConnection = RunService.Heartbeat:Connect(function()
         if not AutoLoop or not IsAutoLoopPlaying then
@@ -962,16 +1112,17 @@ local function StartAutoLoopAll()
                 loopConnection:Disconnect()
                 loopConnection = nil
             end
+            IsAutoLoopPlaying = false
             return
         end
         
         while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #SelectedReplaysList do
             local recordingName = SelectedReplaysList[CurrentLoopIndex]
-            
             local maxRetries = 3
             local retryCount = 0
             local characterReady = false
             
+            -- Wait for character to be ready with retry system
             while not characterReady and retryCount < maxRetries do
                 if not IsCharacterReady() then
                     if AutoRespawn then
@@ -998,6 +1149,7 @@ local function StartAutoLoopAll()
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
             if not characterReady then
+                -- Skip to next replay if character not ready after retries
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
@@ -1006,21 +1158,43 @@ local function StartAutoLoopAll()
                 continue
             end
             
-            local success = PlaySingleRecording(recordingName)
+            -- Play current replay
+            local success, failed = PlaySingleRecording(recordingName)
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
             
             if success then
+                -- Successfully completed replay, move to next
                 CurrentLoopIndex = CurrentLoopIndex + 1
+                CurrentReplayAttempts = 0
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
                 end
+            elseif failed then
+                -- Playback failed (character died), retry current replay
+                CurrentReplayAttempts = CurrentReplayAttempts + 1
+                
+                if CurrentReplayAttempts >= MAX_REPLAY_ATTEMPTS then
+                    -- Too many failures, skip to next replay
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    CurrentReplayAttempts = 0
+                    if CurrentLoopIndex > #SelectedReplaysList then
+                        CurrentLoopIndex = 1
+                    end
+                else
+                    -- Retry current replay
+                    print("🔄 AutoLoop: Retrying replay due to failure (" .. CurrentReplayAttempts .. "/" .. MAX_REPLAY_ATTEMPTS .. ")")
+                end
             else
+                -- Other failure, move to next replay
                 CurrentLoopIndex = CurrentLoopIndex + 1
+                CurrentReplayAttempts = 0
                 if CurrentLoopIndex > #SelectedReplaysList then
                     CurrentLoopIndex = 1
                 end
             end
             
-            task.wait(0.5)
+            task.wait(0.5) -- Brief pause between replays
         end
     end)
     
@@ -1033,6 +1207,7 @@ local function StopAutoLoopAll()
     IsPlaying = false
     IsPaused = false
     lastPlaybackState = nil
+    CurrentReplayAttempts = 0
     
     if loopConnection then
         loopConnection:Disconnect()
@@ -1090,7 +1265,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL - Universal Mode v2.5"
+Title.Text = "ByaruL - Enhanced v2.6"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -1561,9 +1736,9 @@ function UpdateRecordList()
         
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • UNIVERSAL"
+            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • ENHANCED"
         else
-            infoLabel.Text = "❌ 0:00 • 0 frames • UNIVERSAL"
+            infoLabel.Text = "❌ 0:00 • 0 frames • ENHANCED"
         end
         
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
@@ -1834,7 +2009,7 @@ local function SaveToJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "2.5",
+            Version = "2.6",
             Checkpoints = {},
             RecordingOrder = RecordingOrder,
             CheckpointNames = checkpointNames
@@ -2109,6 +2284,23 @@ local function LoadGUIFromURL(url)
     end
 end
 
+-- ========= R15 FOOT FIX INITIALIZATION =========
+local function QuickR15Fix()
+    local char = player.Character
+    if not char then return end
+    
+    local charType = GetCharacterType()
+    if charType == "R15" then
+        R15_OFFSET = 4.8
+        
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.PlatformStand = false
+            humanoid.AutoRotate = false
+        end
+    end
+end
+
 -- ========= HOTKEYS =========
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
@@ -2173,6 +2365,8 @@ end)
 
 player.CharacterAdded:Connect(function(character)
     task.wait(1)
+    QuickR15Fix()
+    
     local humanoid = character:WaitForChild("Humanoid", 5)
     if humanoid then
         humanoid.WalkSpeed = CurrentWalkSpeed
@@ -2180,4 +2374,4 @@ player.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("✅ AutoWalk ByaruL v2.5 - UNIVERSAL R6/R15 MODE Loaded!")
+print("✅ AutoWalk ByaruL v2.6 - ENHANCED R15 & AUTO LOOP FIX Loaded!")
