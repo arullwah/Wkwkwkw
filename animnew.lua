@@ -1,4 +1,4 @@
--- ByaruL AutoWalk v3.1 - HYBRID SMART MOVEMENT
+-- ByaruL AutoWalk v4.0 - ENHANCED NATURAL MOVEMENT
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -11,21 +11,12 @@ wait(1)
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.015
-local VELOCITY_SCALE = 1
-local VELOCITY_Y_SCALE = 1
+local MIN_DISTANCE_THRESHOLD = 0.1
 
--- ========= HYBRID MOVEMENT CONFIG =========
-local HYBRID_MODE = true
-local SMART_GROUND_DETECTION = true
-local SMOOTH_INTERPOLATION = true
-local INTERPOLATION_ALPHA = 0.4
-local MIN_INTERPOLATION_DISTANCE = 0.3
-
--- ========= SMART GROUND SETTINGS =========
-local NATURAL_GROUND_OFFSET = 2.5  -- Base offset untuk natural feel
-local MAX_RAYCAST_DISTANCE = 15
-local FOOT_CLEARANCE = 0.3  -- Jarak minimal kaki dari ground
+-- ========= ENHANCED MOVEMENT CONFIG =========
+local NATURAL_MOVEMENT = true
+local USE_MOVEMENT_DIRECTION = true
+local SMOOTH_PLAYBACK = true
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -52,37 +43,18 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
--- ========= REAL-TIME PLAYBACK VARIABLES =========
-local lastPlaybackCFrame = nil
-local lastPlaybackVelocity = Vector3.new(0, 0, 0)
-local lastRealFrameTime = 0
-
--- ========= PAUSE/RESUME VARIABLES =========
+-- ========= PLAYBACK VARIABLES =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
 local currentPlaybackFrame = 1
-local prePauseHumanoidState = nil
-local prePauseWalkSpeed = 16
-local prePauseAutoRotate = true
-local prePauseJumpPower = 50
-local prePausePlatformStand = false
-local prePauseSit = false
+local lastJumpState = false
 
--- ========= PLAYBACK STATE TRACKING =========
-local lastPlaybackState = nil
-local lastStateChangeTime = 0
-local STATE_CHANGE_COOLDOWN = 0.15
-
--- ========= ENHANCED AUTO LOOP VARIABLES =========
+-- ========= AUTO LOOP VARIABLES =========
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
-local LoopPauseStartTime = 0
-local LoopTotalPausedDuration = 0
 local CurrentReplayAttempts = 0
 local MAX_REPLAY_ATTEMPTS = 5
-local LastFrameTime = 0
-local TARGET_FRAME_TIME = 1 / 60  -- 60 FPS target
 
 -- ========= MEMORY MANAGEMENT =========
 local activeConnections = {}
@@ -128,166 +100,583 @@ local function CleanupConnections()
     end
 end
 
--- ========= HYBRID MOVEMENT SYSTEM =========
-local function GetSmartGroundHeight(position, character)
-    if not SMART_GROUND_DETECTION then
-        return position.Y
-    end
+-- ========= ENHANCED FRAME DATA SYSTEM =========
+local function CreateFrameData()
+    local char = player.Character
+    if not char then return nil end
     
-    local rayOrigin = Vector3.new(position.X, position.Y + 3, position.Z)
-    local rayDirection = Vector3.new(0, -MAX_RAYCAST_DISTANCE, 0)
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-    if character then
-        raycastParams.FilterDescendantsInstances = {character}
-    end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return nil end
     
-    local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    -- Get movement direction from humanoid (X, Y, Z)
+    local moveDirection = humanoid.MoveDirection
     
-    if rayResult then
-        return rayResult.Position.Y + NATURAL_GROUND_OFFSET + FOOT_CLEARANCE
-    end
-    
-    -- Fallback: check surrounding area
-    local checkOffsets = {
-        Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
-        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1),
-        Vector3.new(0.5, 0, 0.5), Vector3.new(-0.5, 0, -0.5)
+    return {
+        MD = {moveDirection.X, moveDirection.Y, moveDirection.Z}, -- Movement Direction
+        WS = humanoid.WalkSpeed,                                  -- Walk Speed
+        J = humanoid.Jump,                                        -- Jump State (boolean)
+        CF = {                                                    -- CFrame Data
+            hrp.CFrame.X, hrp.CFrame.Y, hrp.CFrame.Z,            -- Position
+            hrp.CFrame.RightVector.X, hrp.CFrame.RightVector.Y, hrp.CFrame.RightVector.Z, -- Right Vector
+            hrp.CFrame.UpVector.X, hrp.CFrame.UpVector.Y, hrp.CFrame.UpVector.Z,         -- Up Vector  
+            hrp.CFrame.LookVector.X, hrp.CFrame.LookVector.Y, hrp.CFrame.LookVector.Z    -- Look Vector
+        },
+        DT = 0  -- Delta Time (akan diisi saat recording)
     }
-    
-    for _, offset in ipairs(checkOffsets) do
-        local checkOrigin = rayOrigin + offset
-        rayResult = workspace:Raycast(checkOrigin, rayDirection, raycastParams)
-        if rayResult then
-            return rayResult.Position.Y + NATURAL_GROUND_OFFSET + FOOT_CLEARANCE
-        end
-    end
-    
-    -- Jika tidak ada ground terdeteksi, return original position dengan offset natural
-    return position.Y + NATURAL_GROUND_OFFSET
 end
 
-local function ApplyHybridVelocity(character, velocity)
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    
-    -- Hybrid approach: Gunakan assembly velocity dengan gentle handling
-    local success = pcall(function()
-        hrp.AssemblyLinearVelocity = velocity
-        -- Biarkan angular velocity natural untuk rotation yang smooth
-    end)
-    
-    if not success then
-        -- Fallback: BodyVelocity dengan force yang lebih gentle
-        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-        if not bodyVelocity then
-            bodyVelocity = Instance.new("BodyVelocity")
-            bodyVelocity.Name = "AutoWalkBodyVelocity"
-            bodyVelocity.MaxForce = Vector3.new(1500, 0, 1500)  -- Reduced force untuk natural movement
-            bodyVelocity.Parent = hrp
-        end
-        bodyVelocity.Velocity = velocity
-    end
-    
-    -- Pastikan humanoid state natural
-    if humanoid then
-        humanoid.PlatformStand = false
-        humanoid.AutoRotate = true
-    end
-    
-    return true
+local function GetFrameCFrame(frame)
+    -- Reconstruct CFrame dari data yang disimpan
+    return CFrame.fromMatrix(
+        Vector3.new(frame.CF[1], frame.CF[2], frame.CF[3]),
+        Vector3.new(frame.CF[4], frame.CF[5], frame.CF[6]),
+        Vector3.new(frame.CF[7], frame.CF[8], frame.CF[9]),
+        Vector3.new(frame.CF[10], frame.CF[11], frame.CF[12])
+    )
 end
 
-local function HybridCFrameLerp(currentCF, targetCF, alpha)
-    if not SMOOTH_INTERPOLATION then
-        return targetCF
-    end
+-- ========= ENHANCED PLAYBACK SYSTEM =========
+local function PlayEnhancedRecording(recording, startFrame)
+    if not recording or #recording == 0 then return end
     
-    local currentPos = currentCF.Position
-    local targetPos = targetCF.Position
-    local distance = (targetPos - currentPos).Magnitude
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
-    -- Skip interpolation untuk teleport
-    if distance > 20 then
-        return targetCF
-    end
-    
-    -- Smooth position dengan easing
-    local newPos = currentPos:Lerp(targetPos, alpha)
-    
-    -- Smart ground adjustment hanya jika diperlukan
-    if SMART_GROUND_DETECTION and distance < 5 then
-        local char = player.Character
-        local groundHeight = GetSmartGroundHeight(newPos, char)
-        if newPos.Y < groundHeight then
-            newPos = Vector3.new(newPos.X, groundHeight, newPos.Z)
-        end
-    end
-    
-    -- Smooth rotation
-    local newCF = currentCF:Lerp(targetCF, alpha)
-    
-    return CFrame.new(newPos) * (newCF - newCF.Position)
-end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not humanoid then return end
 
--- ========= HIGH FPS SYSTEM =========
-local function ShouldProcessFrame()
-    local currentTime = tick()
-    if currentTime - LastFrameTime >= TARGET_FRAME_TIME then
-        LastFrameTime = currentTime
-        return true
-    end
-    return false
-end
+    local currentFrame = startFrame or 1
+    playbackStartTime = tick()
+    totalPausedDuration = 0
+    pauseStartTime = 0
+    lastJumpState = false
 
--- ========= CAMERA STABILIZATION =========
-local function StabilizeCameraHybrid()
-    local camera = workspace.CurrentCamera
-    if not camera then return end
-    
-    pcall(function()
-        camera.CameraType = Enum.CameraType.Custom
-        -- Jangan force CFrame untuk prevent jitter
-    end)
-end
-
--- ========= HYBRID HUMANOID CONTROL =========
-local function HybridStateControl(humanoid, targetState)
-    if not humanoid then return end
-    
-    pcall(function()
-        local currentState = humanoid:GetState()
-        local currentTime = tick()
-        
-        -- Cooldown untuk prevent state spam
-        if (currentTime - lastStateChangeTime) < STATE_CHANGE_COOLDOWN then
+    playbackConnection = RunService.Heartbeat:Connect(function()
+        if not IsPlaying then
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
             return
         end
         
-        -- Smart state management
-        if targetState == "Climbing" and currentState ~= Enum.HumanoidStateType.Climbing then
-            humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            lastStateChangeTime = currentTime
-        elseif targetState == "Jumping" and currentState ~= Enum.HumanoidStateType.Jumping then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            lastStateChangeTime = currentTime
-        elseif targetState == "Falling" and currentState ~= Enum.HumanoidStateType.Freefall then
-            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-            lastStateChangeTime = currentTime
-        elseif targetState == "Swimming" and currentState ~= Enum.HumanoidStateType.Swimming then
-            humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
-            lastStateChangeTime = currentTime
+        -- ENHANCED PAUSE SYSTEM - FULL USER CONTROL
+        if IsPaused then
+            if pauseStartTime == 0 then
+                pauseStartTime = tick()
+                EnableUserControl()
+                UpdatePauseMarker()
+            end
+            return
         else
-            -- Untuk grounded states, biarkan humanoid natural
-            if currentState == Enum.HumanoidStateType.Freefall or 
-               currentState == Enum.HumanoidStateType.Jumping then
-                humanoid:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
-                lastStateChangeTime = currentTime
+            if pauseStartTime > 0 then
+                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                pauseStartTime = 0
+                DisableUserControl()
+                UpdatePauseMarker()
+            end
+        end
+
+        -- Character safety check
+        char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            IsPlaying = false
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            return
+        end
+
+        hrp = char:FindFirstChild("HumanoidRootPart")
+        humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid then
+            IsPlaying = false
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            return
+        end
+
+        -- Calculate current frame based on accumulated delta time
+        local currentTime = tick()
+        local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+        
+        local targetFrame = 1
+        local accumulatedTime = 0
+        
+        for i = 1, #recording do
+            accumulatedTime = accumulatedTime + recording[i].DT
+            if accumulatedTime >= effectiveTime then
+                targetFrame = i
+                break
+            end
+        end
+        
+        currentFrame = targetFrame
+
+        -- End of recording
+        if currentFrame >= #recording then
+            IsPlaying = false
+            IsPaused = false
+            
+            -- Apply final frame
+            local finalFrame = recording[#recording]
+            if finalFrame then
+                pcall(function()
+                    hrp.CFrame = GetFrameCFrame(finalFrame)
+                end)
+            end
+            
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            playbackConnection:Disconnect()
+            PlaySound("Stop")
+            return
+        end
+
+        local frame = recording[currentFrame]
+        if not frame then return end
+
+        pcall(function()
+            -- Apply CFrame directly (NO GROUND ADJUSTMENT)
+            local targetCF = GetFrameCFrame(frame)
+            hrp.CFrame = targetCF
+            
+            -- Apply WalkSpeed
+            humanoid.WalkSpeed = frame.WS * CurrentSpeed
+            
+            -- Apply Jump state
+            if frame.J and not lastJumpState then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            lastJumpState = frame.J
+            
+            -- Apply Movement Direction for natural physics
+            if USE_MOVEMENT_DIRECTION then
+                humanoid:Move(Vector3.new(frame.MD[1], frame.MD[2], frame.MD[3]))
+            end
+            
+            currentPlaybackFrame = currentFrame
+            
+            if FrameLabel then
+                FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
+            end
+        end)
+    end)
+    
+    AddConnection(playbackConnection)
+end
+
+-- ========= ENHANCED RECORDING SYSTEM =========
+function StartRecording()
+    if IsRecording then return end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
+        return
+    end
+    
+    IsRecording = true
+    CurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+    lastRecordTime = tick()
+    lastRecordPos = nil
+    
+    RecordBtnBig.Text = "STOP RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10)
+    
+    PlaySound("RecordStart")
+    
+    recordConnection = RunService.Heartbeat:Connect(function()
+        if not IsRecording then return end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") or #CurrentRecording.Frames >= MAX_FRAMES then
+            StopRecording()
+            return
+        end
+        
+        local currentTime = tick()
+        local deltaTime = currentTime - lastRecordTime
+        
+        -- Record at target FPS
+        if deltaTime >= (1 / RECORDING_FPS) then
+            local hrp = char.HumanoidRootPart
+            local currentPos = hrp.Position
+            
+            -- Skip frame if movement is too small
+            if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                lastRecordTime = currentTime
+                return
+            end
+            
+            local frameData = CreateFrameData()
+            if frameData then
+                frameData.DT = deltaTime
+                table.insert(CurrentRecording.Frames, frameData)
+                lastRecordTime = currentTime
+                lastRecordPos = currentPos
+                
+                FrameLabel.Text = string.format("Frames: %d", #CurrentRecording.Frames)
             end
         end
     end)
+    
+    AddConnection(recordConnection)
+end
+
+function StopRecording()
+    if not IsRecording then return end
+    IsRecording = false
+    
+    if recordConnection then
+        recordConnection:Disconnect()
+        recordConnection = nil
+    end
+    
+    if #CurrentRecording.Frames > 0 then
+        AutoSaveRecording()
+    end
+    
+    RecordBtnBig.Text = "RECORDING"
+    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    
+    PlaySound("RecordStop")
+    FrameLabel.Text = "Frames: 0"
+end
+
+-- ========= ENHANCED USER CONTROL SYSTEM =========
+local function EnableUserControl()
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        -- FULL USER CONTROL saat pause
+        humanoid.PlatformStand = false
+        humanoid.AutoRotate = true
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = 50
+    end
+end
+
+local function DisableUserControl()
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        -- Minimal control restriction saat playback
+        humanoid.AutoRotate = false
+    end
+end
+
+local function RestoreFullUserControl()
+    local char = player.Character
+    if not char then return end
+    
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    if humanoid then
+        humanoid.AutoRotate = true
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = 50
+        humanoid.PlatformStand = false
+        humanoid.Sit = false
+    end
+    
+    lastJumpState = false
+end
+
+-- ========= ENHANCED AUTO LOOP SYSTEM =========
+local function PlaySingleRecording(recordingName)
+    local recording = RecordedMovements[recordingName]
+    if not recording or #recording == 0 then 
+        return false 
+    end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        return false 
+    end
+    
+    DisableUserControl()
+    
+    local framePlaybackStart = tick()
+    local framePausedTime = 0
+    local framePauseStart = 0
+    local currentFrame = 1
+    lastJumpState = false
+    
+    local playbackCompleted = false
+    local playbackFailed = false
+    
+    local singlePlaybackConnection
+    singlePlaybackConnection = RunService.Heartbeat:Connect(function()
+        if not AutoLoop or not IsAutoLoopPlaying then
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        -- ENHANCED PAUSE SYSTEM FOR AUTO LOOP
+        if IsPaused then
+            if framePauseStart == 0 then
+                framePauseStart = tick()
+                EnableUserControl() -- FULL USER CONTROL saat pause
+                UpdatePauseMarker()
+            end
+            return
+        else
+            if framePauseStart > 0 then
+                framePausedTime = framePausedTime + (tick() - framePauseStart)
+                framePauseStart = 0
+                DisableUserControl()
+                UpdatePauseMarker()
+            end
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            playbackFailed = true
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not humanoid or humanoid.Health <= 0 then
+            playbackFailed = true
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local currentTime = tick()
+        local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
+        
+        local targetFrame = 1
+        local accumulatedTime = 0
+        
+        for i = 1, #recording do
+            accumulatedTime = accumulatedTime + recording[i].DT
+            if accumulatedTime >= effectiveTime then
+                targetFrame = i
+                break
+            end
+        end
+        
+        currentFrame = targetFrame
+        
+        if currentFrame >= #recording then
+            playbackCompleted = true
+            singlePlaybackConnection:Disconnect()
+            return
+        end
+        
+        local frame = recording[currentFrame]
+        if not frame then return end
+
+        pcall(function()
+            -- Apply CFrame directly
+            local targetCF = GetFrameCFrame(frame)
+            hrp.CFrame = targetCF
+            
+            -- Apply WalkSpeed
+            humanoid.WalkSpeed = frame.WS * CurrentSpeed
+            
+            -- Apply Jump state
+            if frame.J and not lastJumpState then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            lastJumpState = frame.J
+            
+            -- Apply Movement Direction
+            if USE_MOVEMENT_DIRECTION then
+                humanoid:Move(Vector3.new(frame.MD[1], frame.MD[2], frame.MD[3]))
+            end
+        end)
+    end)
+    
+    AddConnection(singlePlaybackConnection)
+    
+    -- Wait for playback completion
+    local startWait = tick()
+    while AutoLoop and IsAutoLoopPlaying and not playbackCompleted and not playbackFailed do
+        if tick() - startWait > 120 then
+            break
+        end
+        task.wait(0.1)
+    end
+    
+    singlePlaybackConnection:Disconnect()
+    RestoreFullUserControl()
+    
+    return playbackCompleted, playbackFailed
+end
+
+local function StartAutoLoopAll()
+    if IsAutoLoopPlaying then return end
+    if not AutoLoop then return end
+    
+    if #RecordingOrder == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    PlaySound("Play")
+    
+    CurrentLoopIndex = 1
+    IsAutoLoopPlaying = true
+    CurrentReplayAttempts = 0
+    
+    loopConnection = RunService.Heartbeat:Connect(function()
+        if not AutoLoop or not IsAutoLoopPlaying then
+            if loopConnection then
+                loopConnection:Disconnect()
+                loopConnection = nil
+            end
+            IsAutoLoopPlaying = false
+            return
+        end
+        
+        while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #RecordingOrder do
+            local recordingName = RecordingOrder[CurrentLoopIndex]
+            local maxRetries = 5
+            local retryCount = 0
+            local characterReady = false
+            
+            -- Wait for character to be ready
+            while not characterReady and retryCount < maxRetries do
+                if not IsCharacterReady() then
+                    if AutoRespawn then
+                        ResetCharacter()
+                    end
+                    
+                    local waitStart = tick()
+                    while not IsCharacterReady() do
+                        if tick() - waitStart > 10 then
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                end
+                
+                characterReady = IsCharacterReady()
+                retryCount = retryCount + 1
+                
+                if not characterReady and retryCount < maxRetries then
+                    task.wait(1)
+                end
+            end
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            if not characterReady then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
+                task.wait(2)
+                continue
+            end
+            
+            -- Play current replay
+            local success, failed = PlaySingleRecording(recordingName)
+            
+            if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            if success then
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                CurrentReplayAttempts = 0
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
+            elseif failed then
+                CurrentReplayAttempts = CurrentReplayAttempts + 1
+                
+                if CurrentReplayAttempts >= MAX_REPLAY_ATTEMPTS then
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    CurrentReplayAttempts = 0
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
+                    end
+                end
+            else
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                CurrentReplayAttempts = 0
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
+                end
+            end
+            
+            task.wait(0.5)
+        end
+    end)
+    
+    AddConnection(loopConnection)
+end
+
+local function StopAutoLoopAll()
+    AutoLoop = false
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    IsPaused = false
+    
+    if loopConnection then
+        loopConnection:Disconnect()
+        loopConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    UpdatePauseMarker()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
+end
+
+-- ========= IMPROVED PAUSE SYSTEM =========
+function PausePlayback()
+    if not IsPlaying and not IsAutoLoopPlaying then return end
+    
+    IsPaused = not IsPaused
+    
+    if IsPaused then
+        PauseBtnBig.Text = "RESUME"
+        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
+        EnableUserControl() -- FULL USER CONTROL saat pause
+        UpdatePauseMarker()
+        PlaySound("Click")
+    else
+        PauseBtnBig.Text = "PAUSE"
+        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        DisableUserControl()
+        UpdatePauseMarker()
+        PlaySound("Click")
+    end
+end
+
+function StopPlayback()
+    if AutoLoop then
+        StopAutoLoopAll()
+        AnimateLoop(false)
+    end
+    
+    if not IsPlaying then return end
+    IsPlaying = false
+    IsPaused = false
+    
+    if playbackConnection then
+        playbackConnection:Disconnect()
+        playbackConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    UpdatePauseMarker()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Stop")
 end
 
 -- ========= SOUND EFFECTS =========
@@ -354,21 +743,6 @@ local function ResetCharacter()
     end
 end
 
-local function WaitForRespawn()
-    local startTime = tick()
-    local timeout = 10
-    
-    repeat
-        task.wait(0.1)
-        if tick() - startTime > timeout then
-            return false
-        end
-    until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
-    
-    task.wait(1)
-    return true
-end
-
 -- ========= CHARACTER READY CHECK =========
 local function IsCharacterReady()
     local char = player.Character
@@ -391,14 +765,6 @@ local function CompleteCharacterReset(char)
         humanoid.WalkSpeed = CurrentWalkSpeed
         humanoid.JumpPower = 50
         humanoid.Sit = false
-        ApplyHybridVelocity(char, Vector3.new(0, 0, 0))
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-        
-        -- Clean up BodyVelocity
-        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-        if bodyVelocity then
-            bodyVelocity:Destroy()
-        end
     end)
 end
 
@@ -433,84 +799,6 @@ local function ToggleInfiniteJump()
     else
         DisableInfiniteJump()
     end
-end
-
--- ========= IMPROVED PAUSE SYSTEM =========
-local function SaveHumanoidState()
-    local char = player.Character
-    if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        prePauseAutoRotate = humanoid.AutoRotate
-        prePauseWalkSpeed = humanoid.WalkSpeed
-        prePauseJumpPower = humanoid.JumpPower
-        prePausePlatformStand = humanoid.PlatformStand
-        prePauseSit = humanoid.Sit
-        prePauseHumanoidState = humanoid:GetState()
-    end
-end
-
-local function RestoreHumanoidState()
-    local char = player.Character
-    if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        humanoid.AutoRotate = prePauseAutoRotate
-        humanoid.WalkSpeed = prePauseWalkSpeed
-        humanoid.JumpPower = prePauseJumpPower
-        humanoid.PlatformStand = prePausePlatformStand
-        humanoid.Sit = prePauseSit
-    end
-end
-
--- ========= FULL USER CONTROL RESTORATION =========
-local function RestoreFullUserControl()
-    local char = player.Character
-    if not char then return end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid then
-        humanoid.AutoRotate = true
-        humanoid.WalkSpeed = CurrentWalkSpeed
-        humanoid.JumpPower = 50
-        humanoid.PlatformStand = false
-        humanoid.Sit = false
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    end
-    
-    if hrp then
-        pcall(function() 
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        end)
-        
-        -- Clean up BodyVelocity
-        local bodyVelocity = hrp:FindFirstChild("AutoWalkBodyVelocity")
-        if bodyVelocity then
-            bodyVelocity:Destroy()
-        end
-    end
-    
-    lastPlaybackCFrame = nil
-    lastPlaybackVelocity = Vector3.new(0, 0, 0)
-end
-
--- ========= PERFECT JUMP DETECTION =========
-local function GetCurrentMoveState(hum)
-    if not hum then return "Grounded" end
-    local state = hum:GetState()
-    if state == Enum.HumanoidStateType.Climbing then return "Climbing"
-    elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
-    elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
-    elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
-    else return "Grounded" end
 end
 
 -- ========= PATH VISUALIZATION FUNCTIONS =========
@@ -605,464 +893,181 @@ local function UpdatePauseMarker()
     end
 end
 
--- ========= SIMPLIFIED FRAME DATA FUNCTIONS =========
-local function GetFramePosition(frame)
-    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-end
-
-local function GetFrameCFrame(frame)
-    local pos = GetFramePosition(frame)
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
-    
-    -- HYBRID: Smart ground adjustment hanya jika diperlukan
-    if SMART_GROUND_DETECTION then
-        local char = player.Character
-        local groundHeight = GetSmartGroundHeight(pos, char)
-        if pos.Y < groundHeight then
-            pos = Vector3.new(pos.X, groundHeight, pos.Z)
-        end
-    end
-    
-    return CFrame.lookAt(pos, pos + look, up)
-end
-
-local function GetFrameVelocity(frame)
-    return frame.Velocity and Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    ) or Vector3.new(0, 0, 0)
-end
-
-local function GetFrameWalkSpeed(frame)
-    return frame.WalkSpeed or 16
-end
-
-local function GetFrameTimestamp(frame)
-    return frame.Timestamp or 0
-end
-
--- ========= HIGH FPS PLAYBACK SYSTEM =========
-local function PlayRecordingWithCFrame(recording, startFrame)
-    if not recording or #recording == 0 then return end
-    
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if not hum or not hrp then return end
-
-    local currentFrame = startFrame or 1
-    playbackStartTime = tick()
-    totalPausedDuration = 0
-    pauseStartTime = 0
-    lastPlaybackState = nil
-    LastFrameTime = tick()
-    
-    lastPlaybackCFrame = hrp.CFrame
-    lastPlaybackVelocity = Vector3.new(0, 0, 0)
-
-    playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        if not IsPlaying then
-            playbackConnection:Disconnect()
-            RestoreFullUserControl()
-            return
-        end
-        
-        -- HIGH FPS: Skip frame jika belum waktunya
-        if not ShouldProcessFrame() then
-            return
-        end
-        
-        -- IMPROVED PAUSE SYSTEM - FULL STOP
-        if IsPaused then
-            if pauseStartTime == 0 then
-                pauseStartTime = tick()
-                RestoreHumanoidState()
-                ApplyHybridVelocity(char, Vector3.new(0, 0, 0)) -- FULL STOP
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if pauseStartTime > 0 then
-                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                pauseStartTime = 0
-                SaveHumanoidState()
-                UpdatePauseMarker()
-            end
-        end
-
-        char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            IsPlaying = false
-            playbackConnection:Disconnect()
-            RestoreFullUserControl()
-            return
-        end
-
-        hum = char:FindFirstChildOfClass("Humanoid")
-        hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then
-            IsPlaying = false
-            playbackConnection:Disconnect()
-            RestoreFullUserControl()
-            return
-        end
-
-        local currentTime = tick()
-        local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-        
-        local targetFrameIndex = 1
-        for i = 1, #recording do
-            if GetFrameTimestamp(recording[i]) <= effectiveTime then
-                targetFrameIndex = i
-            else
-                break
-            end
-        end
-        
-        currentFrame = targetFrameIndex
-
-        if currentFrame >= #recording then
-            IsPlaying = false
-            IsPaused = false
-            lastPlaybackState = nil
-            
-            local finalFrame = recording[#recording]
-            if finalFrame then
-                pcall(function()
-                    hrp.CFrame = GetFrameCFrame(finalFrame)
-                    ApplyHybridVelocity(char, Vector3.new(0, 0, 0))
-                end)
-            end
-            
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            playbackConnection:Disconnect()
-            PlaySound("Stop")
-            return
-        end
-
-        local targetFrame = recording[currentFrame]
-        if not targetFrame then return end
-
-        pcall(function()
-            -- Camera stabilization
-            StabilizeCameraHybrid()
-            
-            local targetCFrame = GetFrameCFrame(targetFrame)
-            local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
-            
-            -- Hybrid smooth interpolation
-            local smoothCFrame = HybridCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
-            local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
-            
-            -- Apply hybrid movement
-            hrp.CFrame = smoothCFrame
-            ApplyHybridVelocity(char, smoothVelocity)
-            
-            lastPlaybackCFrame = smoothCFrame
-            lastPlaybackVelocity = smoothVelocity
-            
-            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-            
-            local moveState = targetFrame.MoveState
-            local currentStateTime = tick()
-            
-            if moveState ~= lastPlaybackState and (currentStateTime - lastStateChangeTime) > STATE_CHANGE_COOLDOWN then
-                lastPlaybackState = moveState
-                lastStateChangeTime = currentStateTime
-                HybridStateControl(hum, moveState)
-            end
-            
-            currentPlaybackFrame = currentFrame
-            
-            if FrameLabel then
-                FrameLabel.Text = string.format("Frame: %d/%d", currentPlaybackFrame, #recording)
-            end
-        end)
-    end)
-    
-    AddConnection(playbackConnection)
-end
-
--- ========= HIGH FPS AUTO LOOP SYSTEM =========
-local function PlaySingleRecording(recordingName)
-    local recording = RecordedMovements[recordingName]
-    if not recording or #recording == 0 then 
-        return false 
-    end
-    
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then 
-        return false 
-    end
-    
-    SaveHumanoidState()
-    
-    local framePlaybackStart = tick()
-    local framePausedTime = 0
-    local framePauseStart = 0
-    local currentFrame = 1
-    LastFrameTime = tick()
-    
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        lastPlaybackCFrame = char.HumanoidRootPart.CFrame
-        lastPlaybackVelocity = Vector3.new(0, 0, 0)
-    end
-    
-    local playbackCompleted = false
-    local playbackFailed = false
-    
-    local singlePlaybackConnection
-    singlePlaybackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        if not AutoLoop or not IsAutoLoopPlaying then
-            singlePlaybackConnection:Disconnect()
-            return
-        end
-        
-        -- HIGH FPS: Skip frame jika belum waktunya
-        if not ShouldProcessFrame() then
-            return
-        end
-        
-        -- IMPROVED PAUSE SYSTEM
-        if IsPaused then
-            if framePauseStart == 0 then
-                framePauseStart = tick()
-                RestoreHumanoidState()
-                ApplyHybridVelocity(char, Vector3.new(0, 0, 0)) -- FULL STOP
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if framePauseStart > 0 then
-                framePausedTime = framePausedTime + (tick() - framePauseStart)
-                framePauseStart = 0
-                SaveHumanoidState()
-                UpdatePauseMarker()
-            end
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            playbackFailed = true
-            singlePlaybackConnection:Disconnect()
-            return
-        end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp or hum.Health <= 0 then
-            playbackFailed = true
-            singlePlaybackConnection:Disconnect()
-            return
-        end
-        
-        local currentTime = tick()
-        local effectiveTime = (currentTime - framePlaybackStart - framePausedTime) * CurrentSpeed
-        
-        local targetFrameIndex = 1
-        for i = 1, #recording do
-            if GetFrameTimestamp(recording[i]) <= effectiveTime then
-                targetFrameIndex = i
-            else
-                break
-            end
-        end
-        
-        currentFrame = targetFrameIndex
-        
-        if currentFrame >= #recording then
-            playbackCompleted = true
-            singlePlaybackConnection:Disconnect()
-            return
-        end
-        
-        local targetFrame = recording[currentFrame]
-        if not targetFrame then return end
-
-        pcall(function()
-            StabilizeCameraHybrid()
-            
-            local targetCFrame = GetFrameCFrame(targetFrame)
-            local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
-            
-            local smoothCFrame = HybridCFrameLerp(hrp.CFrame, targetCFrame, 0.4)
-            local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, 0.4)
-            
-            hrp.CFrame = smoothCFrame
-            ApplyHybridVelocity(char, smoothVelocity)
-            
-            lastPlaybackCFrame = smoothCFrame
-            lastPlaybackVelocity = smoothVelocity
-            
-            hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
-            
-            local moveState = targetFrame.MoveState
-            if moveState ~= lastPlaybackState then
-                lastPlaybackState = moveState
-                HybridStateControl(hum, moveState)
-            end
-        end)
-    end)
-    
-    AddConnection(singlePlaybackConnection)
-    
-    local startWait = tick()
-    while AutoLoop and IsAutoLoopPlaying and not playbackCompleted and not playbackFailed do
-        if tick() - startWait > 120 then
-            break
-        end
-        task.wait(0.05)  -- Reduced wait time untuk responsiveness
-    end
-    
-    singlePlaybackConnection:Disconnect()
-    RestoreFullUserControl()
-    
-    return playbackCompleted, playbackFailed
-end
-
-local function StartAutoLoopAll()
-    if IsAutoLoopPlaying then 
-        return 
-    end
-    
-    if not AutoLoop then 
-        return 
-    end
-    
-    if #RecordingOrder == 0 then
+-- ========= AUTOMATIC SAVE SYSTEM =========
+local function AutoSaveRecording()
+    if #CurrentRecording.Frames == 0 then
         PlaySound("Error")
         return
     end
     
+    local name = CurrentRecording.Name
+    RecordedMovements[name] = CurrentRecording.Frames
+    table.insert(RecordingOrder, name)
+    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
+    SelectedReplays[name] = false
+    
+    UpdateRecordList()
+    
+    PlaySound("Success")
+    
+    CurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+end
+
+-- ========= SIMPLIFIED PLAYBACK =========
+function PlayRecording(name)
+    if IsPlaying then return end
+    
+    local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
+    if not recording or #recording == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
+        return
+    end
+
+    IsPlaying = true
+    IsPaused = false
+    totalPausedDuration = 0
+    pauseStartTime = 0
+    lastJumpState = false
+
+    currentPlaybackFrame = 1
+    playbackStartTime = tick()
+
+    DisableUserControl()
     PlaySound("Play")
+
+    PlayEnhancedRecording(recording, currentPlaybackFrame)
+end
+
+-- ========= SIMPLIFIED SAVE SYSTEM =========
+local function SaveToJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
     
-    CurrentLoopIndex = 1
-    IsAutoLoopPlaying = true
-    lastPlaybackState = nil
-    CurrentReplayAttempts = 0
-    LastFrameTime = tick()
+    if not next(RecordedMovements) then
+        PlaySound("Error")
+        return
+    end
     
-    loopConnection = RunService.Heartbeat:Connect(function()
-        if not AutoLoop or not IsAutoLoopPlaying then
-            if loopConnection then
-                loopConnection:Disconnect()
-                loopConnection = nil
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "4.0",
+            Checkpoints = {},
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames
+        }
+        
+        -- Jika ada yang dicentang, save hanya yang dicentang
+        -- Jika tidak ada yang dicentang, save semua
+        local hasSelected = false
+        for name, isSelected in pairs(SelectedReplays) do
+            if isSelected then
+                hasSelected = true
+                break
             end
-            IsAutoLoopPlaying = false
-            return
         end
         
-        while AutoLoop and IsAutoLoopPlaying and CurrentLoopIndex <= #RecordingOrder do
-            local recordingName = RecordingOrder[CurrentLoopIndex]
-            local maxRetries = 5
-            local retryCount = 0
-            local characterReady = false
-            
-            -- Wait for character to be ready
-            while not characterReady and retryCount < maxRetries do
-                if not IsCharacterReady() then
-                    if AutoRespawn then
-                        ResetCharacter()
-                    end
-                    
-                    local waitStart = tick()
-                    while not IsCharacterReady() do
-                        if tick() - waitStart > 10 then
-                            break
-                        end
-                        task.wait(0.3)  -- Reduced wait time
-                    end
-                end
-                
-                characterReady = IsCharacterReady()
-                retryCount = retryCount + 1
-                
-                if not characterReady and retryCount < maxRetries then
-                    task.wait(0.5)
-                end
+        for name, frames in pairs(RecordedMovements) do
+            if not hasSelected or SelectedReplays[name] then
+                local checkpointData = {
+                    Name = name,
+                    DisplayName = checkpointNames[name] or "checkpoint",
+                    Frames = frames
+                }
+                table.insert(saveData.Checkpoints, checkpointData)
             end
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            if not characterReady then
-                -- Skip jika karakter tidak ready setelah retry
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-                task.wait(1)  -- Reduced wait time
-                continue
-            end
-            
-            -- Play current replay
-            local success, failed = PlaySingleRecording(recordingName)
-            
-            if not AutoLoop or not IsAutoLoopPlaying then break end
-            
-            if success then
-                -- Successfully completed replay, move to next
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                CurrentReplayAttempts = 0
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-            elseif failed then
-                -- Playback failed (character died), retry current replay
-                CurrentReplayAttempts = CurrentReplayAttempts + 1
-                
-                if CurrentReplayAttempts >= MAX_REPLAY_ATTEMPTS then
-                    -- Too many failures, skip to next replay
-                    CurrentLoopIndex = CurrentLoopIndex + 1
-                    CurrentReplayAttempts = 0
-                    if CurrentLoopIndex > #RecordingOrder then
-                        CurrentLoopIndex = 1
-                    end
-                else
-                    -- Retry current replay
-                    print("🔄 AutoLoop: Retrying replay due to failure (" .. CurrentReplayAttempts .. "/" .. MAX_REPLAY_ATTEMPTS .. ")")
-                end
-            else
-                -- Other failure, move to next replay
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                CurrentReplayAttempts = 0
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
-            end
-            
-            task.wait(0.3)  -- Reduced pause between replays
+        end
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        
+        if writefile then
+            writefile(filename, jsonString)
+            PlaySound("Success")
+        else
+            PlaySound("Error")
         end
     end)
     
-    AddConnection(loopConnection)
+    if not success then
+        PlaySound("Error")
+    end
 end
 
-local function StopAutoLoopAll()
-    AutoLoop = false
-    IsAutoLoopPlaying = false
-    IsPlaying = false
-    IsPaused = false
-    lastPlaybackState = nil
-    CurrentReplayAttempts = 0
+local function LoadFromJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
     
-    if loopConnection then
-        loopConnection:Disconnect()
-        loopConnection = nil
+    local success, err = pcall(function()
+        if not readfile or not isfile then
+            PlaySound("Error")
+            return
+        end
+        
+        if not isfile(filename) then
+            PlaySound("Error")
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        SelectedReplays = {}
+        
+        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+            local name = checkpointData.Name
+            local frames = checkpointData.Frames
+            
+            if frames then
+                RecordedMovements[name] = frames
+                SelectedReplays[name] = false
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
     end
+end
+
+-- ========= PATH VISUALIZATION =========
+local function VisualizeAllPaths()
+    ClearPathVisualization()
     
-    RestoreFullUserControl()
-    UpdatePauseMarker()
+    if not ShowPaths then return end
     
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
-    
-    PlaySound("Stop")
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
+        
+        local previousPos = Vector3.new(
+            recording[1].CF[1],
+            recording[1].CF[2], 
+            recording[1].CF[3]
+        )
+        
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.CF[1], frame.CF[2], frame.CF[3])
+            
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
+            end
+        end
+    end
 end
 
 -- ========= GUI SETUP =========
@@ -1107,7 +1112,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL - Hybrid v3.1"
+Title.Text = "ByaruL - Enhanced v4.0"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 12
@@ -1573,13 +1578,17 @@ function UpdateRecordList()
         
         local infoLabel = Instance.new("TextLabel")
         infoLabel.Size = UDim2.new(1, -40, 1, 0)
-        infoLabel.Parent = infoRow
+        infoLabel.Position = UDim2.fromOffset(30, 0)
+        infoLabel.BackgroundTransparency = 1
         
         if #rec > 0 then
-            local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • HYBRID"
+            local totalSeconds = 0
+            for _, frame in ipairs(rec) do
+                totalSeconds = totalSeconds + frame.DT
+            end
+            infoLabel.Text = "✔️ " .. FormatDuration(totalSeconds) .. " • " .. #rec .. " frames • ENHANCED"
         else
-            infoLabel.Text = "❌ 0:00 • 0 frames • HYBRID"
+            infoLabel.Text = "❌ 0:00 • 0 frames • ENHANCED"
         end
         
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
@@ -1638,332 +1647,6 @@ function UpdateRecordList()
     end
     
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
-end
-
--- ========= OPTIMIZED RECORDING SYSTEM =========
-local lastFrameTime = 0
-local frameInterval = 1 / RECORDING_FPS
-
-local function ShouldRecordFrame()
-    local currentTime = tick()
-    return (currentTime - lastFrameTime) >= frameInterval
-end
-
--- ========= AUTOMATIC SAVE SYSTEM =========
-local function AutoSaveRecording()
-    if #CurrentRecording.Frames == 0 then
-        PlaySound("Error")
-        return
-    end
-    
-    local name = CurrentRecording.Name
-    RecordedMovements[name] = CurrentRecording.Frames
-    table.insert(RecordingOrder, name)
-    checkpointNames[name] = "checkpoint_" .. #RecordingOrder
-    SelectedReplays[name] = false
-    
-    UpdateRecordList()
-    
-    PlaySound("Success")
-    
-    CurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-end
-
-function StartRecording()
-    if IsRecording then return end
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        PlaySound("Error")
-        return
-    end
-    
-    IsRecording = true
-    CurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
-    lastRecordTime = 0
-    lastRecordPos = nil
-    lastFrameTime = 0
-    
-    RecordBtnBig.Text = "STOP RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(163, 10, 10)
-    
-    PlaySound("RecordStart")
-    
-    recordConnection = RunService.Heartbeat:Connect(function()
-        if not IsRecording then return end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") or #CurrentRecording.Frames >= MAX_FRAMES then
-            StopRecording()
-            return
-        end
-        
-        if not ShouldRecordFrame() then return end
-        
-        local hrp = char.HumanoidRootPart
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local currentPos = hrp.Position
-        local currentVelocity = hrp.AssemblyLinearVelocity
-        local moveState = GetCurrentMoveState(hum)
-
-        local velY = currentVelocity.Y
-        if moveState == "Falling" and velY > 10 then
-            moveState = "Jumping"
-        elseif velY > 40 then
-            moveState = "Jumping"
-        end
-
-        if lastRecordPos and (currentPos - lastRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD and moveState == "Grounded" then
-            return
-        end
-
-        local cf = hrp.CFrame
-        local frameData = {
-            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-            MoveState = moveState,
-            WalkSpeed = hum and hum.WalkSpeed or 16,
-            Timestamp = tick() - CurrentRecording.StartTime
-        }
-        
-        table.insert(CurrentRecording.Frames, frameData)
-        lastFrameTime = tick()
-        lastRecordPos = currentPos
-        
-        FrameLabel.Text = string.format("Frames: %d", #CurrentRecording.Frames)
-    end)
-    
-    AddConnection(recordConnection)
-end
-
-function StopRecording()
-    if not IsRecording then return end
-    IsRecording = false
-    
-    if recordConnection then
-        recordConnection:Disconnect()
-        recordConnection = nil
-    end
-    
-    if #CurrentRecording.Frames > 0 then
-        AutoSaveRecording()
-    end
-    
-    RecordBtnBig.Text = "RECORDING"
-    RecordBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    
-    PlaySound("RecordStop")
-    FrameLabel.Text = "Frames: 0"
-end
-
--- ========= SIMPLIFIED PLAYBACK SYSTEM =========
-function PlayRecording(name)
-    if IsPlaying then return end
-    
-    local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
-    if not recording or #recording == 0 then
-        PlaySound("Error")
-        return
-    end
-    
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        PlaySound("Error")
-        return
-    end
-
-    IsPlaying = true
-    IsPaused = false
-    totalPausedDuration = 0
-    pauseStartTime = 0
-    lastPlaybackState = nil
-
-    currentPlaybackFrame = 1
-    playbackStartTime = tick()
-
-    SaveHumanoidState()
-    PlaySound("Play")
-
-    PlayRecordingWithCFrame(recording, currentPlaybackFrame)
-end
-
--- ========= IMPROVED PAUSE SYSTEM =========
-function PausePlayback()
-    if not IsPlaying and not IsAutoLoopPlaying then return end
-    
-    IsPaused = not IsPaused
-    
-    if IsPaused then
-        PauseBtnBig.Text = "RESUME"
-        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
-        RestoreHumanoidState()
-        -- FULL STOP ketika pause
-        local char = player.Character
-        if char and char:FindFirstChild("HumanoidRootPart") then
-            ApplyHybridVelocity(char, Vector3.new(0, 0, 0))
-        end
-        UpdatePauseMarker()
-        PlaySound("Click")
-    else
-        PauseBtnBig.Text = "PAUSE"
-        PauseBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        SaveHumanoidState()
-        UpdatePauseMarker()
-        PlaySound("Click")
-    end
-end
-
-function StopPlayback()
-    if AutoLoop then
-        StopAutoLoopAll()
-        AnimateLoop(false)
-    end
-    
-    if not IsPlaying then return end
-    IsPlaying = false
-    IsPaused = false
-    lastPlaybackState = nil
-    
-    if playbackConnection then
-        playbackConnection:Disconnect()
-        playbackConnection = nil
-    end
-    
-    RestoreFullUserControl()
-    UpdatePauseMarker()
-    
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
-    
-    PlaySound("Stop")
-end
-
--- ========= ENHANCED SAVE SYSTEM =========
-local function SaveToJSON()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    if not next(RecordedMovements) then
-        PlaySound("Error")
-        return
-    end
-    
-    local success, err = pcall(function()
-        local saveData = {
-            Version = "3.1",
-            Checkpoints = {},
-            RecordingOrder = RecordingOrder,
-            CheckpointNames = checkpointNames
-        }
-        
-        -- Jika ada yang dicentang, save hanya yang dicentang
-        -- Jika tidak ada yang dicentang, save semua
-        local hasSelected = false
-        for name, isSelected in pairs(SelectedReplays) do
-            if isSelected then
-                hasSelected = true
-                break
-            end
-        end
-        
-        for name, frames in pairs(RecordedMovements) do
-            -- Save hanya jika: tidak ada yang dicentang ATAU yang ini dicentang
-            if not hasSelected or SelectedReplays[name] then
-                local checkpointData = {
-                    Name = name,
-                    DisplayName = checkpointNames[name] or "checkpoint",
-                    Frames = frames
-                }
-                table.insert(saveData.Checkpoints, checkpointData)
-            end
-        end
-        
-        local jsonString = HttpService:JSONEncode(saveData)
-        
-        if writefile then
-            writefile(filename, jsonString)
-            PlaySound("Success")
-        else
-            PlaySound("Error")
-        end
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
-
-local function LoadFromJSON()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    local success, err = pcall(function()
-        if not readfile or not isfile then
-            PlaySound("Error")
-            return
-        end
-        
-        if not isfile(filename) then
-            PlaySound("Error")
-            return
-        end
-        
-        local jsonString = readfile(filename)
-        local saveData = HttpService:JSONDecode(jsonString)
-        
-        RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
-        SelectedReplays = {}
-        
-        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-            local name = checkpointData.Name
-            local frames = checkpointData.Frames
-            
-            if frames then
-                RecordedMovements[name] = frames
-                SelectedReplays[name] = false
-            end
-        end
-        
-        UpdateRecordList()
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
-
--- ========= PATH VISUALIZATION FOR ALL RECORDINGS =========
-local function VisualizeAllPaths()
-    ClearPathVisualization()
-    
-    if not ShowPaths then return end
-    
-    for _, name in ipairs(RecordingOrder) do
-        local recording = RecordedMovements[name]
-        if not recording or #recording < 2 then continue end
-        
-        local previousPos = Vector3.new(
-            recording[1].Position[1],
-            recording[1].Position[2], 
-            recording[1].Position[3]
-        )
-        
-        for i = 2, #recording, 3 do
-            local frame = recording[i]
-            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-            
-            if (currentPos - previousPos).Magnitude > 0.5 then
-                CreatePathSegment(previousPos, currentPos)
-                previousPos = currentPos
-            end
-        end
-    end
 end
 
 -- ========= BUTTON EVENTS =========
@@ -2069,19 +1752,18 @@ MergeBtn.MouseButton1Click:Connect(function()
         
         for frameIndex, frame in ipairs(checkpoint) do
             local newFrame = {
-                Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
-                LookVector = {frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]},
-                UpVector = {frame.UpVector[1], frame.UpVector[2], frame.UpVector[3]},
-                Velocity = {frame.Velocity[1], frame.Velocity[2], frame.Velocity[3]},
-                MoveState = frame.MoveState,
-                WalkSpeed = frame.WalkSpeed,
-                Timestamp = frame.Timestamp + totalTimeOffset
+                MD = {frame.MD[1], frame.MD[2], frame.MD[3]},
+                WS = frame.WS,
+                J = frame.J,
+                CF = {frame.CF[1], frame.CF[2], frame.CF[3], frame.CF[4], frame.CF[5], frame.CF[6], 
+                      frame.CF[7], frame.CF[8], frame.CF[9], frame.CF[10], frame.CF[11], frame.CF[12]},
+                DT = frame.DT
             }
             table.insert(mergedFrames, newFrame)
         end
         
         if #checkpoint > 0 then
-            totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
+            totalTimeOffset = totalTimeOffset + 0.1
         end
     end
     
@@ -2204,4 +1886,4 @@ player.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("✅ AutoWalk ByaruL v3.1 - HYBRID SMART MOVEMENT Loaded!")
+print("✅ AutoWalk ByaruL v4.0 - ENHANCED NATURAL MOVEMENT Loaded!")
