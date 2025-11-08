@@ -1,6 +1,5 @@
-
--- ========= AUTO WALK PRO v8.7 - OPTIMIZED VERSION =========
--- Smooth Recording + Playback System (No Debug)
+-- ========= AUTO WALK PRO v8.7 - SMOOTH RECORDING SYSTEM =========
+-- Enhanced Recording + Smooth Reverse/Forward + No Anti-Fall
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -10,14 +9,10 @@ local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 wait(1)
 
--- ========= SAFE CALL WRAPPER =========
-local function SafeCall(func, ...)
-    local success, result = pcall(func, ...)
-    if not success then
-        return nil
-    end
-    return result
-end
+-- ========= GUI DEBUG SYSTEM =========
+local DebugMode = true
+local DebugMessages = {}
+local MaxDebugMessages = 10
 
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
@@ -55,13 +50,18 @@ local UseMoveTo = false
 local CurrentSpeed = 1
 local RecordedMovements = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
-local AutoHeal = false
 local AutoLoop = false
 local recordConnection = nil
 local playbackConnection = nil
 local lastRecordTime = 0
 local lastRecordPos = nil
 local ShowVisualization = false
+local currentRecordingName = nil
+local currentPlaybackFrame = 1
+local playbackStartTime = 0
+local totalPausedDuration = 0
+local pauseStartTime = 0
+local lastPlaybackState = nil
 
 -- ========= TIMELINE NAVIGATION VARIABLES =========
 local TimelinePosition = 0
@@ -77,14 +77,62 @@ local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
 local prePauseAutoRotate = true
 local prePauseJumpPower = 50
-local currentRecordingName = nil
-local currentPlaybackFrame = 1
-local playbackStartTime = 0
-local totalPausedDuration = 0
-local pauseStartTime = 0
 
 -- ========= EVENT CLEANUP =========
 local eventConnections = {}
+
+-- ========= DEBUG FUNCTIONS =========
+local function AddDebugMessage(message, messageType)
+    if not DebugMode then return end
+    
+    local timestamp = os.date("%H:%M:%S")
+    local fullMessage = "[" .. timestamp .. "] " .. message
+    
+    table.insert(DebugMessages, 1, {text = fullMessage, type = messageType or "info"})
+    
+    if #DebugMessages > MaxDebugMessages then
+        table.remove(DebugMessages, #DebugMessages)
+    end
+    
+    if DebugScroll then
+        for _, child in pairs(DebugScroll:GetChildren()) do
+            if child:IsA("TextLabel") then
+                child:Destroy()
+            end
+        end
+        
+        local yPos = 0
+        for i, debugMsg in ipairs(DebugMessages) do
+            local msgLabel = Instance.new("TextLabel")
+            msgLabel.Size = UDim2.new(1, -5, 0, 16)
+            msgLabel.Position = UDim2.new(0, 0, 0, yPos)
+            msgLabel.BackgroundTransparency = 1
+            msgLabel.Text = debugMsg.text
+            msgLabel.TextColor3 = 
+                debugMsg.type == "error" and Color3.fromRGB(255, 100, 100) or
+                debugMsg.type == "warning" and Color3.fromRGB(255, 200, 100) or
+                Color3.fromRGB(200, 200, 200)
+            msgLabel.Font = Enum.Font.Gotham
+            msgLabel.TextSize = 9
+            msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+            msgLabel.TextWrapped = true
+            msgLabel.Parent = DebugScroll
+            
+            yPos = yPos + 18
+        end
+        
+        DebugScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    end
+end
+
+local function SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    if not success then
+        AddDebugMessage("🚨 ERROR: " .. tostring(result), "error")
+        return nil
+    end
+    return result
+end
 
 local function AddConnection(conn)
     table.insert(eventConnections, conn)
@@ -125,11 +173,6 @@ local function GetCharacterType()
     end
     
     return "Unknown"
-end
-
--- ========= SIMPLIFIED POSITION ADJUSTMENT =========
-local function AdjustPositionToGround(position)
-    return Vector3.new(position.X, position.Y, position.Z)
 end
 
 -- ========= R15 VELOCITY CONTROL =========
@@ -241,52 +284,6 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= SMOOTH FRAME DELETION =========
-local function DeleteFramesAfterPosition(startFrame)
-    SafeCall(function()
-        if #CurrentRecording.Frames == 0 or startFrame <= 0 then return end
-        
-        local framesToDelete = #CurrentRecording.Frames - startFrame
-        
-        for i = 1, framesToDelete do
-            if #CurrentRecording.Frames > startFrame then
-                table.remove(CurrentRecording.Frames, #CurrentRecording.Frames)
-            end
-        end
-    end)
-end
-
--- ========= SEAMLESS TRANSITION CREATOR =========
-local function CreateSeamlessTransition(fromFrame, toPosition)
-    local TransitionFrames = {}
-    
-    SafeCall(function()
-        if not fromFrame then return end
-        
-        local startPos = GetFramePosition(fromFrame)
-        local distance = (toPosition - startPos).Magnitude
-        local transitionSteps = math.max(3, math.floor(distance / 1.5))
-        
-        for i = 1, transitionSteps do
-            local alpha = i / transitionSteps
-            local interpPos = startPos:Lerp(toPosition, alpha)
-            local interpVel = GetFrameVelocity(fromFrame):Lerp(Vector3.new(0, 0, 0), alpha)
-            
-            table.insert(TransitionFrames, {
-                Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                LookVector = fromFrame.LookVector,
-                UpVector = fromFrame.UpVector,
-                Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                MoveState = "Grounded",
-                WalkSpeed = fromFrame.WalkSpeed or 16,
-                Timestamp = fromFrame.Timestamp + (i * 0.016)
-            })
-        end
-    end)
-    
-    return TransitionFrames
-end
-
 -- ========= FIND NEAREST FRAME =========
 local function FindNearestFrame(recording, position)
     if not recording or #recording == 0 then return 1, math.huge end
@@ -363,6 +360,62 @@ SafeCall(function()
         ScreenGui.Parent = player:WaitForChild("PlayerGui")
     end
 end)
+
+-- ========= DEBUG GUI =========
+local DebugFrame = Instance.new("Frame")
+DebugFrame.Size = UDim2.new(0, 400, 0, 200)
+DebugFrame.Position = UDim2.new(0, 10, 0, 10)
+DebugFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+DebugFrame.BackgroundTransparency = 0.3
+DebugFrame.BorderSizePixel = 0
+DebugFrame.Visible = false
+DebugFrame.Parent = ScreenGui
+
+local DebugCorner = Instance.new("UICorner")
+DebugCorner.CornerRadius = UDim.new(0, 8)
+DebugCorner.Parent = DebugFrame
+
+local DebugScroll = Instance.new("ScrollingFrame")
+DebugScroll.Size = UDim2.new(1, -10, 1, -60)
+DebugScroll.Position = UDim2.new(0, 5, 0, 25)
+DebugScroll.BackgroundTransparency = 1
+DebugScroll.ScrollBarThickness = 6
+DebugScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 255, 150)
+DebugScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+DebugScroll.Parent = DebugFrame
+
+local DebugLayout = Instance.new("UIListLayout")
+DebugLayout.Padding = UDim.new(0, 2)
+DebugLayout.Parent = DebugScroll
+
+local DebugTitle = Instance.new("TextLabel")
+DebugTitle.Size = UDim2.new(1, 0, 0, 20)
+DebugTitle.Position = UDim2.new(0, 0, 0, 0)
+DebugTitle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+DebugTitle.Text = "🔧 DEBUG CONSOLE (F12 to show/hide)"
+DebugTitle.TextColor3 = Color3.fromRGB(100, 255, 150)
+DebugTitle.Font = Enum.Font.GothamBold
+DebugTitle.TextSize = 12
+DebugTitle.Parent = DebugFrame
+
+local DebugToggleBtn = Instance.new("TextButton")
+DebugToggleBtn.Size = UDim2.new(0, 120, 0, 25)
+DebugToggleBtn.Position = UDim2.new(0, 10, 0, 220)
+DebugToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+DebugToggleBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
+DebugToggleBtn.Font = Enum.Font.GothamBold
+DebugToggleBtn.TextSize = 10
+DebugToggleBtn.Visible = false
+DebugToggleBtn.Parent = ScreenGui
+
+local DebugCorner2 = Instance.new("UICorner")
+DebugCorner2.CornerRadius = UDim.new(0, 6)
+DebugCorner2.Parent = DebugToggleBtn
+
+local DebugStroke = Instance.new("UIStroke")
+DebugStroke.Color = Color3.fromRGB(100, 255, 150)
+DebugStroke.Thickness = 1
+DebugStroke.Parent = DebugToggleBtn
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
@@ -513,35 +566,6 @@ StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 8
 StatusLabel.Parent = StudioContent
-
--- Info Panel
-local InfoFrame = Instance.new("Frame")
-InfoFrame.Size = UDim2.fromOffset(214, 30)
-InfoFrame.Position = UDim2.fromOffset(5, 173)
-InfoFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-InfoFrame.BorderSizePixel = 0
-InfoFrame.Visible = true
-InfoFrame.Parent = StudioContent
-
-local InfoCorner = Instance.new("UICorner")
-InfoCorner.CornerRadius = UDim.new(0, 6)
-InfoCorner.Parent = InfoFrame
-
-local InfoStroke = Instance.new("UIStroke")
-InfoStroke.Color = Color3.fromRGB(60, 60, 70)
-InfoStroke.Thickness = 1
-InfoStroke.Parent = InfoFrame
-
-local InfoText = Instance.new("TextLabel")
-InfoText.Size = UDim2.new(1, -8, 1, 0)
-InfoText.Position = UDim2.fromOffset(4, 0)
-InfoText.BackgroundTransparency = 1
-InfoText.Text = "Reverse/Forward: 0.5s steps | Resume: Auto-delete"
-InfoText.TextColor3 = Color3.fromRGB(180, 180, 200)
-InfoText.Font = Enum.Font.Gotham
-InfoText.TextSize = 7
-InfoText.TextXAlignment = Enum.TextXAlignment.Left
-InfoText.Parent = InfoFrame
 
 -- ========= MAIN GUI =========
 local MainFrame = Instance.new("Frame")
@@ -713,7 +737,7 @@ local function CreateElegantTextBox(placeholder, x, y, w, h, parent)
             TweenService:Create(stroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(100, 255, 150)}):Play()
         end)
     end)
-   
+    
     box.FocusLost:Connect(function()
         SafeCall(function()
             TweenService:Create(box, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 25)}):Play()
@@ -799,7 +823,6 @@ local StopBtn = CreateElegantButton("■ STOP", 160, 40, 70, 26, Color3.fromRGB(
 local MoveToBtn, GetMoveToState, SetMoveToState = CreateToggleButton("MoveTo", 10, 75, 110, 24, false)
 local VisualBtn, GetVisualState, SetVisualState = CreateToggleButton("Visual", 125, 75, 110, 24, false)
 local LoopBtn, GetLoopState, SetLoopState = CreateToggleButton("Loop", 10, 105, 110, 24, false)
-local HealBtn, GetHealState, SetHealState = CreateToggleButton("Heal", 125, 105, 110, 24, false)
 
 local FileNameBox = CreateElegantTextBox("filename", 10, 140, 150, 24)
 local SaveFileBtn = CreateElegantButton("SAVE", 165, 140, 35, 24, Color3.fromRGB(40, 140, 70))
@@ -950,7 +973,9 @@ local function UpdateReplayList()
     
     SafeCall(function()
         for _, child in pairs(ReplayList:GetChildren()) do
-            if child:IsA("Frame") then child:Destroy() end
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
         end
         
         local recordingNames = {}
@@ -1419,6 +1444,7 @@ local function ResumeStudioRecording()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
+        -- Hapus semua frame di depan posisi saat ini
         local currentPos = hrp.Position
         local nearestFrame, distance = FindNearestFrame(CurrentRecording.Frames, currentPos)
         
@@ -1428,22 +1454,6 @@ local function ResumeStudioRecording()
                 table.remove(CurrentRecording.Frames, i)
             end
             StatusLabel.Text = "🗑️ Deleted " .. framesDeleted .. " frames"
-        end
-        
-        if #CurrentRecording.Frames > 0 then
-            local lastFrame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            local lastPos = GetFramePosition(lastFrame)
-            
-            if (currentPos - lastPos).Magnitude > 3 then
-                local transitionFrames = CreateSeamlessTransition(lastFrame, currentPos)
-                
-                for _, transFrame in ipairs(transitionFrames) do
-                    table.insert(CurrentRecording.Frames, transFrame)
-                end
-                
-                StatusLabel.Text = "✅ Seamless transition created"
-                StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-            end
         end
         
         IsTimelineMode = false
@@ -1472,6 +1482,7 @@ local function SaveStudioRecording()
             StopStudioRecording()
         end
         
+        -- Simpan recording ke daftar
         RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
         UpdateReplayList()
         
@@ -1480,6 +1491,7 @@ local function SaveStudioRecording()
         
         UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
         
+        -- Reset recording
         CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
         TimelinePosition = 0
         IsTimelineMode = false
@@ -1578,17 +1590,26 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= IMPROVED PLAYBACK SYSTEM =========
-local function PlayRecordingWithSystem(recording, startFrame)
-    if not recording or #recording == 0 then return end
+-- ========= SIMPLE PLAYBACK SYSTEM =========
+function PlayRecordingWithSimpleSystem(recording, startFrame)
+    if not recording or #recording == 0 then 
+        AddDebugMessage("No recording data to play", "error")
+        return 
+    end
     
     local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        AddDebugMessage("Character not found for playback", "error")
+        return 
+    end
     
     local hum = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
-    if not hum or not hrp then return end
+    if not hum or not hrp then 
+        AddDebugMessage("Humanoid or HRP not found", "error")
+        return 
+    end
     
     task.spawn(function()
         SafeCall(function()
@@ -1600,15 +1621,17 @@ local function PlayRecordingWithSystem(recording, startFrame)
             playbackStartTime = tick()
             totalPausedDuration = 0
             pauseStartTime = 0
+            lastPlaybackState = nil
             
             lastPlaybackCFrame = hrp.CFrame
             lastPlaybackVelocity = Vector3.new(0, 0, 0)
+            
+            AddDebugMessage("Starting playback from frame " .. currentFrame, "info")
             
             playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
                 if not IsPlaying then
                     if playbackConnection then
                         playbackConnection:Disconnect()
-                        playbackConnection = nil
                     end
                     CompleteCharacterReset(char)
                     return
@@ -1633,7 +1656,6 @@ local function PlayRecordingWithSystem(recording, startFrame)
                     IsPlaying = false
                     if playbackConnection then
                         playbackConnection:Disconnect()
-                        playbackConnection = nil
                     end
                     return
                 end
@@ -1644,28 +1666,14 @@ local function PlayRecordingWithSystem(recording, startFrame)
                     IsPlaying = false
                     if playbackConnection then
                         playbackConnection:Disconnect()
-                        playbackConnection = nil
                     end
                     return
                 end
                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-                
-                local targetFrameIndex = currentFrame
-                for i = currentFrame, #recording do
-                    if GetFrameTimestamp(recording[i]) <= effectiveTime then
-                        targetFrameIndex = i
-                    else
-                        break
-                    end
-                end
-                
-                currentFrame = targetFrameIndex
-                
-                if currentFrame >= #recording then
+                if currentFrame > #recording then
                     IsPlaying = false
                     IsPaused = false
+                    lastPlaybackState = nil
                     
                     local finalFrame = recording[#recording]
                     if finalFrame then
@@ -1676,13 +1684,11 @@ local function PlayRecordingWithSystem(recording, startFrame)
                     end
                     
                     CompleteCharacterReset(char)
-                    
                     if playbackConnection then
                         playbackConnection:Disconnect()
-                        playbackConnection = nil
                     end
                     
-                    UpdateStatus("✅ Playback completed")
+                    AddDebugMessage("Playback completed", "info")
                     
                     if AutoLoop then
                         task.wait(0.5)
@@ -1692,24 +1698,22 @@ local function PlayRecordingWithSystem(recording, startFrame)
                 end
                 
                 local targetFrame = recording[currentFrame]
-                if not targetFrame then return end
+                if not targetFrame then 
+                    currentFrame = currentFrame + 1
+                    return 
+                end
                 
                 SafeCall(function()
                     local targetCFrame = GetFrameCFrame(targetFrame)
                     local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
                     
-                    if UseMoveTo then
-                        local targetPos = targetCFrame.Position
-                        hum:MoveTo(targetPos)
-                    else
-                        local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
-                        hrp.CFrame = smoothCFrame
-                    end
-                    
+                    local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
                     local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
+                    
+                    hrp.CFrame = smoothCFrame
                     ApplyUniversalVelocity(char, smoothVelocity)
                     
-                    lastPlaybackCFrame = hrp.CFrame
+                    lastPlaybackCFrame = smoothCFrame
                     lastPlaybackVelocity = smoothVelocity
                     
                     hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
@@ -1722,11 +1726,15 @@ local function PlayRecordingWithSystem(recording, startFrame)
                         end
                     end
                     
-                    currentPlaybackFrame = currentFrame
+                    local moveState = targetFrame.MoveState
                     
-                    if AutoHeal and hum.Health < hum.MaxHealth * 0.5 then
-                        hum.Health = hum.MaxHealth
+                    if moveState ~= lastPlaybackState then
+                        lastPlaybackState = moveState
+                        UniversalStateControl(hum, moveState)
                     end
+                    
+                    currentPlaybackFrame = currentFrame
+                    currentFrame = currentFrame + 1
                 end)
             end)
             
@@ -1738,7 +1746,7 @@ end
 -- ========= PLAYBACK FUNCTIONS =========
 function PlayRecording(name)
     if IsPlaying then 
-        UpdateStatus("⚠️ Already playing!")
+        AddDebugMessage("Already playing", "warning")
         return 
     end
     
@@ -1754,14 +1762,16 @@ function PlayRecording(name)
             end
         end
         
-        if not recording or #recording == 0 then
-            UpdateStatus("❌ No recordings available!")
+        if not recording then
+            UpdateStatus("ERROR: No recordings available!")
+            AddDebugMessage("No recordings available to play", "error")
             return
         end
         
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
-            UpdateStatus("❌ Character not found!")
+            UpdateStatus("ERROR: Character not found!")
+            AddDebugMessage("Character not found for playback", "error")
             return
         end
         
@@ -1771,6 +1781,7 @@ function PlayRecording(name)
         IsPaused = false
         totalPausedDuration = 0
         pauseStartTime = 0
+        lastMoveState = nil
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local nearestFrame, distance = FindNearestFrame(recording, hrp.Position)
@@ -1778,25 +1789,27 @@ function PlayRecording(name)
         if distance <= ROUTE_PROXIMITY_THRESHOLD then
             currentPlaybackFrame = nearestFrame
             UpdateStatus("▶ Playing: " .. name .. " (from frame " .. nearestFrame .. ")")
+            AddDebugMessage("Playing from nearest frame: " .. nearestFrame, "info")
         else
             currentPlaybackFrame = 1
             UpdateStatus("▶ Playing: " .. name)
+            AddDebugMessage("Playing from start", "info")
         end
         
-        if ShowVisualization then
-            ShowRouteVisualization(recording)
-        end
-        
-        PlayRecordingWithSystem(recording, currentPlaybackFrame)
+        PlayRecordingWithSimpleSystem(recording, currentPlaybackFrame)
     end)
 end
 
 function StopPlayback()
-    if not IsPlaying then return end
+    if not IsPlaying then 
+        AddDebugMessage("Not playing", "warning")
+        return 
+    end
     
     SafeCall(function()
         IsPlaying = false
         IsPaused = false
+        lastMoveState = nil
         
         if playbackConnection then
             playbackConnection:Disconnect()
@@ -1813,19 +1826,25 @@ function StopPlayback()
         end
         
         UpdateStatus("■ Playback Stopped")
+        AddDebugMessage("Playback stopped", "info")
     end)
 end
 
 function PauseResumePlayback()
-    if not IsPlaying then return end
+    if not IsPlaying then 
+        AddDebugMessage("Not playing", "warning")
+        return 
+    end
     
     SafeCall(function()
         IsPaused = not IsPaused
         
         if IsPaused then
             UpdateStatus("⏸️ Playback Paused")
+            AddDebugMessage("Playback paused", "info")
         else
             UpdateStatus("▶️ Playback Resumed")
+            AddDebugMessage("Playback resumed", "info")
         end
     end)
 end
@@ -1868,17 +1887,25 @@ end)
 -- ========= FILE MANAGEMENT =========
 local function SaveToFile()
     SafeCall(function()
+        AddDebugMessage("Starting save process...", "info")
+        
         if not writefile then
-            UpdateStatus("❌ File system not available")
+            local msg = "writefile function not available"
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ Save system not available")
             return
         end
         
         local filename = FileNameBox.Text
-        if filename == "" then filename = "MyWalk" end
+        if filename == "" then 
+            filename = "MyWalk" 
+        end
         filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
         
         if not next(RecordedMovements) then
-            UpdateStatus("❌ No recordings to save!")
+            local msg = "No recordings to save!"
+            AddDebugMessage(msg, "error")
+            UpdateStatus("ERROR: " .. msg)
             return
         end
         
@@ -1886,7 +1913,6 @@ local function SaveToFile()
             recordings = RecordedMovements,
             settings = {
                 speed = CurrentSpeed,
-                autoHeal = AutoHeal,
                 autoLoop = AutoLoop,
                 useMoveTo = UseMoveTo,
                 showVisualization = ShowVisualization
@@ -1894,75 +1920,102 @@ local function SaveToFile()
             version = "8.7"
         }
         
-        local success, jsonData = pcall(function()
+        local jsonEncodeSuccess, jsonResult = pcall(function()
             return HttpService:JSONEncode(data)
         end)
         
-        if success then
-            local writeSuccess = pcall(function()
-                writefile(filename, jsonData)
-            end)
-            
-            if writeSuccess then
-                UpdateStatus("💾 Saved: " .. filename)
-            else
-                UpdateStatus("❌ Save failed!")
-            end
+        if not jsonEncodeSuccess then
+            local msg = "JSON encode failed: " .. tostring(jsonResult)
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ " .. msg)
+            return
+        end
+        
+        local saveSuccess, saveResult = pcall(function()
+            return writefile(filename, jsonResult)
+        end)
+        
+        if saveSuccess then
+            local msg = "Saved: " .. filename
+            AddDebugMessage(msg, "info")
+            UpdateStatus("💾 " .. msg)
         else
-            UpdateStatus("❌ JSON encode failed!")
+            local msg = "Save failed: " .. tostring(saveResult)
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ " .. msg)
         end
     end)
 end
 
 local function LoadFromFile()
     SafeCall(function()
+        AddDebugMessage("Starting load process...", "info")
+        
         if not readfile or not isfile then
-            UpdateStatus("❌ File system not available")
+            local msg = "Load functions not available"
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ Load system not available")
             return
         end
         
         local filename = FileNameBox.Text
-        if filename == "" then filename = "MyWalk" end
+        if filename == "" then 
+            filename = "MyWalk" 
+        end
         filename = filename:gsub("[^%w%s%-_]", "") .. ".json"
         
-        local fileExists = pcall(function()
+        local fileCheckSuccess, fileExists = pcall(function()
             return isfile(filename)
         end)
         
-        if fileExists and isfile(filename) then
-            local success, fileContent = pcall(function()
+        if not fileCheckSuccess then
+            local msg = "File check failed: " .. tostring(fileExists)
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ " .. msg)
+            return
+        end
+        
+        if fileCheckSuccess and fileExists then
+            local readSuccess, fileContent = pcall(function()
                 return readfile(filename)
             end)
             
-            if success then
-                local decodeSuccess, data = pcall(function()
-                    return HttpService:JSONDecode(fileContent)
-                end)
+            if not readSuccess then
+                local msg = "Read file failed: " .. tostring(fileContent)
+                AddDebugMessage(msg, "error")
+                UpdateStatus("❌ " .. msg)
+                return
+            end
+            
+            local decodeSuccess, data = pcall(function()
+                return HttpService:JSONDecode(fileContent)
+            end)
+            
+            if decodeSuccess and data and type(data) == "table" then
+                RecordedMovements = data.recordings or {}
+                CurrentSpeed = (data.settings and type(data.settings.speed) == "number") and data.settings.speed or 1
+                AutoLoop = (data.settings and type(data.settings.autoLoop) == "boolean") and data.settings.autoLoop or false
+                UseMoveTo = (data.settings and type(data.settings.useMoveTo) == "boolean") and data.settings.useMoveTo or false
+                ShowVisualization = (data.settings and type(data.settings.showVisualization) == "boolean") and data.settings.showVisualization or false
                 
-                if decodeSuccess and data and type(data) == "table" then
-                    RecordedMovements = data.recordings or {}
-                    CurrentSpeed = (data.settings and type(data.settings.speed) == "number") and data.settings.speed or 1
-                    AutoHeal = (data.settings and type(data.settings.autoHeal) == "boolean") and data.settings.autoHeal or false
-                    AutoLoop = (data.settings and type(data.settings.autoLoop) == "boolean") and data.settings.autoLoop or false
-                    UseMoveTo = (data.settings and type(data.settings.useMoveTo) == "boolean") and data.settings.useMoveTo or false
-                    ShowVisualization = (data.settings and type(data.settings.showVisualization) == "boolean") and data.settings.showVisualization or false
-                    
-                    UpdateSpeedDisplay()
-                    SetMoveToState(UseMoveTo)
-                    SetVisualState(ShowVisualization)
-                    SetLoopState(AutoLoop)
-                    SetHealState(AutoHeal)
-                    UpdateReplayList()
-                    
-                    UpdateStatus("📂 Loaded: " .. filename)
-                else
-                    UpdateStatus("❌ Invalid file format!")
-                end
+                UpdateSpeedDisplay()
+                SetMoveToState(UseMoveTo)
+                SetVisualState(ShowVisualization)
+                SetLoopState(AutoLoop)
+                UpdateReplayList()
+                
+                local msg = "Loaded: " .. filename
+                AddDebugMessage(msg, "info")
+                UpdateStatus("📂 " .. msg)
             else
-                UpdateStatus("❌ Read failed!")
+                local msg = "Invalid file format or corrupted data"
+                AddDebugMessage(msg, "error")
+                UpdateStatus("❌ ERROR: " .. msg)
             end
         else
-            UpdateStatus("❌ File not found: " .. filename)
+            local msg = "File not found: " .. filename
+            AddDebugMessage(msg, "error")
+            UpdateStatus("❌ ERROR: " .. msg)
         end
     end)
 end
@@ -2004,9 +2057,9 @@ MoveToBtn.MouseButton1Click:Connect(function()
         UseMoveTo = not UseMoveTo
         SetMoveToState(UseMoveTo)
         if UseMoveTo then
-            UpdateStatus("🎯 Mode: MoveTo")
+            UpdateStatus("🎯 Mode: MoveTo (Disabled)")
         else
-            UpdateStatus("🚀 Mode: CFrame")
+            UpdateStatus("🚀 Mode: CFrame (Active)")
         end
     end)
 end)
@@ -2035,14 +2088,6 @@ LoopBtn.MouseButton1Click:Connect(function()
         AutoLoop = not AutoLoop
         SetLoopState(AutoLoop)
         UpdateStatus("🔄 Auto Loop: " .. (AutoLoop and "ON" or "OFF"))
-    end)
-end)
-
-HealBtn.MouseButton1Click:Connect(function()
-    SafeCall(function()
-        AutoHeal = not AutoHeal
-        SetHealState(AutoHeal)
-        UpdateStatus("❤️ Auto Heal: " .. (AutoHeal and "ON" or "OFF"))
     end)
 end)
 
@@ -2084,12 +2129,25 @@ CloseButton.MouseButton1Click:Connect(function()
     end)
 end)
 
+-- ========= DEBUG PANEL CONTROLS =========
+DebugToggleBtn.MouseButton1Click:Connect(function()
+    SafeCall(function()
+        DebugFrame.Visible = not DebugFrame.Visible
+        DebugToggleBtn.Visible = not DebugFrame.Visible
+        DebugToggleBtn.Text = DebugFrame.Visible and "🔧 HIDE DEBUG" or "🔧 SHOW DEBUG"
+    end)
+end)
+
 -- ========= HOTKEYS =========
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     
     SafeCall(function()
-        if input.KeyCode == Enum.KeyCode.F9 then
+        if input.KeyCode == Enum.KeyCode.F12 then
+            DebugFrame.Visible = not DebugFrame.Visible
+            DebugToggleBtn.Visible = not DebugFrame.Visible
+            DebugToggleBtn.Text = DebugFrame.Visible and "🔧 HIDE DEBUG" or "🔧 SHOW DEBUG"
+        elseif input.KeyCode == Enum.KeyCode.F9 then
             if RecordingStudio.Visible then
                 if IsRecording then
                     StopStudioRecording()
@@ -2116,47 +2174,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
                 MainFrame.Visible = false
                 RecordingStudio.Visible = true
             end
-        elseif input.KeyCode == Enum.KeyCode.F6 then
-            if IsRecording and RecordingStudio.Visible then
-                if IsReversing then
-                    StopReversePlayback()
-                else
-                    StartReversePlayback()
-                end
-            end
-        elseif input.KeyCode == Enum.KeyCode.F5 then
-            if RecordingStudio.Visible and #CurrentRecording.Frames > 0 then
-                SaveStudioRecording()
-            end
-        elseif input.KeyCode == Enum.KeyCode.F4 then
-            if IsRecording and RecordingStudio.Visible then
-                if IsForwarding then
-                    StopForwardPlayback()
-                else
-                    StartForwardPlayback()
-                end
-            end
-        elseif input.KeyCode == Enum.KeyCode.F3 then
-            if IsRecording and RecordingStudio.Visible then
-                ResumeStudioRecording()
-            end
-        end
-    end)
-end)
-
--- ========= AUTO HEAL SYSTEM =========
-RunService.Heartbeat:Connect(function()
-    SafeCall(function()
-        if not AutoHeal then return end
-        
-        local char = player.Character
-        if not char then return end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        
-        if hum.Health < hum.MaxHealth * 0.5 then
-            hum.Health = hum.MaxHealth
         end
     end)
 end)
@@ -2202,11 +2219,18 @@ end)
 -- ========= INITIALIZATION =========
 SafeCall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.7 - Ready!")
+    UpdateStatus("✅ Auto Walk Pro v8.7 - Smooth Recording Ready!")
     UpdateSpeedDisplay()
+    
+    -- Setup debug toggle button
+    DebugToggleBtn.Text = "🔧 SHOW DEBUG"
+    DebugToggleBtn.Visible = true
+    
+    AddDebugMessage("Auto Walk Pro v8.7 initialized", "info")
 end)
 
+-- ========= FINAL STATUS UPDATE =========
 task.wait(0.5)
 SafeCall(function()
-    UpdateStatus("✅ Smooth Recording System Active!")
+    UpdateStatus("✅ Smooth Recording System - All Systems Go!")
 end)
