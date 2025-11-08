@@ -75,10 +75,11 @@ local function AddConnection(conn)
     table.insert(eventConnections, conn)
 end
 
+-- === [PATCH 4] CleanupConnections aman walau ada entri kosong ===
 local function CleanupConnections()
     for _, conn in pairs(eventConnections) do
         SafeCall(function()
-            if conn and conn.Connected then
+            if conn and typeof(conn) == "RBXScriptConnection" and conn.Connected then
                 conn:Disconnect()
             end
         end)
@@ -86,10 +87,25 @@ local function CleanupConnections()
     eventConnections = {}
 end
 
--- ========= ENHANCED PCALL WRAPPER =========
+-- === [PATCH 1] TARUH PALING ATAS (tepat setelah wait(1)) : SafeCall + Logger ===
 local function SafeCall(func, ...)
-    local success, result = pcall(func, ...)
-    return success, result
+    return xpcall(func, function(err)
+        warn("[AutoWalk v8.7] ERROR: ", err)
+        if debug and debug.traceback then
+            warn(debug.traceback())
+        end
+        return err
+    end, ...)
+end
+
+-- Optional: koneksi aman agar AddConnection tidak menyimpan nil
+local eventConnections = {}
+local function AddConnection(conn)
+    if conn and typeof(conn) == "RBXScriptConnection" then
+        table.insert(eventConnections, conn)
+    else
+        warn("[AutoWalk v8.7] Skip AddConnection: bukan RBXScriptConnection")
+    end
 end
 
 -- ========= UNIVERSAL CHARACTER DETECTION =========
@@ -246,22 +262,25 @@ local function DeleteFramesAfterPosition(startFrame)
     end)
 end
 
--- ========= SEAMLESS TRANSITION CREATOR =========
+-- === [PATCH 2] CreateSeamlessTransition SELALU return tabel (bukan nil) ===
+-- Ganti seluruh fungsi CreateSeamlessTransition dengan ini:
 local function CreateSeamlessTransition(fromFrame, toPosition)
-    SafeCall(function()
+    local ok, result = SafeCall(function()
         local TransitionFrames = {}
-        
         if not fromFrame then return TransitionFrames end
-        
-        local startPos = GetFramePosition(fromFrame)
+
+        local startPos = Vector3.new(
+            fromFrame.Position[1], fromFrame.Position[2], fromFrame.Position[3]
+        )
         local distance = (toPosition - startPos).Magnitude
         local transitionSteps = math.max(3, math.floor(distance / 1.5))
-        
+
         for i = 1, transitionSteps do
             local alpha = i / transitionSteps
             local interpPos = startPos:Lerp(toPosition, alpha)
-            local interpVel = GetFrameVelocity(fromFrame):Lerp(Vector3.new(0, 0, 0), alpha)
-            
+            local v = fromFrame.Velocity and Vector3.new(fromFrame.Velocity[1], fromFrame.Velocity[2], fromFrame.Velocity[3]) or Vector3.new()
+            local interpVel = v:Lerp(Vector3.new(), alpha)
+
             table.insert(TransitionFrames, {
                 Position = {interpPos.X, interpPos.Y, interpPos.Z},
                 LookVector = fromFrame.LookVector,
@@ -269,12 +288,12 @@ local function CreateSeamlessTransition(fromFrame, toPosition)
                 Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
                 MoveState = "Grounded",
                 WalkSpeed = fromFrame.WalkSpeed or 16,
-                Timestamp = fromFrame.Timestamp + (i * 0.016)
+                Timestamp = (fromFrame.Timestamp or 0) + (i * 0.016)
             })
         end
-        
         return TransitionFrames
     end)
+    return ok and result or {}
 end
 
 -- ========= FIND NEAREST FRAME =========
