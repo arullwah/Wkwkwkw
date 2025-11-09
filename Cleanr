@@ -1,0 +1,500 @@
+--[[
+  GAZE • MEMORY CLEANER (SMART GC) — 200x200
+  - Header kosong + tombol close (pojok kanan), drag stabil.
+  - Live monitor (update ~1s): FPS + Lua Mem (MB).
+  - TOMBOL: Clean Now (GC dua tahap).
+  - TOGGLE: Disable Particles | Disable Trails/Beams (restorable).
+  - PURGE: Hapus GUI "GAZE_*" lain di CoreGui (kecuali diri sendiri).
+  - AUTO CLEAN: toggle + interval (- / +) 5..60 detik.
+  - RESTORE VISUALS: kembalikan semua efek yang dimatikan.
+  - Tanpa notify.
+]]
+
+-------------------- HARD RESET --------------------
+local CoreGui = game:GetService("CoreGui")
+pcall(function()
+    local o = CoreGui:FindFirstChild("GAZE_MemoryCleaner")
+    if o then o:Destroy() end
+end)
+
+-------------------- SERVICES ----------------------
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Stats            = game:GetService("Stats")
+local Players          = game:GetService("Players")
+
+-------------------- STATE --------------------------
+local restoreBin = { -- menyimpan state sebelum dimatikan, agar bisa di-restore
+    particles = {},   -- {inst = {prop=oldValue, ...}}
+    trails    = {},
+    beams     = {},
+}
+local toggles = {
+    killParticles = false,
+    killTrails    = false,
+    killBeams     = false,
+    autoClean     = false,
+}
+local autoInterval = 15  -- detik (5..60)
+local autoConn     = nil
+
+-------------------- HELPERS ------------------------
+local function pushRestore(bucket, inst, snapshot)
+    if not inst or not inst.Parent then return end
+    restoreBin[bucket][inst] = snapshot
+    inst.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            restoreBin[bucket][inst] = nil
+        end
+    end)
+end
+
+local function smartIter(descs, maxPerTick, fn)
+    -- iterasi aman (yield) agar tidak lag saat traversal besar
+    local n = 0
+    for _, d in ipairs(descs) do
+        fn(d)
+        n += 1
+        if n % maxPerTick == 0 then
+            task.wait()
+        end
+    end
+end
+
+-------------------- CLEANERS -----------------------
+local function LuaGC()
+    -- GC dua tahap + compact hint
+    collectgarbage("collect")
+    task.wait()
+    collectgarbage("collect")
+end
+
+local function KillParticles()
+    local workspaceRef = workspace
+    local desc = workspaceRef:GetDescendants()
+    smartIter(desc, 400, function(d)
+        if d:IsA("ParticleEmitter") then
+            if not restoreBin.particles[d] then
+                pushRestore("particles", d, {Enabled=d.Enabled, Rate=d.Rate, Lifetime=d.Lifetime})
+            end
+            d.Enabled = false
+            d.Rate    = 0
+        elseif d:IsA("Smoke") or d:IsA("Fire") then
+            if not restoreBin.particles[d] then
+                pushRestore("particles", d, {Enabled=d.Enabled})
+            end
+            d.Enabled = false
+        end
+    end)
+end
+
+local function KillTrails()
+    local desc = workspace:GetDescendants()
+    smartIter(desc, 600, function(d)
+        if d:IsA("Trail") then
+            if not restoreBin.trails[d] then
+                pushRestore("trails", d, {Enabled=d.Enabled, Lifetime=d.Lifetime, Transparency=d.Transparency})
+            end
+            d.Enabled = false
+        end
+    end)
+end
+
+local function KillBeams()
+    local desc = workspace:GetDescendants()
+    smartIter(desc, 600, function(d)
+        if d:IsA("Beam") then
+            if not restoreBin.beams[d] then
+                pushRestore("beams", d, {Enabled=d.Enabled, Transparency=d.Transparency, Width0=d.Width0, Width1=d.Width1})
+            end
+            d.Enabled = false
+        end
+    end)
+end
+
+local function RestoreVisuals()
+    for inst, snap in pairs(restoreBin.particles) do
+        if inst and inst.Parent then
+            if snap.Enabled ~= nil then inst.Enabled = snap.Enabled end
+            if inst:IsA("ParticleEmitter") then
+                if snap.Rate ~= nil then inst.Rate = snap.Rate end
+                if snap.Lifetime ~= nil then inst.Lifetime = snap.Lifetime end
+            end
+        end
+    end
+    for inst, snap in pairs(restoreBin.trails) do
+        if inst and inst.Parent then
+            if snap.Enabled ~= nil then inst.Enabled = snap.Enabled end
+            if snap.Lifetime ~= nil then inst.Lifetime = snap.Lifetime end
+            if snap.Transparency ~= nil then inst.Transparency = snap.Transparency end
+        end
+    end
+    for inst, snap in pairs(restoreBin.beams) do
+        if inst and inst.Parent then
+            if snap.Enabled ~= nil then inst.Enabled = snap.Enabled end
+            if snap.Transparency ~= nil then inst.Transparency = snap.Transparency end
+            if snap.Width0 ~= nil then inst.Width0 = snap.Width0 end
+            if snap.Width1 ~= nil then inst.Width1 = snap.Width1 end
+        end
+    end
+    restoreBin.particles = {}
+    restoreBin.trails    = {}
+    restoreBin.beams     = {}
+end
+
+local function PurgeOtherGazeGUIs()
+    for _, gui in ipairs(CoreGui:GetChildren()) do
+        if gui ~= nil and gui ~= script and gui.Name:match("^GAZE_") and gui.Name ~= "GAZE_MemoryCleaner" then
+            pcall(function() gui:Destroy() end)
+        end
+    end
+end
+
+local function RunSmartClean()
+    LuaGC()
+    if toggles.killParticles then KillParticles() end
+    if toggles.killTrails    then KillTrails()    end
+    if toggles.killBeams     then KillBeams()     end
+end
+
+local function StartAutoClean()
+    if autoConn then autoConn:Disconnect() autoConn=nil end
+    if not toggles.autoClean then return end
+    autoConn = RunService.Heartbeat:Connect(function()
+        -- timer sederhana (tanpa os.time, biar deterministik)
+        if not StartAutoClean._t then StartAutoClean._t = 0 end
+        StartAutoClean._t += 1/60
+        if StartAutoClean._t >= autoInterval then
+            StartAutoClean._t = 0
+            RunSmartClean()
+        end
+    end)
+end
+
+-------------------- MONITOR ------------------------
+local fpsCounter = {frames=0, acc=0, fps=60}
+RunService.RenderStepped:Connect(function(dt)
+    fpsCounter.frames += 1
+    fpsCounter.acc += dt
+    if fpsCounter.acc >= 0.5 then
+        fpsCounter.fps = math.floor(fpsCounter.frames / fpsCounter.acc + 0.5)
+        fpsCounter.frames = 0
+        fpsCounter.acc = 0
+    end
+end)
+
+local function getLuaMemMB()
+    local kb = collectgarbage("count") or 0
+    return math.floor(kb/1024*100)/100 -- MB
+end
+
+-------------------- GUI ROOT -----------------------
+local root = Instance.new("ScreenGui")
+root.Name = "GAZE_MemoryCleaner"
+root.ResetOnSpawn = false
+root.IgnoreGuiInset = true
+root.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+root.DisplayOrder = 10000
+root.Parent = CoreGui
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.fromOffset(200, 200)
+Main.Position = UDim2.new(0.5, -100, 0.5, -100)
+Main.BackgroundColor3 = Color3.fromRGB(0,0,0)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Parent = root
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0,14)
+
+-- Header kosong + close
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1,0,0,24)
+Header.BackgroundColor3 = Color3.fromRGB(20,20,20)
+Header.BorderSizePixel = 0
+Header.Parent = Main
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0,14)
+
+local Close = Instance.new("TextButton")
+Close.AnchorPoint = Vector2.new(1,0)
+Close.Position = UDim2.new(1,-6,0,4)
+Close.Size = UDim2.fromOffset(22,16)
+Close.Text = "x"
+Close.Font = Enum.Font.GothamBold
+Close.TextScaled = true
+Close.TextColor3 = Color3.new(1,1,1)
+Close.BackgroundColor3 = Color3.fromRGB(200,40,40)
+Close.BorderSizePixel = 0
+Close.Parent = Header
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0,6)
+Close.MouseButton1Click:Connect(function()
+    if autoConn then autoConn:Disconnect() autoConn=nil end
+    root:Destroy()
+end)
+
+-- Drag (global, stabil)
+do
+    local dragging=false; local dragStart; local startPos; local conn
+    local function endDrag() dragging=false; if conn then conn:Disconnect() conn=nil end end
+    local function begin(input)
+        dragging=true; dragStart=input.Position; startPos=Main.Position
+        if conn then conn:Disconnect() end
+        conn = UserInputService.InputChanged:Connect(function(i)
+            if not dragging then return end
+            if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then
+                local d=i.Position-dragStart
+                Main.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+            end
+        end)
+        input.Changed:Connect(function()
+            if input.UserInputState==Enum.UserInputState.End then endDrag() end
+        end)
+    end
+    for _,t in ipairs({Header,Main}) do
+        t.InputBegan:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+                begin(i)
+            end
+        end)
+    end
+end
+
+-------------------- UI CONTENT ---------------------
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1,-12,1,-(24+10))
+Content.Position = UDim2.new(0,6,0,30)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
+
+-- Monitor bar
+local Monitor = Instance.new("Frame")
+Monitor.Size = UDim2.new(1,0,0,24)
+Monitor.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Monitor.BorderSizePixel = 0
+Monitor.Parent = Content
+Instance.new("UICorner", Monitor).CornerRadius = UDim.new(0,8)
+
+local FPSText = Instance.new("TextLabel")
+FPSText.BackgroundTransparency = 1
+FPSText.Position = UDim2.new(0,8,0,0)
+FPSText.Size = UDim2.new(0.5,-8,1,0)
+FPSText.Font = Enum.Font.GothamBold
+FPSText.TextScaled = true
+FPSText.TextColor3 = Color3.new(1,1,1)
+FPSText.TextXAlignment = Enum.TextXAlignment.Left
+FPSText.Text = "FPS: --"
+FPSText.Parent = Monitor
+
+local MemText = Instance.new("TextLabel")
+MemText.BackgroundTransparency = 1
+MemText.Position = UDim2.new(0.5,8,0,0)
+MemText.Size = UDim2.new(0.5,-8,1,0)
+MemText.Font = Enum.Font.GothamBold
+MemText.TextScaled = true
+MemText.TextColor3 = Color3.new(1,1,1)
+MemText.TextXAlignment = Enum.TextXAlignment.Left
+MemText.Text = "MEM: -- MB"
+MemText.Parent = Monitor
+
+-- Scroller
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1,0,1,-(24+6+28))
+Scroll.Position = UDim2.new(0,0,0,30)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 4
+Scroll.CanvasSize = UDim2.new(0,0,0,0)
+Scroll.Parent = Content
+
+local UIL = Instance.new("UIListLayout", Scroll)
+UIL.Padding = UDim.new(0,6)
+UIL.SortOrder = Enum.SortOrder.LayoutOrder
+local function fitCanvas() task.defer(function() Scroll.CanvasSize = UDim2.new(0,0,0, UIL.AbsoluteContentSize.Y + 8) end) end
+UIL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fitCanvas)
+
+local function RowButton(text, color)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1,0,0,28)
+    holder.BackgroundTransparency = 1
+    holder.Parent = Scroll
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,1,0)
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextScaled = true
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.BackgroundColor3 = color or Color3.fromRGB(35,35,35)
+    btn.BorderSizePixel = 0
+    btn.Parent = holder
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
+    return btn
+end
+
+local function RowToggle(labelText, getter, setter)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,28)
+    row.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    row.BorderSizePixel = 0
+    row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0,8,0,0)
+    lbl.Size = UDim2.new(0.6,-8,1,0)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextScaled = true
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.new(1,1,1)
+    lbl.Text = labelText
+    lbl.Parent = row
+
+    local tog = Instance.new("TextButton")
+    tog.Size = UDim2.new(0.34,0,0,22)
+    tog.Position = UDim2.new(1,-(0.34*200)-6,0.5,-11)
+    tog.Font = Enum.Font.GothamBold
+    tog.TextScaled = true
+    tog.TextColor3 = Color3.new(1,1,1)
+    tog.BackgroundColor3 = getter() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    tog.BorderSizePixel = 0
+    tog.Text = getter() and "ON" or "OFF"
+    tog.Parent = row
+    Instance.new("UICorner", tog).CornerRadius = UDim.new(0,6)
+
+    local function refresh()
+        tog.BackgroundColor3 = getter() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+        tog.Text = getter() and "ON" or "OFF"
+    end
+
+    tog.MouseButton1Click:Connect(function()
+        setter(not getter())
+        refresh()
+    end)
+
+    return row, refresh
+end
+
+-- Actions / Options
+local cleanNowBtn = RowButton("CLEAN NOW", Color3.fromRGB(0,110,200))
+cleanNowBtn.MouseButton1Click:Connect(function()
+    RunSmartClean()
+end)
+
+local _, refreshP = RowToggle("Disable Particles", function() return toggles.killParticles end, function(v) toggles.killParticles = v; if not v then RestoreVisuals() end end)
+local _, refreshT = RowToggle("Disable Trails",    function() return toggles.killTrails    end, function(v) toggles.killTrails    = v; if not v then RestoreVisuals() end end)
+local _, refreshB = RowToggle("Disable Beams",     function() return toggles.killBeams     end, function(v) toggles.killBeams     = v; if not v then RestoreVisuals() end end)
+
+local restoreBtn = RowButton("RESTORE VISUALS", Color3.fromRGB(0,140,60))
+restoreBtn.MouseButton1Click:Connect(function()
+    RestoreVisuals()
+end)
+
+local purgeBtn = RowButton("PURGE OTHER GAZE GUIs", Color3.fromRGB(170,60,60))
+purgeBtn.MouseButton1Click:Connect(function()
+    PurgeOtherGazeGUIs()
+end)
+
+-- Auto Clean Row
+do
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,28)
+    row.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    row.BorderSizePixel = 0
+    row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,8)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0,8,0,0)
+    lbl.Size = UDim2.new(0.45,-8,1,0)
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextScaled = true
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextColor3 = Color3.new(1,1,1)
+    lbl.Text = "Auto Clean"
+    lbl.Parent = row
+
+    local minus = Instance.new("TextButton")
+    minus.Size = UDim2.new(0.15,-2,0,22)
+    minus.Position = UDim2.new(0.45, 2, 0.5, -11)
+    minus.Text = "-"
+    minus.Font = Enum.Font.GothamBold
+    minus.TextScaled = true
+    minus.TextColor3 = Color3.new(1,1,1)
+    minus.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    minus.BorderSizePixel = 0
+    minus.Parent = row
+    Instance.new("UICorner", minus).CornerRadius = UDim.new(0,6)
+
+    local val = Instance.new("TextLabel")
+    val.Size = UDim2.new(0.20,0,0,22)
+    val.Position = UDim2.new(0.60, 0, 0.5, -11)
+    val.Text = tostring(autoInterval).."s"
+    val.Font = Enum.Font.GothamBold
+    val.TextScaled = true
+    val.TextColor3 = Color3.new(1,1,1)
+    val.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    val.BorderSizePixel = 0
+    val.Parent = row
+    Instance.new("UICorner", val).CornerRadius = UDim.new(0,6)
+
+    local plus = Instance.new("TextButton")
+    plus.Size = UDim2.new(0.15,-2,0,22)
+    plus.Position = UDim2.new(0.80, 2, 0.5, -11)
+    plus.Text = "+"
+    plus.Font = Enum.Font.GothamBold
+    plus.TextScaled = true
+    plus.TextColor3 = Color3.new(1,1,1)
+    plus.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    plus.BorderSizePixel = 0
+    plus.Parent = row
+    Instance.new("UICorner", plus).CornerRadius = UDim.new(0,6)
+
+    local tog = Instance.new("TextButton")
+    tog.Size = UDim2.new(0.18,0,0,22)
+    tog.Position = UDim2.new(0.98, 0, 0.5, -11)
+    tog.AnchorPoint = Vector2.new(1,0)
+    tog.Text = toggles.autoClean and "ON" or "OFF"
+    tog.Font = Enum.Font.GothamBold
+    tog.TextScaled = true
+    tog.TextColor3 = Color3.new(1,1,1)
+    tog.BackgroundColor3 = toggles.autoClean and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    tog.BorderSizePixel = 0
+    tog.Parent = row
+    Instance.new("UICorner", tog).CornerRadius = UDim.new(0,6)
+
+    local function refreshAuto()
+        val.Text = tostring(autoInterval).."s"
+        tog.Text = toggles.autoClean and "ON" or "OFF"
+        tog.BackgroundColor3 = toggles.autoClean and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    end
+
+    minus.MouseButton1Click:Connect(function()
+        autoInterval = math.clamp(autoInterval - 5, 5, 60)
+        refreshAuto()
+        if toggles.autoClean then StartAutoClean() end
+    end)
+    plus.MouseButton1Click:Connect(function()
+        autoInterval = math.clamp(autoInterval + 5, 5, 60)
+        refreshAuto()
+        if toggles.autoClean then StartAutoClean() end
+    end)
+    tog.MouseButton1Click:Connect(function()
+        toggles.autoClean = not toggles.autoClean
+        refreshAuto()
+        StartAutoClean()
+    end)
+end
+
+fitCanvas()
+
+-------------------- MONITOR UPDATE -----------------
+task.spawn(function()
+    while root.Parent do
+        FPSText.Text = "FPS: "..tostring(fpsCounter.fps)
+        MemText.Text = "MEM: "..tostring(getLuaMemMB()).." MB"
+        task.wait(0.5)
+    end
+end)
+
+-- Mulai
+StartAutoClean()
