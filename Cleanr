@@ -1,18 +1,21 @@
 --[[
-  GAZE • MEMORY CLEANER (COMPACT) — 200x200
-  - Header kosong + tombol close, drag stabil.
-  - Monitor kecil: FPS + MEM (MB), update tiap 0.5s.
-  - Tombol: CLEAN NOW, RESTORE VISUALS.
+  GAZE • MEMORY CLEANER (LAUNCHER-SAFE | COMPACT) — 200x200
+  - Dirancang agar aman dipanggil dari GAZE Launcher (loadstring(HttpGet(url))()).
+  - Tidak pakai referensi 'script' atau API yang bergantung pada parent loader.
+  - Header kosong + tombol close, drag stabil (tanpa akses InputObject.Target).
+  - Monitor kecil: FPS + MEM (MB), update 0.5s.
+  - CLEAN NOW, RESTORE VISUALS.
   - Toggle mini: Particles / Trails / Beams.
-  - Auto Clean: toggle mini + interval (-/+) 5..60s (tidak ketutup lagi).
-  - PURGE GUI dihapus (sesuai permintaan).
-  - Catatan launcher: jika dipanggil dari GAZE Launcher, pastikan tombol memakai
-    `task.defer(function() loadstring(game:HttpGet(URL))() end)` sebelum launcher dihancurkan.
+  - Auto Clean: toggle mini + interval (-/+) 5..60s (tombol +/- tidak ketutup).
+  - Tidak ada tombol "purge other gaze GUIs". Tidak ada notify.
 ]]
 
 -------------------- HARD RESET --------------------
 local CoreGui = game:GetService("CoreGui")
-pcall(function() local o = CoreGui:FindFirstChild("GAZE_MemoryCleaner") if o then o:Destroy() end end)
+pcall(function()
+    local old = CoreGui:FindFirstChild("GAZE_MemoryCleaner")
+    if old then old:Destroy() end
+end)
 
 -------------------- SERVICES ----------------------
 local RunService       = game:GetService("RunService")
@@ -35,7 +38,9 @@ end
 local function pushRestore(bucket, inst, snap)
     if not inst or not inst.Parent then return end
     restoreBin[bucket][inst]=snap
-    inst.AncestryChanged:Connect(function(_,p) if not p then restoreBin[bucket][inst]=nil end end)
+    inst.AncestryChanged:Connect(function(_,p)
+        if not p then restoreBin[bucket][inst]=nil end
+    end)
 end
 
 -------------------- CLEAN OPS ----------------------
@@ -45,10 +50,14 @@ end
 local function KillParticles()
     smartIter(workspace:GetDescendants(), 400, function(d)
         if d:IsA("ParticleEmitter") then
-            if not restoreBin.particles[d] then pushRestore("particles", d, {Enabled=d.Enabled, Rate=d.Rate, Lifetime=d.Lifetime}) end
+            if not restoreBin.particles[d] then
+                pushRestore("particles", d, {Enabled=d.Enabled, Rate=d.Rate, Lifetime=d.Lifetime})
+            end
             d.Enabled=false; d.Rate=0
         elseif d:IsA("Smoke") or d:IsA("Fire") then
-            if not restoreBin.particles[d] then pushRestore("particles", d, {Enabled=d.Enabled}) end
+            if not restoreBin.particles[d] then
+                pushRestore("particles", d, {Enabled=d.Enabled})
+            end
             d.Enabled=false
         end
     end)
@@ -56,7 +65,9 @@ end
 local function KillTrails()
     smartIter(workspace:GetDescendants(), 600, function(d)
         if d:IsA("Trail") then
-            if not restoreBin.trails[d] then pushRestore("trails", d, {Enabled=d.Enabled, Lifetime=d.Lifetime, Transparency=d.Transparency}) end
+            if not restoreBin.trails[d] then
+                pushRestore("trails", d, {Enabled=d.Enabled, Lifetime=d.Lifetime, Transparency=d.Transparency})
+            end
             d.Enabled=false
         end
     end)
@@ -64,16 +75,39 @@ end
 local function KillBeams()
     smartIter(workspace:GetDescendants(), 600, function(d)
         if d:IsA("Beam") then
-            if not restoreBin.beams[d] then pushRestore("beams", d, {Enabled=d.Enabled, Transparency=d.Transparency, Width0=d.Width0, Width1=d.Width1}) end
+            if not restoreBin.beams[d] then
+                pushRestore("beams", d, {Enabled=d.Enabled, Transparency=d.Transparency, Width0=d.Width0, Width1=d.Width1})
+            end
             d.Enabled=false
         end
     end)
 end
 local function RestoreVisuals()
-    for inst,s in pairs(restoreBin.particles) do if inst and inst.Parent then if s.Enabled~=nil then inst.Enabled=s.Enabled end if inst:IsA("ParticleEmitter") then if s.Rate then inst.Rate=s.Rate end if s.Lifetime then inst.Lifetime=s.Lifetime end end end end
-    for inst,s in pairs(restoreBin.trails)    do if inst and inst.Parent then if s.Enabled~=nil then inst.Enabled=s.Enabled end if s.Lifetime then inst.Lifetime=s.Lifetime end if s.Transparency then inst.Transparency=s.Transparency end end end
-    for inst,s in pairs(restoreBin.beams)     do if inst and inst.Parent then if s.Enabled~=nil then inst.Enabled=s.Enabled end if s.Transparency then inst.Transparency=s.Transparency end if s.Width0 then inst.Width0=s.Width0 end if s.Width1 then inst.Width1=s.Width1 end end end
-    restoreBin.particles,restoreBin.trails,restoreBin.beams = {},{},{}
+    for inst,s in pairs(restoreBin.particles) do
+        if inst and inst.Parent then
+            if s.Enabled~=nil then inst.Enabled=s.Enabled end
+            if inst:IsA("ParticleEmitter") then
+                if s.Rate     then inst.Rate=s.Rate end
+                if s.Lifetime then inst.Lifetime=s.Lifetime end
+            end
+        end
+    end
+    for inst,s in pairs(restoreBin.trails) do
+        if inst and inst.Parent then
+            if s.Enabled~=nil then inst.Enabled=s.Enabled end
+            if s.Lifetime then inst.Lifetime=s.Lifetime end
+            if s.Transparency then inst.Transparency=s.Transparency end
+        end
+    end
+    for inst,s in pairs(restoreBin.beams) do
+        if inst and inst.Parent then
+            if s.Enabled~=nil then inst.Enabled=s.Enabled end
+            if s.Transparency then inst.Transparency=s.Transparency end
+            if s.Width0 then inst.Width0=s.Width0 end
+            if s.Width1 then inst.Width1=s.Width1 end
+        end
+    end
+    restoreBin.particles, restoreBin.trails, restoreBin.beams = {}, {}, {}
 end
 local function RunSmartClean()
     LuaGC()
@@ -94,207 +128,290 @@ local function StartAutoClean()
 end
 
 -------------------- MONITOR ------------------------
-local fps=60; local acc=0; local frames=0
+local fps, acc, frames = 60, 0, 0
 RunService.RenderStepped:Connect(function(dt)
-    frames+=1; acc+=dt
-    if acc>=0.5 then fps=math.floor(frames/acc+0.5); frames=0; acc=0 end
+    frames += 1; acc += dt
+    if acc >= 0.5 then
+        fps = math.floor(frames/acc + 0.5)
+        frames, acc = 0, 0
+    end
 end)
-local function memMB() local kb=collectgarbage("count") or 0 return math.floor(kb/1024*100)/100 end
+local function memMB()
+    local kb = collectgarbage("count") or 0
+    return math.floor(kb/1024*100)/100
+end
 
 -------------------- GUI ---------------------------
 local root = Instance.new("ScreenGui")
-root.Name="GAZE_MemoryCleaner"
-root.ResetOnSpawn=false
-root.IgnoreGuiInset=true
-root.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
-root.DisplayOrder=10000
-root.Parent=CoreGui
+root.Name = "GAZE_MemoryCleaner"
+root.ResetOnSpawn = false
+root.IgnoreGuiInset = true
+root.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+root.DisplayOrder = 10000
+root.Parent = CoreGui
 
-local Main=Instance.new("Frame")
-Main.Size=UDim2.fromOffset(200,200)
-Main.Position=UDim2.new(0.5,-100,0.5,-100)
-Main.BackgroundColor3=Color3.fromRGB(0,0,0)
-Main.BorderSizePixel=0
-Main.Active=true
-Main.Parent=root
-Instance.new("UICorner",Main).CornerRadius=UDim.new(0,14)
+local Main = Instance.new("Frame")
+Main.Size = UDim2.fromOffset(200,200)
+Main.Position = UDim2.new(0.5,-100,0.5,-100)
+Main.BackgroundColor3 = Color3.fromRGB(0,0,0)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Parent = root
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0,14)
 
-local Header=Instance.new("Frame")
-Header.Size=UDim2.new(1,0,0,22)
-Header.BackgroundColor3=Color3.fromRGB(20,20,20)
-Header.BorderSizePixel=0
-Header.Parent=Main
-Instance.new("UICorner",Header).CornerRadius=UDim.new(0,14)
+local Header = Instance.new("Frame")
+Header.Size = UDim2.new(1,0,0,22)
+Header.BackgroundColor3 = Color3.fromRGB(20,20,20)
+Header.BorderSizePixel = 0
+Header.Parent = Main
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0,14)
 
-local Close=Instance.new("TextButton")
-Close.AnchorPoint=Vector2.new(1,0)
-Close.Position=UDim2.new(1,-6,0,3)
-Close.Size=UDim2.fromOffset(20,16)
-Close.Text="x"; Close.Font=Enum.Font.GothamBold; Close.TextScaled=true
-Close.TextColor3=Color3.new(1,1,1)
-Close.BackgroundColor3=Color3.fromRGB(200,40,40); Close.BorderSizePixel=0
-Close.Parent=Header
-Instance.new("UICorner",Close).CornerRadius=UDim.new(0,5)
-Close.MouseButton1Click:Connect(function() if autoConn then autoConn:Disconnect() end root:Destroy() end)
+local Close = Instance.new("TextButton")
+Close.AnchorPoint = Vector2.new(1,0)
+Close.Position = UDim2.new(1,-6,0,3)
+Close.Size = UDim2.fromOffset(20,16)
+Close.Text = "x"
+Close.Font = Enum.Font.GothamBold
+Close.TextScaled = true
+Close.TextColor3 = Color3.new(1,1,1)
+Close.BackgroundColor3 = Color3.fromRGB(200,40,40)
+Close.BorderSizePixel = 0
+Close.Parent = Header
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0,5)
+Close.MouseButton1Click:Connect(function()
+    if autoConn then autoConn:Disconnect() end
+    root:Destroy()
+end)
 
--- Drag stabil
+-- Drag (tanpa akses i.Target → aman dari launcher)
 do
     local dragging=false; local dragStart; local startPos; local conn
-    local function endDrag() dragging=false; if conn then conn:Disconnect() conn=nil end end
+    local function endDrag() dragging=false; if conn then conn:Disconnect(); conn=nil end end
     local function begin(input)
         dragging=true; dragStart=input.Position; startPos=Main.Position
         if conn then conn:Disconnect() end
         conn = UserInputService.InputChanged:Connect(function(i)
             if not dragging then return end
             if i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch then
-                local d=i.Position-dragStart
-                Main.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+                local d=i.Position - dragStart
+                Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
             end
         end)
-        input.Changed:Connect(function() if input.UserInputState==Enum.UserInputState.End then endDrag() end end)
+        input.Changed:Connect(function()
+            if input.UserInputState==Enum.UserInputState.End then endDrag() end
+        end)
     end
     for _,t in ipairs({Header,Main}) do
         t.InputBegan:Connect(function(i)
-            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then begin(i) end
+            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+                begin(i)
+            end
         end)
     end
 end
 
 -- CONTENT
-local Content=Instance.new("Frame")
-Content.Size=UDim2.new(1,-10,1,-(22+8))
-Content.Position=UDim2.new(0,5,0,26)
-Content.BackgroundTransparency=1
-Content.Parent=Main
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1,-10,1,-(22+8))
+Content.Position = UDim2.new(0,5,0,26)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
 
 -- Monitor kecil
-local Monitor=Instance.new("Frame")
-Monitor.Size=UDim2.new(1,0,0,22)
-Monitor.BackgroundColor3=Color3.fromRGB(25,25,25)
-Monitor.BorderSizePixel=0
-Monitor.Parent=Content
-Instance.new("UICorner",Monitor).CornerRadius=UDim.new(0,7)
+local Monitor = Instance.new("Frame")
+Monitor.Size = UDim2.new(1,0,0,22)
+Monitor.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Monitor.BorderSizePixel = 0
+Monitor.Parent = Content
+Instance.new("UICorner", Monitor).CornerRadius = UDim.new(0,7)
 
-local Txt=Instance.new("TextLabel")
-Txt.BackgroundTransparency=1
-Txt.Size=UDim2.new(1,-8,1,0)
-Txt.Position=UDim2.new(0,8,0,0)
-Txt.TextXAlignment=Enum.TextXAlignment.Left
-Txt.Font=Enum.Font.GothamBold
-Txt.TextScaled=true
-Txt.TextColor3=Color3.new(1,1,1)
-Txt.Text="FPS: --  MEM: -- MB"
-Txt.Parent=Monitor
+local Txt = Instance.new("TextLabel")
+Txt.BackgroundTransparency = 1
+Txt.Size = UDim2.new(1,-8,1,0)
+Txt.Position = UDim2.new(0,8,0,0)
+Txt.TextXAlignment = Enum.TextXAlignment.Left
+Txt.Font = Enum.Font.GothamBold
+Txt.TextScaled = true
+Txt.TextColor3 = Color3.new(1,1,1)
+Txt.Text = "FPS: --  MEM: -- MB"
+Txt.Parent = Monitor
 
 task.spawn(function()
     while root.Parent do
-        Txt.Text=("FPS: %d  MEM: %.2f MB"):format(fps, memMB())
+        Txt.Text = ("FPS: %d  MEM: %.2f MB"):format(fps, memMB())
         task.wait(0.5)
     end
 end)
 
--- Scroll
-local Scroll=Instance.new("ScrollingFrame")
-Scroll.Size=UDim2.new(1,0,1,-(22+6))
-Scroll.Position=UDim2.new(0,0,0,28)
-Scroll.BackgroundTransparency=1
-Scroll.ScrollBarThickness=3
-Scroll.CanvasSize=UDim2.new(0,0,0,0)
-Scroll.Parent=Content
+-- Scroll (konten)
+local Scroll = Instance.new("ScrollingFrame")
+Scroll.Size = UDim2.new(1,0,1,-(22+6))
+Scroll.Position = UDim2.new(0,0,0,28)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 3
+Scroll.CanvasSize = UDim2.new(0,0,0,0)
+Scroll.Parent = Content
 
-local UIL=Instance.new("UIListLayout",Scroll)
-UIL.Padding=UDim.new(0,5)
-UIL.SortOrder=Enum.SortOrder.LayoutOrder
-local function fit() task.defer(function() Scroll.CanvasSize=UDim2.new(0,0,0,UIL.AbsoluteContentSize.Y+6) end) end
+local UIL = Instance.new("UIListLayout", Scroll)
+UIL.Padding = UDim.new(0,5)
+UIL.SortOrder = Enum.SortOrder.LayoutOrder
+local function fit() task.defer(function() Scroll.CanvasSize = UDim2.new(0,0,0, UIL.AbsoluteContentSize.Y + 6) end) end
 UIL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fit)
 
 -- Row helpers (compact)
 local function RowButton(text, color)
-    local holder=Instance.new("Frame"); holder.Size=UDim2.new(1,0,0,26); holder.BackgroundTransparency=1; holder.Parent=Scroll
-    local btn=Instance.new("TextButton")
-    btn.Size=UDim2.new(1,0,1,0); btn.Text=text
-    btn.Font=Enum.Font.GothamBold; btn.TextScaled=true; btn.TextColor3=Color3.new(1,1,1)
-    btn.BackgroundColor3=color or Color3.fromRGB(40,40,40); btn.BorderSizePixel=0; btn.Parent=holder
-    Instance.new("UICorner",btn).CornerRadius=UDim.new(0,7)
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.new(1,0,0,26)
+    holder.BackgroundTransparency = 1
+    holder.Parent = Scroll
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,1,0)
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextScaled = true
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.BackgroundColor3 = color or Color3.fromRGB(40,40,40)
+    btn.BorderSizePixel = 0
+    btn.Parent = holder
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,7)
     return btn
 end
+
 local function RowToggle(label, get, set)
-    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,26); row.BackgroundColor3=Color3.fromRGB(25,25,25); row.BorderSizePixel=0; row.Parent=Scroll
-    Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,26)
+    row.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    row.BorderSizePixel = 0
+    row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,7)
 
-    local L=Instance.new("TextLabel")
-    L.BackgroundTransparency=1; L.Position=UDim2.new(0,6,0,0); L.Size=UDim2.new(0.6,-6,1,0)
-    L.Font=Enum.Font.Gotham; L.TextScaled=true; L.TextColor3=Color3.new(1,1,1); L.TextXAlignment=Enum.TextXAlignment.Left
-    L.Text=label; L.Parent=row
+    local L = Instance.new("TextLabel")
+    L.BackgroundTransparency = 1
+    L.Position = UDim2.new(0,6,0,0)
+    L.Size = UDim2.new(0.6,-6,1,0)
+    L.Font = Enum.Font.Gotham
+    L.TextScaled = true
+    L.TextColor3 = Color3.new(1,1,1)
+    L.TextXAlignment = Enum.TextXAlignment.Left
+    L.Text = label
+    L.Parent = row
 
-    local t=Instance.new("TextButton")
-    t.Size=UDim2.new(0,36,0,18); t.Position=UDim2.new(1,-40,0.5,-9)
-    t.Text=(get() and "ON" or "OFF"); t.Font=Enum.Font.GothamBold; t.TextScaled=true; t.TextColor3=Color3.new(1,1,1)
-    t.BackgroundColor3=get() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60); t.BorderSizePixel=0; t.Parent=row
-    Instance.new("UICorner",t).CornerRadius=UDim.new(0,5)
+    local t = Instance.new("TextButton")
+    t.Size = UDim2.new(0,36,0,18)
+    t.Position = UDim2.new(1,-40,0.5,-9)
+    t.Text = get() and "ON" or "OFF"
+    t.Font = Enum.Font.GothamBold
+    t.TextScaled = true
+    t.TextColor3 = Color3.new(1,1,1)
+    t.BackgroundColor3 = get() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    t.BorderSizePixel = 0
+    t.Parent = row
+    Instance.new("UICorner", t).CornerRadius = UDim.new(0,5)
 
-    local function refresh() t.Text=get() and "ON" or "OFF"; t.BackgroundColor3=get() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60) end
+    local function refresh()
+        t.Text = get() and "ON" or "OFF"
+        t.BackgroundColor3 = get() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    end
     t.MouseButton1Click:Connect(function() set(not get()); refresh() end)
     return row, refresh
 end
 
--- BUTTONS
-local cleanBtn = RowButton("CLEAN NOW", Color3.fromRGB(0,110,200))
-cleanBtn.MouseButton1Click:Connect(function() RunSmartClean() end)
-
+-- Buttons & Toggles
+RowButton("CLEAN NOW", Color3.fromRGB(0,110,200)).MouseButton1Click:Connect(function() RunSmartClean() end)
 RowButton("RESTORE VISUALS", Color3.fromRGB(0,140,60)).MouseButton1Click:Connect(function() RestoreVisuals() end)
 
 RowToggle("Disable Particles", function() return toggles.killParticles end, function(v) toggles.killParticles=v; if not v then RestoreVisuals() end end)
 RowToggle("Disable Trails",    function() return toggles.killTrails    end, function(v) toggles.killTrails=v;    if not v then RestoreVisuals() end end)
 RowToggle("Disable Beams",     function() return toggles.killBeams     end, function(v) toggles.killBeams=v;     if not v then RestoreVisuals() end end)
 
--- Auto Clean (kompres: label kecil + minus/value/plus + toggle mini)
+-- Auto Clean (kompres - val + + toggle mini)
 do
-    local row=Instance.new("Frame"); row.Size=UDim2.new(1,0,0,26); row.BackgroundColor3=Color3.fromRGB(25,25,25); row.BorderSizePixel=0; row.Parent=Scroll
-    Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1,0,0,26)
+    row.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    row.BorderSizePixel = 0
+    row.Parent = Scroll
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,7)
 
-    local L=Instance.new("TextLabel"); L.BackgroundTransparency=1; L.Position=UDim2.new(0,6,0,0)
-    L.Size=UDim2.new(0.38,-6,1,0); L.Font=Enum.Font.Gotham; L.TextScaled=true; L.TextColor3=Color3.new(1,1,1)
-    L.TextXAlignment=Enum.TextXAlignment.Left; L.Text="Auto Clean"; L.Parent=row
+    local L = Instance.new("TextLabel")
+    L.BackgroundTransparency = 1
+    L.Position = UDim2.new(0,6,0,0)
+    L.Size = UDim2.new(0.38,-6,1,0)
+    L.Font = Enum.Font.Gotham
+    L.TextScaled = true
+    L.TextColor3 = Color3.new(1,1,1)
+    L.TextXAlignment = Enum.TextXAlignment.Left
+    L.Text = "Auto Clean"
+    L.Parent = row
 
-    local minus=Instance.new("TextButton"); minus.Size=UDim2.new(0,20,0,18); minus.Position=UDim2.new(0.38,0,0.5,-9)
-    minus.Text="-"; minus.Font=Enum.Font.GothamBold; minus.TextScaled=true; minus.TextColor3=Color3.new(1,1,1)
-    minus.BackgroundColor3=Color3.fromRGB(45,45,45); minus.BorderSizePixel=0; minus.Parent=row
-    Instance.new("UICorner",minus).CornerRadius=UDim.new(0,5)
+    local minus = Instance.new("TextButton")
+    minus.Size = UDim2.new(0,20,0,18)
+    minus.Position = UDim2.new(0.38,0,0.5,-9)
+    minus.Text = "-"
+    minus.Font = Enum.Font.GothamBold
+    minus.TextScaled = true
+    minus.TextColor3 = Color3.new(1,1,1)
+    minus.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    minus.BorderSizePixel = 0
+    minus.Parent = row
+    Instance.new("UICorner", minus).CornerRadius = UDim.new(0,5)
 
-    local val=Instance.new("TextLabel"); val.Size=UDim2.new(0,40,0,18); val.Position=UDim2.new(0.38,24,0.5,-9)
-    val.BackgroundColor3=Color3.fromRGB(35,35,35); val.BorderSizePixel=0; val.Font=Enum.Font.GothamBold
-    val.TextScaled=true; val.TextColor3=Color3.new(1,1,1); val.Text=tostring(autoInterval).."s"; val.Parent=row
-    Instance.new("UICorner",val).CornerRadius=UDim.new(0,5)
+    local val = Instance.new("TextLabel")
+    val.Size = UDim2.new(0,40,0,18)
+    val.Position = UDim2.new(0.38,24,0.5,-9)
+    val.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    val.BorderSizePixel = 0
+    val.Font = Enum.Font.GothamBold
+    val.TextScaled = true
+    val.TextColor3 = Color3.new(1,1,1)
+    val.Text = tostring(autoInterval).."s"
+    val.Parent = row
+    Instance.new("UICorner", val).CornerRadius = UDim.new(0,5)
 
-    local plus=Instance.new("TextButton"); plus.Size=UDim2.new(0,20,0,18); plus.Position=UDim2.new(0.38,68,0.5,-9)
-    plus.Text="+"; plus.Font=Enum.Font.GothamBold; plus.TextScaled=true; plus.TextColor3=Color3.new(1,1,1)
-    plus.BackgroundColor3=Color3.fromRGB(45,45,45); plus.BorderSizePixel=0; plus.Parent=row
-    Instance.new("UICorner",plus).CornerRadius=UDim.new(0,5)
+    local plus = Instance.new("TextButton")
+    plus.Size = UDim2.new(0,20,0,18)
+    plus.Position = UDim2.new(0.38,68,0.5,-9)
+    plus.Text = "+"
+    plus.Font = Enum.Font.GothamBold
+    plus.TextScaled = true
+    plus.TextColor3 = Color3.new(1,1,1)
+    plus.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    plus.BorderSizePixel = 0
+    plus.Parent = row
+    Instance.new("UICorner", plus).CornerRadius = UDim.new(0,5)
 
-    local tog=Instance.new("TextButton"); tog.Size=UDim2.new(0,36,0,18); tog.Position=UDim2.new(1,-40,0.5,-9)
-    tog.Text = toggles.autoClean and "ON" or "OFF"; tog.Font=Enum.Font.GothamBold; tog.TextScaled=true; tog.TextColor3=Color3.new(1,1,1)
-    tog.BackgroundColor3 = toggles.autoClean and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60); tog.BorderSizePixel=0; tog.Parent=row
-    Instance.new("UICorner",tog).CornerRadius=UDim.new(0,5)
+    local tog = Instance.new("TextButton")
+    tog.Size = UDim2.new(0,36,0,18)
+    tog.Position = UDim2.new(1,-40,0.5,-9)
+    tog.Text = toggles.autoClean and "ON" or "OFF"
+    tog.Font = Enum.Font.GothamBold
+    tog.TextScaled = true
+    tog.TextColor3 = Color3.new(1,1,1)
+    tog.BackgroundColor3 = toggles.autoClean and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
+    tog.BorderSizePixel = 0
+    tog.Parent = row
+    Instance.new("UICorner", tog).CornerRadius = UDim.new(0,5)
 
     local function refresh()
-        val.Text=tostring(autoInterval).."s"
+        val.Text = tostring(autoInterval).."s"
         tog.Text = toggles.autoClean and "ON" or "OFF"
         tog.BackgroundColor3 = toggles.autoClean and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
     end
-    minus.MouseButton1Click:Connect(function() autoInterval=math.clamp(autoInterval-5,5,60); refresh(); if toggles.autoClean then StartAutoClean() end end)
-    plus.MouseButton1Click:Connect(function()  autoInterval=math.clamp(autoInterval+5,5,60); refresh(); if toggles.autoClean then StartAutoClean() end end)
-    tog.MouseButton1Click:Connect(function() toggles.autoClean=not toggles.autoClean; refresh(); StartAutoClean() end)
+    minus.MouseButton1Click:Connect(function()
+        autoInterval = math.clamp(autoInterval-5, 5, 60)
+        refresh(); if toggles.autoClean then StartAutoClean() end
+    end)
+    plus.MouseButton1Click:Connect(function()
+        autoInterval = math.clamp(autoInterval+5, 5, 60)
+        refresh(); if toggles.autoClean then StartAutoClean() end
+    end)
+    tog.MouseButton1Click:Connect(function()
+        toggles.autoClean = not toggles.autoClean
+        refresh(); StartAutoClean()
+    end)
     refresh()
 end
 
 fit()
 StartAutoClean()
-
--- TIP PERBAIKAN LAUNCHER (opsional ganti fungsi peluncur):
---  local function launchUrl(url)
---      if clicking then return end
---      clicking = true
---      task.defer(function() pcall(function() loadstring(game:HttpGet(url))() end) end)
---      task.delay(0.05, function() pcall(function() root:Destroy() end) end)
---  end
