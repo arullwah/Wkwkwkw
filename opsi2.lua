@@ -804,7 +804,7 @@ local NextBtn = CreateStudioBtn("NEXT", 89, 112, 78, 32, Color3.fromRGB(59, 15, 
 
 -- ========= NEW PLAYBACK CONTROL GUI (200x200) =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(200, 200)
+PlaybackControl.Size = UDim2.fromOffset(200, 170)
 PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -100)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 PlaybackControl.BorderSizePixel = 0
@@ -835,7 +835,7 @@ PlaybackHeaderCorner.Parent = PlaybackHeader
 local PlaybackTitle = Instance.new("TextLabel")
 PlaybackTitle.Size = UDim2.new(1, -30, 1, 0)
 PlaybackTitle.BackgroundTransparency = 1
-PlaybackTitle.Text = "Playback Control"
+PlaybackTitle.Text = ""
 PlaybackTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 PlaybackTitle.Font = Enum.Font.GothamBold
 PlaybackTitle.TextSize = 10
@@ -965,13 +965,13 @@ end
 local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 84, 32, Color3.fromRGB(59, 15, 116))
 local PauseBtnControl = CreatePlaybackBtn("PAUSE", 93, 5, 84, 32, Color3.fromRGB(59, 15, 116))
 
-local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoL", 5, 42, 84, 22, false)
-local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("Lock", 93, 42, 84, 22, false)
+local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 84, 22, false)
+local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 93, 42, 84, 22, false)
 
-local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("Reset", 5, 69, 84, 22, false)
-local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respw", 93, 69, 84, 22, false)
+local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 84, 22, false)
+local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 93, 69, 84, 22, false)
 
-local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InJump", 5, 96, 172, 22, false)
+local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 172, 22, false)
 
 -- ========= MAIN GUI (250x340) =========
 local MainFrame = Instance.new("Frame")
@@ -1106,9 +1106,9 @@ local function CreateButton(text, x, y, w, h, color)
 end
 
 -- ========= MAIN GUI LAYOUT (250x340) =========
-local OpenStudioBtn = CreateButton("🎬 STUDIO", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
-local MenuBtn = CreateButton("📂 MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
-local PlaybackBtn = CreateButton("🎮 CTRL", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
+local OpenStudioBtn = CreateButton("RECORD", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
+local MenuBtn = CreateButton("MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
+local PlaybackBtn = CreateButton("PLAY", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
 
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(60, 22)
