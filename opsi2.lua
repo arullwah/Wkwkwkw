@@ -16,7 +16,7 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
 -- ========= OPTIMIZED INTERPOLATION SYSTEM =========
-local INTERPOLATION_ENABLED = false
+local INTERPOLATION_ENABLED = true
 local INTERPOLATION_ALPHA = 0.7
 local MAX_INTERPOLATION_DISTANCE = 25
 local MIN_INTERPOLATION_DISTANCE = 0.05
@@ -1824,7 +1824,7 @@ SettingsBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(SettingsBtn)
     
     local success, result = pcall(function()
-        local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/autowalk.lua"
+        local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/byarull.lua"
         local response = game:HttpGet(url)
         
         if response and string.len(response) > 100 then
