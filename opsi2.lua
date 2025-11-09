@@ -1,5 +1,5 @@
--- ========= AUTO WALK PRO v8.7 - ADVANCED FALL RECOVERY SYSTEM =========
--- Enhanced Recording + Smart Fall Recovery + Smooth Playback + Clean GUI
+-- ========= AUTO WALK PRO v8.7 - ENHANCED RECORDING SYSTEM =========
+-- Fixed Save System + Black Path Visualization + Maintained Studio GUI
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -17,13 +17,26 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 10
 
--- ========= SMOOTH PLAYBACK CONFIG =========
-local INTERPOLATION_ENABLED = true
-local INTERPOLATION_ALPHA = 0.45
-local MIN_INTERPOLATION_DISTANCE = 0.3
+-- ========= FIELD MAPPING FOR OBFUSCATION =========
+local FIELD_MAPPING = {
+    Position = "11",
+    LookVector = "88", 
+    UpVector = "55",
+    Velocity = "22",
+    MoveState = "33",
+    WalkSpeed = "44",
+    Timestamp = "66"
+}
 
--- ========= UNIVERSAL CHARACTER SUPPORT =========
-local UNIVERSAL_MODE = true
+local REVERSE_MAPPING = {
+    ["11"] = "Position",
+    ["88"] = "LookVector",
+    ["55"] = "UpVector", 
+    ["22"] = "Velocity",
+    ["33"] = "MoveState",
+    ["44"] = "WalkSpeed",
+    ["66"] = "Timestamp"
+}
 
 -- ========= CORE VARIABLES =========
 local IsRecording = false
@@ -34,6 +47,8 @@ local IsForwarding = false
 local UseMoveTo = false
 local CurrentSpeed = 1
 local RecordedMovements = {}
+local RecordingOrder = {}
+local checkpointNames = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoLoop = false
 local recordConnection = nil
@@ -48,18 +63,10 @@ local totalPausedDuration = 0
 local pauseStartTime = 0
 local lastPlaybackState = nil
 
--- ========= ADVANCED FALL RECOVERY SYSTEM =========
-local AdvancedFallRecovery = {
-    fallTracking = {
-        isFalling = false,
-        fallStartFrame = nil,
-        fallStartPosition = nil,
-        maxFallDepth = 0,
-        fallFrames = {}
-    },
-    lastStablePosition = nil,
-    lastStableFrame = 1
-}
+-- ========= PATH VISUALIZATION =========
+local PathVisualization = {}
+local routeParts = {}
+local routeBeams = {}
 
 -- ========= EVENT CLEANUP =========
 local eventConnections = {}
@@ -75,6 +82,61 @@ local function CleanupConnections()
         end
     end
     eventConnections = {}
+end
+
+-- ========= OBFUSCATION FUNCTIONS =========
+local function ObfuscateRecordingData(recordingData)
+    local obfuscated = {}
+    
+    for checkpointName, frames in pairs(recordingData) do
+        local obfuscatedFrames = {}
+        
+        for _, frame in ipairs(frames) do
+            local obfuscatedFrame = {}
+            
+            for fieldName, fieldValue in pairs(frame) do
+                local code = FIELD_MAPPING[fieldName]
+                if code then
+                    obfuscatedFrame[code] = fieldValue
+                else
+                    obfuscatedFrame[fieldName] = fieldValue
+                end
+            end
+            
+            table.insert(obfuscatedFrames, obfuscatedFrame)
+        end
+        
+        obfuscated[checkpointName] = obfuscatedFrames
+    end
+    
+    return obfuscated
+end
+
+local function DeobfuscateRecordingData(obfuscatedData)
+    local deobfuscated = {}
+    
+    for checkpointName, frames in pairs(obfuscatedData) do
+        local deobfuscatedFrames = {}
+        
+        for _, frame in ipairs(frames) do
+            local deobfuscatedFrame = {}
+            
+            for code, fieldValue in pairs(frame) do
+                local fieldName = REVERSE_MAPPING[code]
+                if fieldName then
+                    deobfuscatedFrame[fieldName] = fieldValue
+                else
+                    deobfuscatedFrame[code] = fieldValue
+                end
+            end
+            
+            table.insert(deobfuscatedFrames, deobfuscatedFrame)
+        end
+        
+        deobfuscated[checkpointName] = deobfuscatedFrames
+    end
+    
+    return deobfuscated
 end
 
 -- ========= UNIVERSAL CHARACTER DETECTION =========
@@ -203,138 +265,6 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= ADVANCED FALL RECOVERY FUNCTIONS =========
-function AdvancedFallRecovery:TrackFallStatus()
-    if not IsRecording then return end
-    
-    local char = player.Character
-    if not char then return end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    local currentVel = hrp.AssemblyLinearVelocity
-    local currentPos = hrp.Position
-    
-    -- ✅ DETEKSI AWAL JATUH: Velocity Y sangat negatif
-    if currentVel.Y < -30 and not self.fallTracking.isFalling then
-        self.fallTracking.isFalling = true
-        self.fallTracking.fallStartFrame = #CurrentRecording.Frames
-        self.fallTracking.fallStartPosition = currentPos
-        self.fallTracking.maxFallDepth = 0
-        self.fallTracking.fallFrames = {}
-        
-        -- Simpan posisi stabil terakhir
-        if #CurrentRecording.Frames > 5 then
-            self.lastStableFrame = math.max(1, #CurrentRecording.Frames - 5)
-            self.lastStablePosition = GetFramePosition(CurrentRecording.Frames[self.lastStableFrame])
-        end
-    end
-    
-    -- ✅ UPDATE KEDALAMAN JATUH DAN KUMPULKAN FRAME JATUH
-    if self.fallTracking.isFalling then
-        if self.fallTracking.fallStartPosition then
-            local currentDepth = self.fallTracking.fallStartPosition.Y - currentPos.Y
-            self.fallTracking.maxFallDepth = math.max(self.fallTracking.maxFallDepth, currentDepth)
-        end
-        
-        -- Simpan frame jatuh untuk potential deletion
-        table.insert(self.fallTracking.fallFrames, #CurrentRecording.Frames)
-    end
-    
-    -- ✅ RESET JIKA SUDAH STABIL (velocity Y mendekati 0)
-    if self.fallTracking.isFalling and currentVel.Y > -10 and math.abs(currentVel.Y) < 15 then
-        self:ResetFallTracking()
-    end
-end
-
-function AdvancedFallRecovery:ExecuteFallRecovery()
-    if not self.fallTracking.isFalling then return false end
-    
-    print("🎯 Executing fall recovery! Depth: " .. self.fallTracking.maxFallDepth .. " studs")
-    
-    -- ✅ 1. FIND SAFE FRAME (5 frame sebelum jatuh)
-    local safeFrameIndex = math.max(1, self.fallTracking.fallStartFrame - 5)
-    
-    -- ✅ 2. DELETE ALL FALL FRAMES
-    local framesBeforeFall = {}
-    for i = 1, safeFrameIndex do
-        if CurrentRecording.Frames[i] then
-            table.insert(framesBeforeFall, CurrentRecording.Frames[i])
-        end
-    end
-    
-    local deletedFrameCount = #CurrentRecording.Frames - #framesBeforeFall
-    
-    -- ✅ 3. GET SAFE POSITION DAN TELEPORT
-    local safeFrame = CurrentRecording.Frames[safeFrameIndex]
-    if safeFrame then
-        local safePosition = GetFramePosition(safeFrame)
-        pcall(function()
-            player.Character.HumanoidRootPart.CFrame = CFrame.new(safePosition)
-            player.Character.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        end)
-        
-        -- ✅ 4. CREATE MINIMAL TRANSITION (jika perlu)
-        local currentPos = player.Character.HumanoidRootPart.Position
-        local distance = (currentPos - safePosition).Magnitude
-        
-        if distance > 1 then
-            local transitionFrames = self:CreateMicroTransition(safeFrame, currentPos)
-            for _, frame in pairs(transitionFrames) do
-                table.insert(framesBeforeFall, frame)
-            end
-        end
-    end
-    
-    -- ✅ 5. UPDATE RECORDING
-    CurrentRecording.Frames = framesBeforeFall
-    
-    print("✅ Fall recovery completed! Deleted " .. deletedFrameCount .. " fall frames")
-    
-    -- ✅ 6. RESET TRACKING
-    self:ResetFallTracking()
-    
-    return true
-end
-
-function AdvancedFallRecovery:CreateMicroTransition(fromFrame, toPosition)
-    local transitionFrames = {}
-    
-    local startPos = GetFramePosition(fromFrame)
-    local distance = (toPosition - startPos).Magnitude
-    
-    -- ✅ SUPER MINIMAL TRANSITION: Hanya 2-3 frame!
-    local transitionSteps = math.min(3, math.max(2, math.floor(distance / 2)))
-    
-    for i = 1, transitionSteps do
-        local alpha = i / transitionSteps
-        local interpPos = startPos:Lerp(toPosition, alpha)
-        
-        table.insert(transitionFrames, {
-            Position = {interpPos.X, interpPos.Y, interpPos.Z},
-            LookVector = fromFrame.LookVector,
-            UpVector = fromFrame.UpVector,
-            Velocity = {0, 0, 0},
-            MoveState = "Running",
-            WalkSpeed = fromFrame.WalkSpeed or 16,
-            Timestamp = fromFrame.Timestamp + (i * 0.05)
-        })
-    end
-    
-    return transitionFrames
-end
-
-function AdvancedFallRecovery:ResetFallTracking()
-    self.fallTracking = {
-        isFalling = false,
-        fallStartFrame = nil,
-        fallStartPosition = nil,
-        maxFallDepth = 0,
-        fallFrames = {}
-    }
-end
-
 -- ========= FIND NEAREST FRAME =========
 local function FindNearestFrame(recording, position)
     if not recording or #recording == 0 then return 1, math.huge end
@@ -355,50 +285,125 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ========= INTERPOLATION FUNCTION =========
-local function SmoothCFrameLerp(currentCF, targetCF, alpha)
-    if not INTERPOLATION_ENABLED then
-        return targetCF
+-- ========= PATH VISUALIZATION FUNCTIONS =========
+local function ClearPathVisualization()
+    for _, part in pairs(PathVisualization) do
+        if part and part.Parent then
+            part:Destroy()
+        end
     end
+    PathVisualization = {}
     
-    local currentPos = currentCF.Position
-    local targetPos = targetCF.Position
-    local distance = (targetPos - currentPos).Magnitude
-    
-    if distance > 25 then
-        return targetCF
+    for _, part in pairs(routeParts) do
+        if part and part.Parent then
+            part:Destroy()
+        end
     end
-    
-    if distance < MIN_INTERPOLATION_DISTANCE then
-        return targetCF
+    for _, beam in pairs(routeBeams) do
+        if beam and beam.Parent then
+            beam:Destroy()
+        end
     end
-    
-    local newPos = currentPos:Lerp(targetPos, alpha)
-    local newCF = currentCF:Lerp(targetCF, alpha)
-    
-    return CFrame.new(newPos) * (newCF - newCF.Position)
+    routeParts = {}
+    routeBeams = {}
 end
 
--- ========= ENHANCED UNIVERSAL STATE CONTROL =========
-local function UniversalStateControl(humanoid, targetState, frameData)
-    if not humanoid then return end
+local function CreatePathSegment(startPos, endPos)
+    local part = Instance.new("Part")
+    part.Name = "PathSegment"
+    part.Anchored = true
+    part.CanCollide = false
+    part.Material = Enum.Material.Neon
+    part.BrickColor = BrickColor.new("Really black")
+    part.Transparency = 0.2
+    
+    local distance = (startPos - endPos).Magnitude
+    part.Size = Vector3.new(0.2, 0.2, distance)
+    part.CFrame = CFrame.lookAt((startPos + endPos) / 2, endPos)
+    
+    part.Parent = workspace
+    table.insert(PathVisualization, part)
+    
+    return part
+end
+
+local function ShowRouteVisualization(recording)
+    ClearPathVisualization()
+    
+    if not recording or #recording == 0 or not ShowVisualization then return end
     
     pcall(function()
-        if targetState == "Climbing" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-        elseif targetState == "Jumping" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            humanoid.Jump = true
-        elseif targetState == "Swimming" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
-        elseif targetState == "Falling" then
-            humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
-        elseif targetState == "Running" then
-            humanoid:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
-        else
-            humanoid:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+        local folder = Instance.new("Folder")
+        folder.Name = "RouteVisualization"
+        folder.Parent = workspace
+        
+        local lastPart = nil
+        local step = math.max(10, math.floor(#recording / 500))
+        
+        for i = 1, #recording, step do
+            local frame = recording[i]
+            local pos = GetFramePosition(frame)
+            
+            local part = Instance.new("Part")
+            part.Size = Vector3.new(0.3, 0.3, 0.3)
+            part.Position = pos
+            part.Anchored = true
+            part.CanCollide = false
+            part.Transparency = 0.4
+            part.BrickColor = BrickColor.new("Really black")
+            part.Material = Enum.Material.Neon
+            part.Shape = Enum.PartType.Ball
+            part.Parent = folder
+            
+            table.insert(routeParts, part)
+            
+            if lastPart then
+                local beam = Instance.new("Beam")
+                beam.Attachment0 = Instance.new("Attachment")
+                beam.Attachment0.Parent = lastPart
+                beam.Attachment1 = Instance.new("Attachment")
+                beam.Attachment1.Parent = part
+                beam.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
+                beam.Width0 = 0.15
+                beam.Width1 = 0.15
+                beam.Brightness = 2
+                beam.Parent = folder
+                
+                table.insert(routeBeams, beam)
+                table.insert(routeBeams, beam.Attachment0)
+                table.insert(routeBeams, beam.Attachment1)
+            end
+            
+            lastPart = part
         end
     end)
+end
+
+local function VisualizeAllPaths()
+    ClearPathVisualization()
+    
+    if not ShowVisualization then return end
+    
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
+        
+        local previousPos = Vector3.new(
+            recording[1].Position[1],
+            recording[1].Position[2], 
+            recording[1].Position[3]
+        )
+        
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
+            end
+        end
+    end
 end
 
 -- ========= GUI SETUP =========
@@ -415,7 +420,7 @@ pcall(function()
     end
 end)
 
--- ========= CLEAN RECORDING STUDIO GUI =========
+-- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(200, 180)
 RecordingStudio.Position = UDim2.new(0.5, -100, 0.5, -90)
@@ -446,7 +451,7 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = StudioHeader
 
--- Frame Counter di Header (sesuai permintaan)
+-- Frame Counter di Header
 local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.new(0.6, 0, 0.7, 0)
 FrameLabel.Position = UDim2.new(0.2, 0, 0.15, 0)
@@ -567,6 +572,17 @@ Header.Parent = MainFrame
 local MainHeaderCorner = Instance.new("UICorner")
 MainHeaderCorner.CornerRadius = UDim.new(0, 12)
 MainHeaderCorner.Parent = Header
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -60, 1, 0)
+Title.Position = UDim2.new(0, 10, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "AUTO WALK PRO v8.7"
+Title.TextColor3 = Color3.fromRGB(100, 255, 150)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 12
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
 
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(20, 20)
@@ -743,7 +759,7 @@ Status.Size = UDim2.fromOffset(234, 20)
 Status.Position = UDim2.fromOffset(0, 380)
 Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Status.BackgroundTransparency = 0
-Status.Text = "System Ready - Advanced Fall Recovery"
+Status.Text = "System Ready - v8.7 Enhanced"
 Status.TextColor3 = Color3.fromRGB(100, 255, 150)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 9
@@ -847,7 +863,7 @@ local function UpdateStudioUI()
     end)
 end
 
--- ========= ENHANCED RECORDING WITH FALL RECOVERY =========
+-- ========= ENHANCED RECORDING SYSTEM =========
 local function StartEnhancedRecording()
     if IsRecording then return end
     
@@ -863,9 +879,6 @@ local function StartEnhancedRecording()
         CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Recording_" .. os.date("%H%M%S")}
         lastRecordTime = 0
         lastRecordPos = nil
-        
-        -- Reset fall tracking
-        AdvancedFallRecovery:ResetFallTracking()
         
         RecordBtn.Text = "STOP"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
@@ -917,9 +930,6 @@ local function StartEnhancedRecording()
                 
                 table.insert(CurrentRecording.Frames, newFrame)
                 
-                -- ✅ ADVANCED FALL DETECTION & TRACKING
-                AdvancedFallRecovery:TrackFallStatus()
-                
                 lastRecordTime = now
                 lastRecordPos = currentPos
                 
@@ -948,28 +958,75 @@ local function StopStudioRecording()
             StatusLabel.Text = "Stopped (0 frames)"
             StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
         end
-        
-        -- Reset fall tracking
-        AdvancedFallRecovery:ResetFallTracking()
     end)
 end
 
--- ========= SMOOTH REVERSE WITH FALL RECOVERY =========
-local function StartReversePlayback()
-    if IsReversing then return end
-    
+-- ========= FIXED SAVE SYSTEM FOR STUDIO =========
+local function SaveStudioRecording()
     pcall(function()
-        -- ✅ CHECK IF WE'RE IN FALL STATE - EXECUTE FALL RECOVERY
-        if AdvancedFallRecovery.fallTracking.isFalling then
-            if AdvancedFallRecovery:ExecuteFallRecovery() then
-                StatusLabel.Text = "🔄 Fall Recovery Executed!"
-                StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-                UpdateStudioUI()
-            end
+        if #CurrentRecording.Frames == 0 then
+            StatusLabel.Text = "❌ No frames to save!"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
             return
         end
         
-        -- NORMAL REVERSE
+        if IsRecording then
+            StopStudioRecording()
+        end
+        
+        -- Generate unique name
+        local baseName = "Recording_" .. os.date("%H%M%S")
+        local recordingName = baseName
+        local counter = 1
+        
+        while RecordedMovements[recordingName] do
+            recordingName = baseName .. "_" .. counter
+            counter = counter + 1
+        end
+        
+        -- Save to RecordedMovements
+        RecordedMovements[recordingName] = CurrentRecording.Frames
+        table.insert(RecordingOrder, recordingName)
+        checkpointNames[recordingName] = recordingName
+        
+        -- Update UI
+        UpdateReplayList()
+        
+        StatusLabel.Text = "Saved: " .. recordingName
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        
+        UpdateStatus("Saved: " .. recordingName .. " (" .. #CurrentRecording.Frames .. " frames)")
+        
+        -- Reset recording
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
+        UpdateStudioUI()
+        
+        wait(1.5)
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end
+
+-- ========= CLEAR STUDIO RECORDING =========
+local function ClearStudioRecording()
+    pcall(function()
+        if IsRecording then
+            StopStudioRecording()
+        end
+        
+        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
+        
+        UpdateStudioUI()
+        StatusLabel.Text = "Cleared - Ready to record"
+        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    end)
+end
+
+-- ========= REVERSE PLAYBACK SYSTEM =========
+local function StartReversePlayback()
+    if IsReversing or not IsRecording then return end
+    
+    pcall(function()
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             StatusLabel.Text = "❌ Character not found!"
@@ -1072,9 +1129,9 @@ local function StopReversePlayback()
     end)
 end
 
--- ========= SMOOTH FORWARD PLAYBACK =========
+-- ========= FORWARD PLAYBACK SYSTEM =========
 local function StartForwardPlayback()
-    if IsForwarding then return end
+    if IsForwarding or not IsRecording then return end
     
     pcall(function()
         local char = player.Character
@@ -1181,7 +1238,7 @@ local function StopForwardPlayback()
     end)
 end
 
--- ========= SMART RESUME WITH FALL CLEANUP =========
+-- ========= RESUME RECORDING =========
 local function SmartResumeRecording()
     if not IsRecording then
         StatusLabel.Text = "❌ Not recording!"
@@ -1189,11 +1246,6 @@ local function SmartResumeRecording()
     end
     
     pcall(function()
-        -- ✅ AUTO FALL CLEANUP ON RESUME
-        if AdvancedFallRecovery.fallTracking.isFalling then
-            AdvancedFallRecovery:ExecuteFallRecovery()
-        end
-        
         if IsReversing then
             StopReversePlayback()
         end
@@ -1220,53 +1272,6 @@ local function SmartResumeRecording()
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         UpdateStudioUI()
-    end)
-end
-
--- ========= SAVE STUDIO RECORDING =========
-local function SaveStudioRecording()
-    pcall(function()
-        if #CurrentRecording.Frames == 0 then
-            StatusLabel.Text = "❌ No frames to save!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        if IsRecording then
-            StopStudioRecording()
-        end
-        
-        RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
-        UpdateReplayList()
-        
-        StatusLabel.Text = "Saved: " .. CurrentRecording.Name
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
-        UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
-        
-        -- Reset recording
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
-        UpdateStudioUI()
-        
-        wait(1.5)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end
-
--- ========= CLEAR STUDIO RECORDING =========
-local function ClearStudioRecording()
-    pcall(function()
-        if IsRecording then
-            StopStudioRecording()
-        end
-        
-        CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
-        AdvancedFallRecovery:ResetFallTracking()
-        
-        UpdateStudioUI()
-        StatusLabel.Text = "Cleared - Ready to record"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
     end)
 end
 
@@ -1445,14 +1450,11 @@ function PlayRecordingWithEnhancedSystem(recording, startFrame)
                     local targetCFrame = GetFrameCFrame(targetFrame)
                     local targetVelocity = GetFrameVelocity(targetFrame) * CurrentSpeed
                     
-                    local smoothCFrame = SmoothCFrameLerp(hrp.CFrame, targetCFrame, INTERPOLATION_ALPHA)
-                    local smoothVelocity = lastPlaybackVelocity:Lerp(targetVelocity, INTERPOLATION_ALPHA)
+                    hrp.CFrame = targetCFrame
+                    ApplyUniversalVelocity(char, targetVelocity)
                     
-                    hrp.CFrame = smoothCFrame
-                    ApplyUniversalVelocity(char, smoothVelocity)
-                    
-                    lastPlaybackCFrame = smoothCFrame
-                    lastPlaybackVelocity = smoothVelocity
+                    lastPlaybackCFrame = targetCFrame
+                    lastPlaybackVelocity = targetVelocity
                     
                     hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
                     
@@ -1461,7 +1463,18 @@ function PlayRecordingWithEnhancedSystem(recording, startFrame)
                     
                     if moveState ~= lastPlaybackState then
                         lastPlaybackState = moveState
-                        UniversalStateControl(hum, moveState, targetFrame)
+                        
+                        if moveState == "Climbing" then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        elseif moveState == "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        elseif moveState == "Falling" then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        elseif moveState == "Swimming" then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        else
+                            hum:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
+                        end
                     end
                     
                     currentPlaybackFrame = currentFrame
@@ -1540,6 +1553,10 @@ function StopPlayback()
         local char = player.Character
         if char then
             CompleteCharacterReset(char)
+        end
+        
+        if ShowVisualization then
+            ClearPathVisualization()
         end
         
         UpdateStatus("■ Playback Stopped")
@@ -1632,7 +1649,7 @@ local function UpdateReplayList()
             nameBox.Size = UDim2.new(0, 120, 1, 0)
             nameBox.Position = UDim2.new(0, 4, 0, 0)
             nameBox.BackgroundTransparency = 1
-            nameBox.Text = name
+            nameBox.Text = checkpointNames[name] or name
             nameBox.TextColor3 = Color3.new(1, 1, 1)
             nameBox.Font = Enum.Font.Gotham
             nameBox.TextSize = 8
@@ -1684,15 +1701,13 @@ local function UpdateReplayList()
                 pcall(function()
                     if enterPressed and nameBox.Text ~= "" and nameBox.Text ~= name then
                         if not RecordedMovements[nameBox.Text] then
-                            RecordedMovements[nameBox.Text] = RecordedMovements[name]
-                            RecordedMovements[name] = nil
+                            checkpointNames[name] = nameBox.Text
                             UpdateReplayList()
                         else
-                            nameBox.Text = name
-                            UpdateStatus("Name already exists!")
+                            nameBox.Text = checkpointNames[name] or name
                         end
                     else
-                        nameBox.Text = name
+                        nameBox.Text = checkpointNames[name] or name
                     end
                 end)
             end)
@@ -1709,6 +1724,11 @@ local function UpdateReplayList()
             local delConn = delBtn.MouseButton1Click:Connect(function()
                 pcall(function()
                     RecordedMovements[name] = nil
+                    checkpointNames[name] = nil
+                    local idx = table.find(RecordingOrder, name)
+                    if idx then
+                        table.remove(RecordingOrder, idx)
+                    end
                     UpdateReplayList()
                     UpdateStatus("Deleted: " .. name)
                 end)
@@ -1741,19 +1761,22 @@ local function SaveToFile()
             return
         end
         
-        local data = {
-            recordings = RecordedMovements,
+        local saveData = {
+            Version = "8.7",
+            Obfuscated = true,
+            RecordedMovements = ObfuscateRecordingData(RecordedMovements),
+            RecordingOrder = RecordingOrder,
+            CheckpointNames = checkpointNames,
             settings = {
                 speed = CurrentSpeed,
                 autoLoop = AutoLoop,
                 useMoveTo = UseMoveTo,
                 showVisualization = ShowVisualization
-            },
-            version = "8.7"
+            }
         }
         
         local jsonEncodeSuccess, jsonResult = pcall(function()
-            return HttpService:JSONEncode(data)
+            return HttpService:JSONEncode(saveData)
         end)
         
         if not jsonEncodeSuccess then
@@ -1810,7 +1833,15 @@ local function LoadFromFile()
             end)
             
             if decodeSuccess and data and type(data) == "table" then
-                RecordedMovements = data.recordings or {}
+                if data.Obfuscated and data.RecordedMovements then
+                    RecordedMovements = DeobfuscateRecordingData(data.RecordedMovements)
+                else
+                    RecordedMovements = data.recordings or data.RecordedMovements or {}
+                end
+                
+                RecordingOrder = data.RecordingOrder or {}
+                checkpointNames = data.CheckpointNames or {}
+                
                 CurrentSpeed = (data.settings and type(data.settings.speed) == "number") and data.settings.speed or 1
                 AutoLoop = (data.settings and type(data.settings.autoLoop) == "boolean") and data.settings.autoLoop or false
                 UseMoveTo = (data.settings and type(data.settings.useMoveTo) == "boolean") and data.settings.useMoveTo or false
@@ -1881,6 +1912,11 @@ VisualBtn.MouseButton1Click:Connect(function()
     pcall(function()
         ShowVisualization = not ShowVisualization
         SetVisualState(ShowVisualization)
+        if ShowVisualization then
+            VisualizeAllPaths()
+        else
+            ClearPathVisualization()
+        end
         UpdateStatus("👁️ Visual: " .. (ShowVisualization and "ON" or "OFF"))
     end)
 end)
@@ -1926,6 +1962,7 @@ CloseButton.MouseButton1Click:Connect(function()
         if IsReversing then StopReversePlayback() end
         if IsForwarding then StopForwardPlayback() end
         CleanupConnections()
+        ClearPathVisualization()
         ScreenGui:Destroy()
     end)
 end)
@@ -1988,9 +2025,6 @@ player.CharacterAdded:Connect(function(newChar)
         if IsForwarding then
             StopForwardPlayback()
         end
-        
-        -- Reset fall tracking
-        AdvancedFallRecovery:ResetFallTracking()
     end)
 end)
 
@@ -2010,7 +2044,7 @@ end)
 -- ========= INITIALIZATION =========
 pcall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro - Advanced Fall Recovery Ready!")
+    UpdateStatus("✅ Auto Walk Pro v8.7 - Enhanced System Ready!")
     UpdateSpeedDisplay()
     UpdateStudioUI()
 end)
@@ -2018,5 +2052,5 @@ end)
 -- ========= FINAL STATUS UPDATE =========
 task.wait(0.5)
 pcall(function()
-    UpdateStatus("✅ Advanced Fall Recovery System - All Systems Go!")
+    UpdateStatus("✅ Enhanced Recording System - All Systems Go!")
 end)
