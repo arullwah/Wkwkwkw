@@ -1,5 +1,4 @@
 
-
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -98,6 +97,8 @@ local lastStudioRecordTime = 0
 local lastStudioRecordPos = nil
 local activeConnections = {}
 local CheckedRecordings = {}
+local CurrentTimelineFrame = 0
+local TimelinePosition = 0
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -298,8 +299,10 @@ end
 
 local function HideJumpButton()
     task.spawn(function()
-        StarterGui:SetCore("VRLaserPointerMode", 0)
-        StarterGui:SetCore("VREnableControllerModels", false)
+        pcall(function()
+            StarterGui:SetCore("VRLaserPointerMode", 0)
+            StarterGui:SetCore("VREnableControllerModels", false)
+        end)
         local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
         if touchGui then
             local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
@@ -310,14 +313,18 @@ local function HideJumpButton()
                 end
             end
         end
-        StarterGui:SetCore("TopbarEnabled", false)
+        pcall(function()
+            StarterGui:SetCore("TopbarEnabled", false)
+        end)
     end)
 end
 
 local function ShowJumpButton()
     task.spawn(function()
-        StarterGui:SetCore("VRLaserPointerMode", 3)
-        StarterGui:SetCore("VREnableControllerModels", true)
+        pcall(function()
+            StarterGui:SetCore("VRLaserPointerMode", 3)
+            StarterGui:SetCore("VREnableControllerModels", true)
+        end)
         local touchGui = player.PlayerGui:FindFirstChild("TouchGui")
         if touchGui then
             local touchControlFrame = touchGui:FindFirstChild("TouchControlFrame")
@@ -328,7 +335,9 @@ local function ShowJumpButton()
                 end
             end
         end
-        StarterGui:SetCore("TopbarEnabled", true)
+        pcall(function()
+            StarterGui:SetCore("TopbarEnabled", true)
+        end)
     end)
 end
 
@@ -677,10 +686,10 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- ========= RECORDING STUDIO GUI =========
+-- ========= RECORDING STUDIO GUI (190x190) =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 200)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -100)
+RecordingStudio.Size = UDim2.fromOffset(190, 190)
+RecordingStudio.Position = UDim2.new(0.5, -95, 0.5, -95)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -698,7 +707,7 @@ StudioStroke.Thickness = 2
 StudioStroke.Parent = RecordingStudio
 
 local StudioHeader = Instance.new("Frame")
-StudioHeader.Size = UDim2.new(1, 0, 0, 28)
+StudioHeader.Size = UDim2.new(1, 0, 0, 25)
 StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 StudioHeader.BorderSizePixel = 0
 StudioHeader.Parent = RecordingStudio
@@ -707,9 +716,18 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 10)
 HeaderCorner.Parent = StudioHeader
 
+local StudioTitle = Instance.new("TextLabel")
+StudioTitle.Size = UDim2.new(1, -30, 1, 0)
+StudioTitle.BackgroundTransparency = 1
+StudioTitle.Text = "Frame: 0"
+StudioTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+StudioTitle.Font = Enum.Font.GothamBold
+StudioTitle.TextSize = 10
+StudioTitle.Parent = StudioHeader
+
 local CloseStudioBtn = Instance.new("TextButton")
 CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
-CloseStudioBtn.Position = UDim2.new(1, -24, 0.5, -10)
+CloseStudioBtn.Position = UDim2.new(1, -22, 0.5, -10)
 CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 CloseStudioBtn.Text = "×"
 CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -722,8 +740,8 @@ CloseCorner.CornerRadius = UDim.new(0, 5)
 CloseCorner.Parent = CloseStudioBtn
 
 local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -16, 1, -36)
-StudioContent.Position = UDim2.new(0, 8, 0, 32)
+StudioContent.Size = UDim2.new(1, -16, 1, -33)
+StudioContent.Position = UDim2.new(0, 8, 0, 28)
 StudioContent.BackgroundTransparency = 1
 StudioContent.Parent = RecordingStudio
 
@@ -770,47 +788,20 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
-local RecordBtn = CreateStudioBtn("● RECORD", 5, 5, 68, 30, Color3.fromRGB(200, 50, 60))
-local SaveBtn = CreateStudioBtn("💾 SAVE", 78, 5, 68, 30, Color3.fromRGB(100, 200, 100))
-local ClearBtn = CreateStudioBtn("🗑️ CLEAR", 151, 5, 68, 30, Color3.fromRGB(150, 50, 60))
+-- Studio Buttons Layout
+local SaveBtn = CreateStudioBtn("SAVE", 7, 5, 78, 28, Color3.fromRGB(100, 200, 100))
+local ClearBtn = CreateStudioBtn("CLEAR", 89, 5, 78, 28, Color3.fromRGB(150, 50, 60))
 
-local FrameLabel = Instance.new("TextLabel")
-FrameLabel.Size = UDim2.fromOffset(214, 28)
-FrameLabel.Position = UDim2.fromOffset(5, 40)
-FrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-FrameLabel.Text = "Frames: 0 / 30000"
-FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-FrameLabel.Font = Enum.Font.GothamBold
-FrameLabel.TextSize = 10
-FrameLabel.Parent = StudioContent
+local RecordBtn = CreateStudioBtn("RECORD", 7, 38, 160, 32, Color3.fromRGB(200, 50, 60))
+local ResumeBtn = CreateStudioBtn("RESUME", 7, 75, 160, 32, Color3.fromRGB(40, 180, 80))
 
-local FrameCorner = Instance.new("UICorner")
-FrameCorner.CornerRadius = UDim.new(0, 5)
-FrameCorner.Parent = FrameLabel
+local BackBtn = CreateStudioBtn("BACK", 7, 112, 78, 32, Color3.fromRGB(80, 120, 200))
+local NextBtn = CreateStudioBtn("NEXT", 89, 112, 78, 32, Color3.fromRGB(200, 120, 80))
 
-local FrameStroke = Instance.new("UIStroke")
-FrameStroke.Color = Color3.fromRGB(60, 60, 70)
-FrameStroke.Thickness = 1
-FrameStroke.Parent = FrameLabel
-
-local ReverseBtn = CreateStudioBtn("⏪ MUNDUR 0.5s", 5, 73, 104, 35, Color3.fromRGB(80, 120, 200))
-local ForwardBtn = CreateStudioBtn("⏩ MAJU 0.5s", 114, 73, 105, 35, Color3.fromRGB(200, 120, 80))
-local ResumeBtn = CreateStudioBtn("▶ RESUME & HAPUS", 5, 113, 214, 30, Color3.fromRGB(40, 180, 80))
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.fromOffset(214, 20)
-StatusLabel.Position = UDim2.fromOffset(5, 148)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Ready to record"
-StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 8
-StatusLabel.Parent = StudioContent
-
--- ========= MAIN GUI =========
+-- ========= MAIN GUI (250x220) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(450, 400)
-MainFrame.Position = UDim2.new(0.5, -225, 0.5, -200)
+MainFrame.Size = UDim2.fromOffset(250, 220)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -110)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -822,7 +813,7 @@ MainCorner.CornerRadius = UDim.new(0, 12)
 MainCorner.Parent = MainFrame
 
 local Header = Instance.new("Frame")
-Header.Size = UDim2.new(1, 0, 0, 32)
+Header.Size = UDim2.new(1, 0, 0, 28)
 Header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 Header.BorderSizePixel = 0
 Header.Parent = MainFrame
@@ -837,18 +828,18 @@ Title.BackgroundTransparency = 1
 Title.Text = "ByaruL Movement Recorder"
 Title.TextColor3 = Color3.fromRGB(255,255,255)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 12
+Title.TextSize = 10
 Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
 
 local HideButton = Instance.new("TextButton")
-HideButton.Size = UDim2.fromOffset(25, 25)
-HideButton.Position = UDim2.new(1, -60, 0.5, -12)
+HideButton.Size = UDim2.fromOffset(22, 22)
+HideButton.Position = UDim2.new(1, -50, 0.5, -11)
 HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
 HideButton.Text = "_"
 HideButton.TextColor3 = Color3.new(1, 1, 1)
 HideButton.Font = Enum.Font.GothamBold
-HideButton.TextSize = 14
+HideButton.TextSize = 12
 HideButton.Parent = Header
 
 local HideCorner2 = Instance.new("UICorner")
@@ -856,13 +847,13 @@ HideCorner2.CornerRadius = UDim.new(0, 6)
 HideCorner2.Parent = HideButton
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Size = UDim2.fromOffset(25, 25)
-CloseButton.Position = UDim2.new(1, -30, 0.5, -12)
+CloseButton.Size = UDim2.fromOffset(22, 22)
+CloseButton.Position = UDim2.new(1, -25, 0.5, -11)
 CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.new(1, 1, 1)
 CloseButton.Font = Enum.Font.GothamBold
-CloseButton.TextSize = 12
+CloseButton.TextSize = 10
 CloseButton.Parent = Header
 
 local CloseCorner2 = Instance.new("UICorner")
@@ -870,8 +861,8 @@ CloseCorner2.CornerRadius = UDim.new(0, 6)
 CloseCorner2.Parent = CloseButton
 
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -20, 1, -42)
-Content.Position = UDim2.new(0, 10, 0, 36)
+Content.Size = UDim2.new(1, -16, 1, -36)
+Content.Position = UDim2.new(0, 8, 0, 32)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
@@ -900,7 +891,7 @@ local function CreateButton(text, x, y, w, h, color)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 9
+    btn.TextSize = 8
     btn.AutoButtonColor = false
     btn.Parent = Content
     
@@ -963,8 +954,8 @@ local function CreateToggle(text, x, y, w, h, default)
     label.Parent = btn
     
     local toggle = Instance.new("Frame")
-    toggle.Size = UDim2.fromOffset(22, 12)
-    toggle.Position = UDim2.new(1, -25, 0.5, -6)
+    toggle.Size = UDim2.fromOffset(20, 11)
+    toggle.Position = UDim2.new(1, -23, 0.5, -5)
     toggle.BackgroundColor3 = default and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
     toggle.BorderSizePixel = 0
     toggle.Parent = btn
@@ -974,8 +965,8 @@ local function CreateToggle(text, x, y, w, h, default)
     toggleCorner.Parent = toggle
     
     local knob = Instance.new("Frame")
-    knob.Size = UDim2.fromOffset(8, 8)
-    knob.Position = default and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
+    knob.Size = UDim2.fromOffset(7, 7)
+    knob.Position = default and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
     knob.BackgroundColor3 = Color3.fromRGB(220, 220, 230)
     knob.BorderSizePixel = 0
     knob.Parent = toggle
@@ -988,7 +979,7 @@ local function CreateToggle(text, x, y, w, h, default)
         PlaySound("Toggle")
         local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
-        local knobPos = isOn and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
         TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
         TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
     end
@@ -996,83 +987,86 @@ local function CreateToggle(text, x, y, w, h, default)
     return btn, Animate
 end
 
-local OpenStudioBtn = CreateButton("🎬 RECORDING STUDIO", 0, 5, 430, 30, Color3.fromRGB(100, 150, 255))
+-- Main GUI Buttons
+local OpenStudioBtn = CreateButton("🎬 RECORDING STUDIO", 0, 2, 234, 22, Color3.fromRGB(100, 150, 255))
 
-local PlayBtnBig = CreateButton("PLAY", 0, 40, 140, 30, Color3.fromRGB(59, 15, 116))
-local StopBtnBig = CreateButton("STOP", 145, 40, 140, 30, Color3.fromRGB(59, 15, 116))
-local PauseBtnBig = CreateButton("PAUSE", 290, 40, 140, 30, Color3.fromRGB(59, 15, 116))
+local PlayBtnBig = CreateButton("PLAY", 0, 27, 75, 22, Color3.fromRGB(59, 15, 116))
+local StopBtnBig = CreateButton("STOP", 79, 27, 75, 22, Color3.fromRGB(59, 15, 116))
+local PauseBtnBig = CreateButton("PAUSE", 158, 27, 76, 22, Color3.fromRGB(59, 15, 116))
 
-local LoopBtn, AnimateLoop = CreateToggle("Auto Loop", 0, 75, 105, 22, false)
-local JumpBtn, AnimateJump = CreateToggle("Infinite Jump", 110, 75, 105, 22, false)
-local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 220, 75, 105, 22, false)
-local RespawnBtn, AnimateRespawn = CreateToggle("Auto Respawn", 330, 75, 100, 22, false)
+local LoopBtn, AnimateLoop = CreateToggle("AutoLoop", 0, 52, 75, 18, false)
+local JumpBtn, AnimateJump = CreateToggle("InfJump", 79, 52, 75, 18, false)
+local RespawnBtn, AnimateRespawn = CreateToggle("AutoRsp", 158, 52, 76, 18, false)
+
+local ShiftLockBtn, AnimateShiftLock = CreateToggle("ShiftLock", 0, 73, 75, 18, false)
 
 local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.fromOffset(100, 26)
-SpeedBox.Position = UDim2.fromOffset(0, 102)
+SpeedBox.Size = UDim2.fromOffset(75, 18)
+SpeedBox.Position = UDim2.fromOffset(79, 73)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
-SpeedBox.PlaceholderText = "Speed..."
+SpeedBox.PlaceholderText = "Speed"
 SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 SpeedBox.Font = Enum.Font.GothamBold
-SpeedBox.TextSize = 11
+SpeedBox.TextSize = 8
 SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
 SpeedBox.ClearTextOnFocus = false
 SpeedBox.Parent = Content
 
 local SpeedCorner = Instance.new("UICorner")
-SpeedCorner.CornerRadius = UDim.new(0, 6)
+SpeedCorner.CornerRadius = UDim.new(0, 4)
 SpeedCorner.Parent = SpeedBox
 
-local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(165, 26)
-FilenameBox.Position = UDim2.fromOffset(105, 102)
-FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-FilenameBox.BorderSizePixel = 0
-FilenameBox.Text = ""
-FilenameBox.PlaceholderText = "Custom File..."
-FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-FilenameBox.Font = Enum.Font.GothamBold
-FilenameBox.TextSize = 11
-FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
-FilenameBox.ClearTextOnFocus = false
-FilenameBox.Parent = Content
-
-local FilenameCorner = Instance.new("UICorner")
-FilenameCorner.CornerRadius = UDim.new(0, 6)
-FilenameCorner.Parent = FilenameBox
-
 local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(155, 26)
-WalkSpeedBox.Position = UDim2.fromOffset(275, 102)
+WalkSpeedBox.Size = UDim2.fromOffset(76, 18)
+WalkSpeedBox.Position = UDim2.fromOffset(158, 73)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
-WalkSpeedBox.PlaceholderText = "WalkSpeed 8-200"
+WalkSpeedBox.PlaceholderText = "WalkSpeed"
 WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 WalkSpeedBox.Font = Enum.Font.GothamBold
-WalkSpeedBox.TextSize = 11
+WalkSpeedBox.TextSize = 8
 WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
 WalkSpeedBox.ClearTextOnFocus = false
 WalkSpeedBox.Parent = Content
 
 local WalkSpeedCorner = Instance.new("UICorner")
-WalkSpeedCorner.CornerRadius = UDim.new(0, 6)
+WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
-local SaveFileBtn = CreateButton("SAVE FILE", 0, 133, 210, 26, Color3.fromRGB(59, 15, 116))
-local LoadFileBtn = CreateButton("LOAD FILE", 220, 133, 210, 26, Color3.fromRGB(59, 15, 116))
+local FilenameBox = Instance.new("TextBox")
+FilenameBox.Size = UDim2.fromOffset(115, 18)
+FilenameBox.Position = UDim2.fromOffset(0, 94)
+FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+FilenameBox.BorderSizePixel = 0
+FilenameBox.Text = ""
+FilenameBox.PlaceholderText = "Filename"
+FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+FilenameBox.Font = Enum.Font.GothamBold
+FilenameBox.TextSize = 8
+FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
+FilenameBox.ClearTextOnFocus = false
+FilenameBox.Parent = Content
 
-local PathToggleBtn = CreateButton("SHOW RUTE", 0, 164, 210, 26, Color3.fromRGB(59, 15, 116))
-local MergeBtn = CreateButton("MERGE", 220, 164, 210, 26, Color3.fromRGB(59, 15, 116))
+local FilenameCorner = Instance.new("UICorner")
+FilenameCorner.CornerRadius = UDim.new(0, 4)
+FilenameCorner.Parent = FilenameBox
 
+local SaveFileBtn = CreateButton("SAVE", 119, 94, 56, 18, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD", 179, 94, 55, 18, Color3.fromRGB(59, 15, 116))
+
+local PathToggleBtn = CreateButton("PATH", 0, 115, 115, 18, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 119, 115, 115, 18, Color3.fromRGB(59, 15, 116))
+
+-- Recording List (Scrollable)
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 195)
-RecordList.Position = UDim2.fromOffset(0, 195)
+RecordList.Size = UDim2.new(1, 0, 0, 51)
+RecordList.Position = UDim2.fromOffset(0, 136)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
-RecordList.ScrollBarThickness = 6
+RecordList.ScrollBarThickness = 4
 RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
 RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
@@ -1161,9 +1155,9 @@ function UpdateRecordList()
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -6, 0, 40)
-        item.Position = UDim2.new(0, 3, 0, yPos)
-        item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        item.Size = UDim2.new(1, -4, 0, 32)
+        item.Position = UDim2.new(0, 2, 0, yPos)
+        item.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
         item.Parent = RecordList
     
         local corner = Instance.new("UICorner")
@@ -1171,30 +1165,74 @@ function UpdateRecordList()
         corner.Parent = item
         
         local checkBox = Instance.new("TextButton")
-        checkBox.Size = UDim2.fromOffset(25, 25)
-        checkBox.Position = UDim2.fromOffset(5, 7)
+        checkBox.Size = UDim2.fromOffset(18, 18)
+        checkBox.Position = UDim2.fromOffset(3, 7)
         checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         checkBox.Text = CheckedRecordings[name] and "✓" or ""
         checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
         checkBox.Font = Enum.Font.GothamBold
-        checkBox.TextSize = 16
+        checkBox.TextSize = 12
         checkBox.Parent = item
         
         local checkCorner = Instance.new("UICorner")
-        checkCorner.CornerRadius = UDim.new(0, 4)
+        checkCorner.CornerRadius = UDim.new(0, 3)
         checkCorner.Parent = checkBox
         
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(0, 75, 0, 18)
+        infoLabel.Position = UDim2.fromOffset(24, 7)
+        infoLabel.BackgroundTransparency = 1
+        if #rec > 0 then
+            local totalSeconds = rec[#rec].Timestamp
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. "f"
+        else
+            infoLabel.Text = "0:00 • 0f"
+        end
+        infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 7
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
+        
+        local playBtn = Instance.new("TextButton")
+        playBtn.Size = UDim2.fromOffset(22, 18)
+        playBtn.Position = UDim2.new(1, -110, 0, 7)
+        playBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        playBtn.Text = "▶"
+        playBtn.TextColor3 = Color3.new(1, 1, 1)
+        playBtn.Font = Enum.Font.GothamBold
+        playBtn.TextSize = 10
+        playBtn.Parent = item
+        
+        local playCorner = Instance.new("UICorner")
+        playCorner.CornerRadius = UDim.new(0, 4)
+        playCorner.Parent = playBtn
+        
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(22, 18)
+        delBtn.Position = UDim2.new(1, -85, 0, 7)
+        delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+        delBtn.Text = "🗑"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 9
+        delBtn.Parent = item
+        
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 4)
+        delCorner.Parent = delBtn
+        
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(1, -265, 0, 18)
-        nameBox.Position = UDim2.fromOffset(35, 4)
+        nameBox.Size = UDim2.new(0, 30, 0, 18)
+        nameBox.Position = UDim2.new(1, -60, 0, 7)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
-        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
+        nameBox.Text = (checkpointNames[name] or "CP"):sub(1, 3)
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
-        nameBox.TextSize = 10
-        nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.PlaceholderText = "Enter name..."
+        nameBox.TextSize = 7
+        nameBox.TextXAlignment = Enum.TextXAlignment.Center
+        nameBox.PlaceholderText = "..."
         nameBox.ClearTextOnFocus = false
         nameBox.Parent = item
         
@@ -1210,101 +1248,33 @@ function UpdateRecordList()
             end
         end)
         
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(1, -265, 0, 16)
-        infoLabel.Position = UDim2.fromOffset(35, 22)
-        infoLabel.BackgroundTransparency = 1
-        if #rec > 0 then
-            local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
-        else
-            infoLabel.Text = "0:00 • 0 frames"
-        end
-        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        infoLabel.Font = Enum.Font.GothamBold
-        infoLabel.TextSize = 8
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-        infoLabel.Parent = item
-        
-        local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.fromOffset(35, 25)
-        playBtn.Position = UDim2.new(1, -195, 0, 7)
-        playBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-        playBtn.Text = "▶"
-        playBtn.TextColor3 = Color3.new(1, 1, 1)
-        playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 12
-        playBtn.Parent = item
-        
-        local playCorner = Instance.new("UICorner")
-        playCorner.CornerRadius = UDim.new(0, 5)
-        playCorner.Parent = playBtn
-        
-        local playStroke = Instance.new("UIStroke")
-        playStroke.Color = Color3.fromRGB(255, 255, 255)
-        playStroke.Thickness = 1
-        playStroke.Transparency = 0.7
-        playStroke.Parent = playBtn
-        
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(35, 25)
-        delBtn.Position = UDim2.new(1, -155, 0, 7)
-        delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        delBtn.Text = "🗑"
-        delBtn.TextColor3 = Color3.new(1, 1, 1)
-        delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 12
-        delBtn.Parent = item
-        
-        local delCorner = Instance.new("UICorner")
-        delCorner.CornerRadius = UDim.new(0, 5)
-        delCorner.Parent = delBtn
-        
-        local delStroke = Instance.new("UIStroke")
-        delStroke.Color = Color3.fromRGB(255, 255, 255)
-        delStroke.Thickness = 1
-        delStroke.Transparency = 0.7
-        delStroke.Parent = delBtn
-        
         local upBtn = Instance.new("TextButton")
-        upBtn.Size = UDim2.fromOffset(35, 25)
-        upBtn.Position = UDim2.new(1, -80, 0, 7)
-        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
+        upBtn.Size = UDim2.fromOffset(13, 18)
+        upBtn.Position = UDim2.new(1, -27, 0, 7)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 16
+        upBtn.TextSize = 11
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
-        upCorner.CornerRadius = UDim.new(0, 5)
+        upCorner.CornerRadius = UDim.new(0, 3)
         upCorner.Parent = upBtn
         
-        local upStroke = Instance.new("UIStroke")
-        upStroke.Color = Color3.fromRGB(255, 255, 255)
-        upStroke.Thickness = 1
-        upStroke.Transparency = 0.7
-        upStroke.Parent = upBtn
-        
         local downBtn = Instance.new("TextButton")
-        downBtn.Size = UDim2.fromOffset(35, 25)
-        downBtn.Position = UDim2.new(1, -40, 0, 7)
-        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
+        downBtn.Size = UDim2.fromOffset(13, 18)
+        downBtn.Position = UDim2.new(1, -12, 0, 7)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 16
+        downBtn.TextSize = 11
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
-        downCorner.CornerRadius = UDim.new(0, 5)
+        downCorner.CornerRadius = UDim.new(0, 3)
         downCorner.Parent = downBtn
-        
-        local downStroke = Instance.new("UIStroke")
-        downStroke.Color = Color3.fromRGB(255, 255, 255)
-        downStroke.Thickness = 1
-        downStroke.Transparency = 0.7
-        downStroke.Parent = downBtn
         
         checkBox.MouseButton1Click:Connect(function()
             CheckedRecordings[name] = not CheckedRecordings[name]
@@ -1343,7 +1313,7 @@ function UpdateRecordList()
             UpdateRecordList()
         end)
         
-        yPos = yPos + 43
+        yPos = yPos + 35
     end
     
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
@@ -1372,7 +1342,43 @@ end
 
 local function UpdateStudioUI()
     task.spawn(function()
-        FrameLabel.Text = string.format("Frames: %d / 30000", #StudioCurrentRecording.Frames)
+        StudioTitle.Text = string.format("Frame: %d", CurrentTimelineFrame)
+    end)
+end
+
+local function ApplyFrameToCharacter(frame)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not hum then return end
+    
+    task.spawn(function()
+        local targetCFrame = GetFrameCFrame(frame)
+        hrp.CFrame = targetCFrame
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        
+        if hum then
+            hum.WalkSpeed = 0
+            hum.AutoRotate = false
+            
+            local moveState = frame.MoveState
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
     end)
 end
 
@@ -1382,8 +1388,7 @@ local function StartStudioRecording()
     task.spawn(function()
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
-            StatusLabel.Text = "❌ Character not found!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            PlaySound("Error")
             return
         end
         
@@ -1392,11 +1397,11 @@ local function StartStudioRecording()
         StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
         lastStudioRecordTime = 0
         lastStudioRecordPos = nil
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
         
         RecordBtn.Text = "⏹ STOP"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
-        StatusLabel.Text = "🎬 Recording..."
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         PlaySound("RecordStart")
         
@@ -1438,6 +1443,8 @@ local function StartStudioRecording()
                 
                 lastStudioRecordTime = now
                 lastStudioRecordPos = currentPos
+                CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                TimelinePosition = CurrentTimelineFrame
                 
                 UpdateStudioUI()
             end)
@@ -1455,301 +1462,102 @@ local function StopStudioRecording()
             recordConnection = nil
         end
         
-        RecordBtn.Text = "● RECORD"
+        RecordBtn.Text = "RECORD"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        
-        if #StudioCurrentRecording.Frames > 0 then
-            StatusLabel.Text = "✅ Recording stopped (" .. #StudioCurrentRecording.Frames .. " frames)"
-            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        else
-            StatusLabel.Text = "Recording stopped (0 frames)"
-            StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-        end
         
         PlaySound("RecordStop")
     end)
 end
 
-local function StartReversePlayback()
-    if IsReversing or not StudioIsRecording then return end
+local function GoBackTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
     
     task.spawn(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            StatusLabel.Text = "❌ Character not found!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        if #StudioCurrentRecording.Frames == 0 then
-            StatusLabel.Text = "❌ No frames to reverse!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        IsReversing = true
         IsTimelineMode = true
         
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
+        local targetFrame = math.max(1, TimelinePosition - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
         
-        if hum then
-            hum.AutoRotate = false
+        TimelinePosition = targetFrame
+        CurrentTimelineFrame = targetFrame
+        
+        local frame = StudioCurrentRecording.Frames[targetFrame]
+        if frame then
+            ApplyFrameToCharacter(frame)
+            UpdateStudioUI()
+            PlaySound("Click")
         end
-        
-        StatusLabel.Text = "⏪ Reversing 0.5s..."
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
-        
-        local currentFrame = #StudioCurrentRecording.Frames
-        local targetFrame = math.max(1, currentFrame - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
-        
-        reverseConnection = RunService.Heartbeat:Connect(function()
-            if not IsReversing or not StudioIsRecording then
-                if reverseConnection then
-                    reverseConnection:Disconnect()
-                    reverseConnection = nil
-                end
-                return
-            end
-            
-            char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                IsReversing = false
-                if reverseConnection then
-                    reverseConnection:Disconnect()
-                    reverseConnection = nil
-                end
-                return
-            end
-            
-            hrp = char:FindFirstChild("HumanoidRootPart")
-            hum = char:FindFirstChildOfClass("Humanoid")
-            
-            if not hrp or not hum then
-                IsReversing = false
-                if reverseConnection then
-                    reverseConnection:Disconnect()
-                    reverseConnection = nil
-                end
-                return
-            end
-            
-            if currentFrame <= targetFrame then
-                currentFrame = targetFrame
-                IsReversing = false
-                StatusLabel.Text = "⏹️ Reverse completed"
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
-                if reverseConnection then
-                    reverseConnection:Disconnect()
-                    reverseConnection = nil
-                end
-                return
-            end
-            
-            currentFrame = currentFrame - REVERSE_FRAME_STEP
-            
-            local frame = StudioCurrentRecording.Frames[math.floor(currentFrame)]
-            if frame then
-                task.spawn(function()
-                    local targetCFrame = GetFrameCFrame(frame)
-                    hrp.CFrame = targetCFrame
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    
-                    if hum then
-                        hum.WalkSpeed = 0
-                    end
-                    
-                    UpdateStudioUI()
-                end)
-            end
-        end)
-        
-        AddConnection(reverseConnection)
     end)
 end
 
-local function StopReversePlayback()
-    IsReversing = false
+local function GoNextTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
     
     task.spawn(function()
-        if reverseConnection then
-            reverseConnection:Disconnect()
-            reverseConnection = nil
-        end
-        
-        StatusLabel.Text = "⏸️ Reverse stopped"
-        StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-    end)
-end
-
-local function StartForwardPlayback()
-    if IsForwarding or not StudioIsRecording then return end
-    
-    task.spawn(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            StatusLabel.Text = "❌ Character not found!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        if #StudioCurrentRecording.Frames == 0 then
-            StatusLabel.Text = "❌ No frames to forward!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-            return
-        end
-        
-        IsForwarding = true
         IsTimelineMode = true
         
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
+        local targetFrame = math.min(#StudioCurrentRecording.Frames, TimelinePosition + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
         
-        if hum then
-            hum.AutoRotate = false
+        TimelinePosition = targetFrame
+        CurrentTimelineFrame = targetFrame
+        
+        local frame = StudioCurrentRecording.Frames[targetFrame]
+        if frame then
+            ApplyFrameToCharacter(frame)
+            UpdateStudioUI()
+            PlaySound("Click")
         end
-        
-        StatusLabel.Text = "⏩ Forwarding 0.5s..."
-        StatusLabel.TextColor3 = Color3.fromRGB(200, 150, 100)
-        
-        local currentPos = hrp.Position
-        local nearestFrame, _ = FindNearestFrame(StudioCurrentRecording.Frames, currentPos)
-        local currentFrame = nearestFrame
-        local targetFrame = math.min(#StudioCurrentRecording.Frames, currentFrame + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
-        
-        forwardConnection = RunService.Heartbeat:Connect(function()
-            if not IsForwarding or not StudioIsRecording then
-                if forwardConnection then
-                    forwardConnection:Disconnect()
-                    forwardConnection = nil
-                end
-                return
-            end
-            
-            char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                IsForwarding = false
-                if forwardConnection then
-                    forwardConnection:Disconnect()
-                    forwardConnection = nil
-                end
-                return
-            end
-            
-            hrp = char:FindFirstChild("HumanoidRootPart")
-            hum = char:FindFirstChildOfClass("Humanoid")
-            
-            if not hrp or not hum then
-                IsForwarding = false
-                if forwardConnection then
-                    forwardConnection:Disconnect()
-                    forwardConnection = nil
-                end
-                return
-            end
-            
-            if currentFrame >= targetFrame then
-                currentFrame = targetFrame
-                IsForwarding = false
-                StatusLabel.Text = "⏹️ Forward completed"
-                StatusLabel.TextColor3 = Color3.fromRGB(255, 150, 50)
-                if forwardConnection then
-                    forwardConnection:Disconnect()
-                    forwardConnection = nil
-                end
-                return
-            end
-            
-            currentFrame = currentFrame + FORWARD_FRAME_STEP
-            
-            local frame = StudioCurrentRecording.Frames[math.floor(currentFrame)]
-            if frame then
-                task.spawn(function()
-                    local targetCFrame = GetFrameCFrame(frame)
-                    hrp.CFrame = targetCFrame
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    
-                    if hum then
-                        hum.WalkSpeed = 0
-                    end
-                    
-                    UpdateStudioUI()
-                end)
-            end
-        end)
-        
-        AddConnection(forwardConnection)
-    end)
-end
-
-local function StopForwardPlayback()
-    IsForwarding = false
-    
-    task.spawn(function()
-        if forwardConnection then
-            forwardConnection:Disconnect()
-            forwardConnection = nil
-        end
-        
-        StatusLabel.Text = "⏸️ Forward stopped"
-        StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
     end)
 end
 
 local function ResumeStudioRecording()
     if not StudioIsRecording then
-        StatusLabel.Text = "❌ Not recording!"
+        PlaySound("Error")
         return
     end
     
     task.spawn(function()
-        if IsReversing then
-            StopReversePlayback()
-        end
-        
-        if IsForwarding then
-            StopForwardPlayback()
+        if #StudioCurrentRecording.Frames == 0 then
+            PlaySound("Error")
+            return
         end
         
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
-            StatusLabel.Text = "❌ Character not found!"
+            PlaySound("Error")
             return
         end
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
-        local currentPos = hrp.Position
-        local nearestFrame, distance = FindNearestFrame(StudioCurrentRecording.Frames, currentPos)
-        
-        if nearestFrame < #StudioCurrentRecording.Frames then
-            local framesDeleted = #StudioCurrentRecording.Frames - nearestFrame
-            for i = #StudioCurrentRecording.Frames, nearestFrame + 1, -1 do
+        if TimelinePosition < #StudioCurrentRecording.Frames then
+            local framesDeleted = #StudioCurrentRecording.Frames - TimelinePosition
+            for i = #StudioCurrentRecording.Frames, TimelinePosition + 1, -1 do
                 table.remove(StudioCurrentRecording.Frames, i)
             end
-            StatusLabel.Text = "🗑️ Deleted " .. framesDeleted .. " frames"
         end
         
         IsTimelineMode = false
         
         if hum then
-            hum.WalkSpeed = 16
+            hum.WalkSpeed = CurrentWalkSpeed
             hum.AutoRotate = true
         end
         
-        StatusLabel.Text = "▶ Recording resumed"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
         UpdateStudioUI()
+        PlaySound("Success")
     end)
 end
 
 local function SaveStudioRecording()
     task.spawn(function()
         if #StudioCurrentRecording.Frames == 0 then
-            StatusLabel.Text = "❌ No frames to save!"
-            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
             PlaySound("Error")
             return
         end
@@ -1763,16 +1571,15 @@ local function SaveStudioRecording()
         checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
         UpdateRecordList()
         
-        StatusLabel.Text = "💾 Saved: " .. StudioCurrentRecording.Name
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-        
         PlaySound("Success")
         
         StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
         IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
         UpdateStudioUI()
         
-        wait(1.5)
+        wait(1)
         RecordingStudio.Visible = false
         MainFrame.Visible = true
     end)
@@ -1786,10 +1593,10 @@ local function ClearStudioRecording()
         
         StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
         IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
         
         UpdateStudioUI()
-        StatusLabel.Text = "🗑️ Cleared - Ready to record"
-        StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         PlaySound("Success")
     end)
 end
@@ -1805,31 +1612,17 @@ RecordBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
-ReverseBtn.MouseButton1Click:Connect(function()
+BackBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(ReverseBtn)
-        if IsReversing then
-            StopReversePlayback()
-        else
-            if IsForwarding then
-                StopForwardPlayback()
-            end
-            StartReversePlayback()
-        end
+        AnimateButtonClick(BackBtn)
+        GoBackTimeline()
     end)
 end)
 
-ForwardBtn.MouseButton1Click:Connect(function()
+NextBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(ForwardBtn)
-        if IsForwarding then
-            StopForwardPlayback()
-        else
-            if IsReversing then
-                StopReversePlayback()
-            end
-            StartForwardPlayback()
-        end
+        AnimateButtonClick(NextBtn)
+        GoNextTimeline()
     end)
 end)
 
@@ -1859,12 +1652,6 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(CloseStudioBtn)
         if StudioIsRecording then
             StopStudioRecording()
-        end
-        if IsReversing then
-            StopReversePlayback()
-        end
-        if IsForwarding then
-            StopForwardPlayback()
         end
         RecordingStudio.Visible = false
         MainFrame.Visible = true
@@ -2522,12 +2309,39 @@ local function VisualizeAllPaths()
     end
 end
 
+-- ========= LOADSTRING SUPPORT FOR GITHUB =========
+local function LoadScriptFromURL(url)
+    task.spawn(function()
+        local success, result = pcall(function()
+            return game:HttpGet(url, true)
+        end)
+        
+        if success and result then
+            local loadSuccess, loadError = pcall(function()
+                loadstring(result)()
+            end)
+            
+            if loadSuccess then
+                PlaySound("Success")
+            else
+                PlaySound("Error")
+                warn("Script execution error:", loadError)
+            end
+        else
+            PlaySound("Error")
+            warn("Failed to load script from URL:", result)
+        end
+    end)
+end
+
+-- Example usage (user can modify this):
+-- LoadScriptFromURL("https://raw.githubusercontent.com/username/repo/main/script.lua")
+
 OpenStudioBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(OpenStudioBtn)
     MainFrame.Visible = false
     RecordingStudio.Visible = true
-    StatusLabel.Text = "🎬 Recording Studio Ready"
-    StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    UpdateStudioUI()
 end)
 
 PlayBtnBig.MouseButton1Click:Connect(function()
@@ -2604,10 +2418,10 @@ PathToggleBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(PathToggleBtn)
     ShowPaths = not ShowPaths
     if ShowPaths then
-        PathToggleBtn.Text = "HIDE RUTE"
+        PathToggleBtn.Text = "HIDE"
         VisualizeAllPaths()
     else
-        PathToggleBtn.Text = "SHOW RUTE"
+        PathToggleBtn.Text = "PATH"
         ClearPathVisualization()
     end
 end)
@@ -2682,6 +2496,14 @@ UserInputService.InputBegan:Connect(function(input, processed)
     elseif input.KeyCode == Enum.KeyCode.F2 then
         ToggleInfiniteJump()
         AnimateJump(InfiniteJump)
+    elseif input.KeyCode == Enum.KeyCode.LeftBracket then
+        if RecordingStudio.Visible then
+            GoBackTimeline()
+        end
+    elseif input.KeyCode == Enum.KeyCode.RightBracket then
+        if RecordingStudio.Visible then
+            GoNextTimeline()
+        end
     end
 end)
 
@@ -2711,3 +2533,12 @@ game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
         ShowJumpButton()
     end
 end)
+
+print("ByaruL Movement Recorder v2.0 Loaded!")
+print("F8: Toggle Recording Studio")
+print("F9: Start/Stop Recording (Studio)")
+print("F10: Play/Stop Playback")
+print("F11: Hide/Show GUI")
+print("[ ]: Go Back 0.5s (Studio)")
+print("]: Go Next 0.5s (Studio)")
+print("GitHub Support: Use LoadScriptFromURL(url) function")
