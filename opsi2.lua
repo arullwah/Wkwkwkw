@@ -58,6 +58,40 @@ local PathVisualization = {}
 local ShowPaths = false
 local CurrentPauseMarker = nil
 
+-- ========= BIDIRECTIONAL ADAPTER SYSTEM =========
+local BidirectionalAdapter = {
+    Recorder = {
+        Recording = false,
+        Timeline = {},
+        Meta = nil,
+        _conn = nil,
+        _t = 0
+    },
+    Player = {
+        Playing = false,
+        _conn = nil,
+        _i = 1,
+        _t = 0,
+        Speed = 1.0
+    }
+}
+
+-- ========= SMART RESUME SYSTEM =========
+local SmartResume = {
+    _conn = nil,
+    _blendConn = nil,
+    _tline = nil,
+    _pts = nil,
+    _cum = nil,
+    _len = 0,
+    _active = false,
+    _char = nil,
+    _locked = false,
+    _lastLockPos = nil,
+    _state = "idle",
+    OnResolved = nil
+}
+
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
 local totalPausedDuration = 0
@@ -85,62 +119,6 @@ local shiftLockConnection = nil
 local originalMouseBehavior = nil
 local ShiftLockEnabled = false
 local isShiftLockActive = false
-
--- ========= CHARACTER TYPE DETECTION =========
-local function GetCharacterType(char)
-    if not char then return "Unknown" end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return "Unknown" end
-    
-    if humanoid.RigType == Enum.HumanoidRigType.R6 then
-        return "R6"
-    elseif humanoid.RigType == Enum.HumanoidRigType.R15 then
-        return "R15"
-    end
-    
-    return "Unknown"
-end
-
--- ========= HEIGHT DETECTION SYSTEM =========
-local function GetCharacterHeight(char)
-    if not char then return 0 end
-    
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if not humanoid or not hrp then return 0 end
-    
-    if GetCharacterType(char) == "R6" then
-        return 4.5
-    else
-        local height = 5.0
-        local head = char:FindFirstChild("Head")
-        local leftLeg = char:FindFirstChild("LeftLowerLeg") or char:FindFirstChild("Left Leg")
-        local rightLeg = char:FindFirstChild("RightLowerLeg") or char:FindFirstChild("Right Leg")
-        
-        if head and (leftLeg or rightLeg) then
-            local headPos = head.Position.Y
-            local legPos = leftLeg and leftLeg.Position.Y or rightLeg.Position.Y
-            height = math.abs(headPos - legPos) + 1.0
-        end
-        
-        return math.clamp(height, 4.5, 7.0)
-    end
-end
-
--- ========= GROUND POSITION ADJUSTMENT =========
-local function GetGroundPositionAdjustment(recordCharType, playbackCharType, recordHeight, playbackHeight)
-    local adjustment = 0
-    
-    if recordCharType == "R6" and playbackCharType == "R15" then
-        adjustment = (playbackHeight - recordHeight) * 0.3
-    elseif recordCharType == "R15" and playbackCharType == "R6" then
-        adjustment = (recordHeight - playbackHeight) * 0.3
-    end
-    
-    return adjustment
-end
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -188,6 +166,444 @@ local function CleanupConnections()
     if jumpConnection then
         jumpConnection:Disconnect()
         jumpConnection = nil
+    end
+    
+    -- Cleanup bidirectional system
+    if BidirectionalAdapter.Recorder._conn then
+        BidirectionalAdapter.Recorder._conn:Disconnect()
+        BidirectionalAdapter.Recorder._conn = nil
+    end
+    if BidirectionalAdapter.Player._conn then
+        BidirectionalAdapter.Player._conn:Disconnect()
+        BidirectionalAdapter.Player._conn = nil
+    end
+    
+    -- Cleanup smart resume system
+    if SmartResume._conn then
+        SmartResume._conn:Disconnect()
+        SmartResume._conn = nil
+    end
+    if SmartResume._blendConn then
+        SmartResume._blendConn:Disconnect()
+        SmartResume._blendConn = nil
+    end
+end
+
+-- ========= BIDIRECTIONAL ADAPTER IMPLEMENTATION =========
+local function Hum(char) return char and char:FindFirstChildOfClass("Humanoid") end
+local function HRP(char)
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+        or char:FindFirstChild("LowerTorso")
+        or char:FindFirstChild("Torso")
+end
+local function IsR6(h) return h and h.RigType == Enum.HumanoidRigType.R6 end
+
+local function GetScales(hum)
+    if not hum or IsR6(hum) then
+        return {Head=1, Height=1, Width=1, Depth=1}
+    end
+    return {
+        Head   = (hum:FindFirstChild("HeadScale")        and hum.HeadScale.Value)        or 1,
+        Height = (hum:FindFirstChild("BodyHeightScale")  and hum.BodyHeightScale.Value)  or 1,
+        Width  = (hum:FindFirstChild("BodyWidthScale")   and hum.BodyWidthScale.Value)   or 1,
+        Depth  = (hum:FindFirstChild("BodyDepthScale")   and hum.BodyDepthScale.Value)   or 1,
+    }
+end
+
+local function SlerpCF(a, b, t)
+    local ap, bp = a.Position, b.Position
+    local aX,aY,aZ = a:ToEulerAnglesYXZ()
+    local bX,bY,bZ = b:ToEulerAnglesYXZ()
+    local p = ap:Lerp(bp, t)
+    return CFrame.new(p) * CFrame.Angles(aX + (bX-aX)*t, aY + (bY-aY)*t, aZ + (bZ-aZ)*t)
+end
+
+local function GroundBelow(originPos, ignore)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {ignore or workspace.CurrentCamera}
+    local hit = workspace:Raycast(originPos + Vector3.new(0,5,0), Vector3.new(0,-1000,0), params)
+    return hit and hit.Position or nil
+end
+
+-- BIDIRECTIONAL RECORDER
+function BidirectionalAdapter.Recorder.Start(char)
+    BidirectionalAdapter.Recorder.Stop()
+    char = char or player.Character
+    local hum, root = Hum(char), HRP(char)
+    if not (hum and root) then return false end
+
+    BidirectionalAdapter.Recorder.Recording = true
+    BidirectionalAdapter.Recorder.Timeline  = {}
+    BidirectionalAdapter.Recorder.Meta = {
+        RigType   = IsR6(hum) and "R6" or "R15",
+        HipHeight = hum.HipHeight or 2,
+        Scales    = GetScales(hum),
+    }
+    BidirectionalAdapter.Recorder._t = 0
+
+    BidirectionalAdapter.Recorder._conn = RunService.Heartbeat:Connect(function(dt)
+        if not BidirectionalAdapter.Recorder.Recording then return end
+        BidirectionalAdapter.Recorder._t = BidirectionalAdapter.Recorder._t + dt
+        table.insert(BidirectionalAdapter.Recorder.Timeline, { t = BidirectionalAdapter.Recorder._t, cf = root.CFrame })
+    end)
+    return true
+end
+
+function BidirectionalAdapter.Recorder.Stop()
+    if BidirectionalAdapter.Recorder._conn then 
+        BidirectionalAdapter.Recorder._conn:Disconnect() 
+    end
+    BidirectionalAdapter.Recorder._conn = nil
+    BidirectionalAdapter.Recorder.Recording = false
+    return BidirectionalAdapter.Recorder.Timeline, BidirectionalAdapter.Recorder.Meta
+end
+
+-- BIDIRECTIONAL CONVERTER
+local function HeightOffset(srcMeta, dstHum)
+    local srcHip = (srcMeta and srcMeta.HipHeight) or 2
+    local dstHip = (dstHum and dstHum.HipHeight) or 2
+
+    local dstSc = GetScales(dstHum)
+    local srcSc = (srcMeta and srcMeta.Scales) or {Head=1,Height=1,Width=1,Depth=1}
+
+    local scaleDelta = (dstSc.Height - srcSc.Height) * 2.0 + (dstSc.Head - srcSc.Head) * 0.5
+    return (dstHip - srcHip) + scaleDelta
+end
+
+local function ProjectToGround(targetChar, desiredCF)
+    local dstHum = Hum(targetChar)
+    local ground = GroundBelow(desiredCF.Position, targetChar)
+    if ground and dstHum then
+        local y = ground.Y + (dstHum.HipHeight or 2)
+        local p = Vector3.new(desiredCF.X, y, desiredCF.Z)
+        local _, yaw = desiredCF:ToEulerAnglesYXZ()
+        return CFrame.new(p) * CFrame.Angles(0, yaw, 0)
+    end
+    return desiredCF
+end
+
+local function AdaptFrame(srcMeta, dstHum, cfSrc)
+    local offY  = HeightOffset(srcMeta, dstHum)
+    local pos   = cfSrc.Position + Vector3.new(0, offY, 0)
+    local _, yaw = cfSrc:ToEulerAnglesYXZ()
+    return CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+end
+
+-- BIDIRECTIONAL PLAYER
+local function NormalizeTime(tl)
+    local t0 = tl[1].t
+    for _,f in ipairs(tl) do f._tn = f.t - t0 end
+    return tl[#tl]._tn
+end
+
+function BidirectionalAdapter.Player.Play(timeline, targetChar, srcMeta)
+    BidirectionalAdapter.Player.Stop()
+    if type(timeline)~="table" or #timeline<2 then return false end
+    targetChar = targetChar or player.Character
+    local dstHum, dstRoot = Hum(targetChar), HRP(targetChar)
+    if not (dstHum and dstRoot) then return false end
+
+    srcMeta = srcMeta or {RigType="R6", HipHeight=2, Scales={Head=1,Height=1,Width=1,Depth=1}}
+
+    BidirectionalAdapter.Player.Playing = true
+    BidirectionalAdapter.Player._t, BidirectionalAdapter.Player._i = 0, 1
+    local totalT = NormalizeTime(timeline)
+
+    BidirectionalAdapter.Player._conn = RunService.RenderStepped:Connect(function(dt)
+        if not BidirectionalAdapter.Player.Playing then return end
+        if not (dstRoot.Parent and dstHum.Parent) then BidirectionalAdapter.Player.Stop(); return end
+
+        BidirectionalAdapter.Player._t = BidirectionalAdapter.Player._t + dt * BidirectionalAdapter.Player.Speed
+        if BidirectionalAdapter.Player._t > totalT then BidirectionalAdapter.Player.Stop(); return end
+
+        while BidirectionalAdapter.Player._i < #timeline and timeline[BidirectionalAdapter.Player._i+1]._tn < BidirectionalAdapter.Player._t do
+            BidirectionalAdapter.Player._i = BidirectionalAdapter.Player._i + 1
+        end
+
+        local A = timeline[BidirectionalAdapter.Player._i]
+        local B = timeline[math.min(BidirectionalAdapter.Player._i+1, #timeline)]
+        local span  = math.max(1e-5, B._tn - A._tn)
+        local alpha = math.clamp((BidirectionalAdapter.Player._t - A._tn)/span, 0, 1)
+
+        local cfA = ProjectToGround(targetChar, AdaptFrame(srcMeta, dstHum, A.cf))
+        local cfB = ProjectToGround(targetChar, AdaptFrame(srcMeta, dstHum, B.cf))
+        dstRoot.CFrame = SlerpCF(cfA, cfB, alpha)
+    end)
+    return true
+end
+
+function BidirectionalAdapter.Player.Stop()
+    if BidirectionalAdapter.Player._conn then 
+        BidirectionalAdapter.Player._conn:Disconnect() 
+    end
+    BidirectionalAdapter.Player._conn = nil
+    BidirectionalAdapter.Player.Playing = false
+end
+
+-- ========= SMART RESUME IMPLEMENTATION =========
+local function toNum(v)
+    if typeof(v)=="number" then return v end
+    if typeof(v)=="string" then return tonumber((v:gsub("[^%d%-%+%.eE]", ""))) end
+    return tonumber(v) or 0
+end
+
+local function parseVec3(v)
+    if typeof(v)=="Vector3" then return v end
+    if typeof(v)=="string" then
+        local x,y,z = v:match("([^,]+),([^,]+),([^,]+)")
+        if x and y and z then
+            return Vector3.new(toNum(x), toNum(y), toNum(z))
+        end
+        local n = toNum(v)
+        return Vector3.new(n,0,0)
+    end
+    return Vector3.new(0,0,0)
+end
+
+local function norm(v)
+    local m = v.Magnitude
+    if m < 1e-6 then return v end
+    return v / m
+end
+
+local function cfFromFrame(f)
+    local pos = parseVec3(f.Position)
+    local look = parseVec3(f.LookVector)
+    local up   = parseVec3(f.UpVector)
+    if look.Magnitude < 1e-6 then look = Vector3.new(0,0,-1) end
+    if up.Magnitude   < 1e-6 then up   = Vector3.new(0,1, 0) end
+    look = norm(look); up = norm(up)
+    local right = norm(look:Cross(up))
+    if right.Magnitude < 1e-6 then
+        right = Vector3.new(1,0,0)
+        up    = Vector3.new(0,1,0)
+    else
+        up = norm(right:Cross(look))
+    end
+    return CFrame.fromMatrix(pos, right, up, -look)
+end
+
+local function lerpCF(a,b,t)
+    local p = a.Position:Lerp(b.Position,t)
+    local _,ay,_ = a:ToEulerAnglesYXZ()
+    local _,by,_ = b:ToEulerAnglesYXZ()
+    local y = ay + (by-ay)*t
+    return CFrame.new(p) * CFrame.Angles(0,y,0)
+end
+
+local function groundBelow(pos, ignore)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {ignore or workspace.CurrentCamera}
+    params.IgnoreWater = true
+    local res = workspace:Raycast(pos + Vector3.new(0,4,0), Vector3.new(0,-1000,0), params)
+    return res and res.Position or nil
+end
+
+local function alignToGround(cf, char)
+    local h = Hum(char)
+    if not h then return cf end
+    local g = groundBelow(cf.Position, char)
+    if not g then return cf end
+    local y = g.Y + (h.HipHeight or 2)
+    local p = Vector3.new(cf.X, y, cf.Z)
+    local _,yaw,_ = cf:ToEulerAnglesYXZ()
+    return CFrame.new(p) * CFrame.Angles(0,yaw,0)
+end
+
+local function closestPointOnSegment(p, a, b)
+    local ab = b - a
+    local ab2 = ab:Dot(ab)
+    if ab2 < 1e-6 then return a, 0 end
+    local ap = p - a
+    local t = ap:Dot(ab) / ab2
+    if t <= 0 then return a, 0 end
+    if t >= 1 then return b, 1 end
+    return a + ab * t, t
+end
+
+local function buildTimeline(raw)
+    local out = {}
+    for i=1,#raw do
+        local f = raw[i]
+        local cf = cfFromFrame(f)
+        local t  = toNum(f.Timestamp) or (i-1)*0.1
+        local sp = toNum(f.WalkSpeed)
+        if sp <= 0 then sp = 12 end
+        out[i] = { t=t, cf=cf, speed=sp }
+    end
+    if #out >= 1 then
+        local t0 = out[1].t
+        for i=1,#out do out[i].tn = out[i].t - t0 end
+    end
+    return out
+end
+
+local function precompute(tl)
+    local pts = {}
+    local cum = {}
+    local total = 0
+    pts[1] = tl[1].cf.Position
+    cum[1] = 0
+    for i=2,#tl do
+        local p = tl[i].cf.Position
+        local d = (p - pts[i-1]).Magnitude
+        total = total + d
+        pts[i] = p
+        cum[i] = total
+    end
+    return pts, cum, total
+end
+
+local function nearestOnPath(pos, pts)
+    local bestD = math.huge
+    local bestI, bestAlpha, bestPoint = 1, 0, nil
+    for i=1,#pts-1 do
+        local a, b = pts[i], pts[i+1]
+        local cp, t = closestPointOnSegment(pos, a, b)
+        local d = (pos - cp).Magnitude
+        if d < bestD then
+            bestD = d; bestI = i; bestAlpha = t; bestPoint = cp
+        end
+    end
+    return bestI, bestAlpha, bestPoint, bestD
+end
+
+local function timeAndCF(i, alpha, tl)
+    local i2 = math.min(i+1, #tl)
+    local A, B = tl[i], tl[i2]
+    local t = A.tn + (B.tn - A.tn)*alpha
+    local cf = A.cf:Lerp(B.cf, alpha)
+    local speed = A.speed + (B.speed - A.speed)*alpha
+    return t, cf, speed
+end
+
+local function setWalkspeed(char, spd)
+    local h = Hum(char)
+    if not h then return end
+    h.WalkSpeed = spd
+end
+
+local function stepUpIfNeeded(char, towardDir)
+    local root = HRP(char); if not root then return end
+    local origin = root.Position + Vector3.new(0,1.5,0)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char, workspace.CurrentCamera}
+    params.IgnoreWater = true
+
+    local ahead = workspace:Raycast(origin, towardDir * 3.5, params)
+    if ahead and ahead.Position then
+        local top = workspace:Raycast(ahead.Position + Vector3.new(0,3.5,0), Vector3.new(0, -3.5+0.1, 0), params)
+        if not top then
+            root.CFrame = root.CFrame + Vector3.new(0, math.min(0.6, 3.5*0.2), 0)
+        end
+    end
+end
+
+local function startBlend(char, fromCF, toCF, dur)
+    if SmartResume._blendConn then SmartResume._blendConn:Disconnect() end
+    local t = 0
+    SmartResume._blendConn = RunService.RenderStepped:Connect(function(dt)
+        t = t + dt
+        local r = math.clamp(t / dur, 0, 1)
+        local eased = 1 - math.exp(-7*r)
+        local cf = lerpCF(fromCF, toCF, eased)
+        local aligned = alignToGround(cf, char)
+        pcall(function() HRP(char).CFrame = aligned end)
+        if r >= 1 then 
+            SmartResume._blendConn:Disconnect() 
+            SmartResume._blendConn = nil 
+        end
+    end)
+end
+
+function SmartResume.Attach(rawTimeline, character)
+    SmartResume.Detach()
+    if not rawTimeline or #rawTimeline < 2 then return false end
+    SmartResume._tline = buildTimeline(rawTimeline)
+    SmartResume._pts, SmartResume._cum, SmartResume._len = precompute(SmartResume._tline)
+    SmartResume._char = character or player.Character
+    return true
+end
+
+function SmartResume.Detach()
+    if SmartResume._conn then SmartResume._conn:Disconnect() end
+    SmartResume._conn = nil
+    if SmartResume._blendConn then SmartResume._blendConn:Disconnect() end
+    SmartResume._blendConn = nil
+    SmartResume._tline, SmartResume._pts, SmartResume._cum, SmartResume._len = nil,nil,nil,0
+    SmartResume._char = nil
+    SmartResume._locked = false
+    SmartResume._state = "idle"
+end
+
+function SmartResume.SetPlaybackActive(b)
+    SmartResume._active = b and true or false
+    if SmartResume._active and not SmartResume._conn then
+        SmartResume._conn = RunService.RenderStepped:Connect(SmartResume._step)
+    elseif not SmartResume._active and SmartResume._conn then
+        SmartResume._conn:Disconnect(); SmartResume._conn = nil
+    end
+end
+
+function SmartResume._step()
+    if not (SmartResume._active and SmartResume._tline and SmartResume._char) then return end
+    local root = HRP(SmartResume._char); if not root then return end
+
+    local pos = root.Position
+    local i, alpha, cp, dist = nearestOnPath(pos, SmartResume._pts)
+
+    if dist and dist <= 12 then
+        local tnorm, targetCF, frameSpeed = timeAndCF(i, alpha, SmartResume._tline)
+        targetCF = alignToGround(targetCF, SmartResume._char)
+
+        local dirVec = (SmartResume._pts[math.min(i+1,#SmartResume._pts)] - SmartResume._pts[i])
+        local mag = dirVec.Magnitude
+        if mag > 1e-6 then dirVec = dirVec / mag else dirVec = root.CFrame.LookVector end
+
+        setWalkspeed(SmartResume._char, math.max(6, frameSpeed or 12))
+        stepUpIfNeeded(SmartResume._char, dirVec)
+
+        local dur = (dist <= 5) and 0.18 or 0.35
+        startBlend(SmartResume._char, root.CFrame, targetCF, dur)
+
+        if SmartResume.OnResolved then
+            local forward = 1
+            if root.CFrame.LookVector:Dot(dirVec) < 0 then forward = -1 end
+            SmartResume.OnResolved({
+                index     = i,
+                alpha     = alpha,
+                time      = tnorm,
+                direction = forward,
+                targetCF  = targetCF
+            })
+        end
+
+        SmartResume._locked = true
+        SmartResume._lastLockPos = cp
+        SmartResume._state = "joined"
+        return
+    end
+
+    if true then -- TELEPORT_IF_FAR
+        local startCF = SmartResume._tline[1].cf
+        startCF = alignToGround(startCF, SmartResume._char)
+        pcall(function() root.CFrame = startCF end)
+        setWalkspeed(SmartResume._char, math.max(6, SmartResume._tline[1].speed or 12))
+        
+        if SmartResume.OnResolved then
+            SmartResume.OnResolved({
+                index     = 1,
+                alpha     = 0,
+                time      = 0,
+                direction = 1,
+                targetCF  = startCF
+            })
+        end
+        SmartResume._state = "teleported"
     end
 end
 
@@ -587,31 +1003,6 @@ end
 
 local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
-end
-
--- ========= ENHANCED FRAME APPLICATION WITH HEIGHT ADJUSTMENT =========
-local function ApplyFrameWithHeightAdjustment(frame, hrp, hum, recordCharType, recordHeight)
-    local playbackCharType = GetCharacterType(hrp.Parent)
-    local playbackHeight = GetCharacterHeight(hrp.Parent)
-    
-    local targetPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local lookDir = Vector3.new(frame.LookVector[1], 0, frame.LookVector[3])
-    
-    -- Apply height adjustment untuk R6/R15 compatibility
-    local heightAdjustment = GetGroundPositionAdjustment(recordCharType, playbackCharType, recordHeight, playbackHeight)
-    targetPos = Vector3.new(targetPos.X, targetPos.Y + heightAdjustment, targetPos.Z)
-    
-    -- Smooth movement untuk mengurangi glitch
-    hrp.CFrame = CFrame.lookAt(targetPos, targetPos + lookDir)
-    
-    -- Velocity yang lebih stabil
-    local smoothVelocity = GetFrameVelocity(frame) * 0.7
-    hrp.AssemblyLinearVelocity = smoothVelocity
-    
-    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-    hum.AutoRotate = true
-    
-    return heightAdjustment
 end
 
 -- ========= GUI SETUP =========
@@ -1167,7 +1558,6 @@ local function SaveHumanoidState()
         prePauseSit = humanoid.Sit
         prePauseHumanoidState = humanoid:GetState()
         
-        -- Special handling untuk climbing state
         if prePauseHumanoidState == Enum.HumanoidStateType.Climbing then
             humanoid.PlatformStand = false
             humanoid.AutoRotate = false
@@ -1183,7 +1573,6 @@ local function RestoreHumanoidState()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
     if humanoid then
-        -- Special handling untuk climbing state
         if prePauseHumanoidState == Enum.HumanoidStateType.Climbing then
             humanoid.PlatformStand = false
             humanoid.AutoRotate = false
@@ -1227,10 +1616,13 @@ local function RestoreFullUserControl()
     end
 end
 
+-- ========= ENHANCED RECORDING SYSTEM =========
 function StartRecording()
     if IsRecording then return end
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
+    
+    -- Gunakan bidirectional recorder untuk hasil terbaik
+    local success = BidirectionalAdapter.Recorder.Start(player.Character)
+    if not success then
         PlaySound("Error")
         return
     end
@@ -1239,9 +1631,7 @@ function StartRecording()
     CurrentRecording = {
         Frames = {}, 
         StartTime = tick(), 
-        Name = "recording_" .. os.date("%H%M%S"),
-        CharacterType = GetCharacterType(char),
-        CharacterHeight = GetCharacterHeight(char)
+        Name = "recording_" .. os.date("%H%M%S")
     }
     lastRecordTime = 0
     lastRecordPos = nil
@@ -1252,6 +1642,7 @@ function StartRecording()
     
     PlaySound("RecordStart")
     
+    -- Fallback recording system untuk kompatibilitas
     recordConnection = RunService.Heartbeat:Connect(function()
         if not IsRecording then return end
         
@@ -1303,6 +1694,10 @@ end
 
 function StopRecording()
     if not IsRecording then return end
+    
+    -- Dapatkan timeline dan metadata dari bidirectional system
+    local timeline, meta = BidirectionalAdapter.Recorder.Stop()
+    
     IsRecording = false
     
     if recordConnection then
@@ -1310,37 +1705,67 @@ function StopRecording()
         recordConnection = nil
     end
     
-    if #CurrentRecording.Frames > 0 then
+    if timeline and #timeline > 0 then
+        -- Simpan data bidirectional
+        local name = "recording_" .. os.date("%H%M%S")
+        CurrentRecording = {
+            Frames = timeline,
+            Meta = meta,
+            Name = name,
+            StartTime = tick()
+        }
         AutoSaveRecording()
+        PlaySound("Success")
+    elseif #CurrentRecording.Frames > 0 then
+        -- Fallback ke data traditional
+        AutoSaveRecording()
+    else
+        PlaySound("Error")
     end
     
     RecordBtnBig.Text = "RECORDING"
     RecordBtnBig.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    
-    PlaySound("RecordStop")
     FrameLabel.Text = "Frames: 0"
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM =========
+-- ========= ENHANCED PLAYBACK SYSTEM =========
 function PlayRecording(name)
     if IsPlaying then return end
     
     local recording = name and RecordedMovements[name] or (RecordingOrder[1] and RecordedMovements[RecordingOrder[1]])
-    if not recording or #recording == 0 then
+    if not recording or (not recording.Frames and not recording.Meta) then
         PlaySound("Error")
         return
     end
-    
+
+    -- Coba gunakan Smart Resume terlebih dahulu
+    if recording.Frames and #recording.Frames >= 2 then
+        local success = SmartResume.Attach(recording.Frames, player.Character)
+        if success then
+            SmartResume.OnResolved = function(info)
+                -- Start playback dari posisi yang tepat menggunakan bidirectional system
+                if recording.Meta then
+                    BidirectionalAdapter.Player.Play(recording.Frames, player.Character, recording.Meta)
+                    BidirectionalAdapter.Player._t = info.time
+                    BidirectionalAdapter.Player._i = info.index
+                    BidirectionalAdapter.Player.Speed = CurrentSpeed
+                end
+                IsPlaying = true
+                PlaySound("Success")
+                SmartResume.SetPlaybackActive(false)
+            end
+            SmartResume.SetPlaybackActive(true)
+            return
+        end
+    end
+
+    -- Fallback ke traditional playback
     local char = player.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         PlaySound("Error")
         return
     end
 
-    -- Get recording metadata
-    local recordCharType = CurrentRecording.CharacterType or "Unknown"
-    local recordHeight = CurrentRecording.CharacterHeight or 5.0
-    
     IsPlaying = true
     IsPaused = false
     currentPlaybackFrame = 1
@@ -1409,11 +1834,11 @@ function PlayRecording(name)
         local currentTime = tick()
         local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
         
-        while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
+        while currentPlaybackFrame < #recording.Frames and GetFrameTimestamp(recording.Frames[currentPlaybackFrame + 1]) <= effectiveTime do
             currentPlaybackFrame = currentPlaybackFrame + 1
         end
 
-        if currentPlaybackFrame >= #recording then
+        if currentPlaybackFrame >= #recording.Frames then
             IsPlaying = false
             RestoreFullUserControl()
             PlaySound("Success")
@@ -1423,7 +1848,7 @@ function PlayRecording(name)
             return
         end
 
-        local frame = recording[currentPlaybackFrame]
+        local frame = recording.Frames[currentPlaybackFrame]
         if not frame then
             IsPlaying = false
             RestoreFullUserControl()
@@ -1434,8 +1859,16 @@ function PlayRecording(name)
         end
 
         pcall(function()
-            -- Apply frame dengan height adjustment untuk R6/R15 compatibility
-            ApplyFrameWithHeightAdjustment(frame, hrp, hum, recordCharType, recordHeight)
+            local targetPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            local lookDir = Vector3.new(frame.LookVector[1], 0, frame.LookVector[3])
+            
+            hrp.CFrame = CFrame.lookAt(targetPos, targetPos + lookDir)
+            
+            local smoothVelocity = GetFrameVelocity(frame) * 0.7
+            hrp.AssemblyLinearVelocity = smoothVelocity
+            
+            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.AutoRotate = true
             
             if hum then
                 local moveState = frame.MoveState
@@ -1499,7 +1932,7 @@ function StartAutoLoopAll()
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
-            if not recording or #recording == 0 then
+            if not recording or (not recording.Frames and not recording.Meta) then
                 warn("⚠️ Recording empty: " .. tostring(recordingName))
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
@@ -1509,7 +1942,6 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- ✅ AUTO RESPAWN: Only at start of loop cycle AND if auto respawn is enabled
             if CurrentLoopIndex == 1 and AutoRespawn then
                 warn("🔄 Auto Respawn (Start of Loop Cycle)")
                 ResetCharacter()
@@ -1570,19 +2002,94 @@ function StartAutoLoopAll()
             SaveHumanoidState()
             DisableJump()
             
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
-                
-                if not IsCharacterReady() then
-                    warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
-                    deathRetryCount = deathRetryCount + 1
-                    
-                    if AutoRespawn then
-                        warn("🔄 Auto Respawn ON - Respawning...")
-                        ResetCharacter()
-                        local success = WaitForRespawn()
+            -- Gunakan bidirectional system jika tersedia
+            if recording.Meta and recording.Frames then
+                local success = BidirectionalAdapter.Player.Play(recording.Frames, player.Character, recording.Meta)
+                if success then
+                    BidirectionalAdapter.Player.Speed = CurrentSpeed
+                    while AutoLoop and IsAutoLoopPlaying and BidirectionalAdapter.Player.Playing do
+                        if IsPaused then
+                            if playbackPauseStart == 0 then
+                                playbackPauseStart = tick()
+                                RestoreHumanoidState()
+                                EnableJump()
+                                if ShiftLockEnabled then
+                                    ApplyVisibleShiftLock()
+                                end
+                                UpdatePauseMarker()
+                            end
+                            task.wait(0.1)
+                        else
+                            if playbackPauseStart > 0 then
+                                playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
+                                playbackPauseStart = 0
+                                DisableJump()
+                                UpdatePauseMarker()
+                            end
+                            task.wait()
+                        end
                         
-                        if success then
-                            warn("✅ Respawned! Restarting recording...")
+                        if not IsCharacterReady() then
+                            break
+                        end
+                    end
+                    BidirectionalAdapter.Player.Stop()
+                end
+            else
+                -- Fallback ke traditional playback
+                while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording.Frames and deathRetryCount < maxDeathRetries do
+                    
+                    if not IsCharacterReady() then
+                        warn("💀 Character died during playback! (Retry: " .. deathRetryCount + 1 .. ")")
+                        deathRetryCount = deathRetryCount + 1
+                        
+                        if AutoRespawn then
+                            warn("🔄 Auto Respawn ON - Respawning...")
+                            ResetCharacter()
+                            local success = WaitForRespawn()
+                            
+                            if success then
+                                warn("✅ Respawned! Restarting recording...")
+                                RestoreFullUserControl()
+                                task.wait(1.5)
+                                
+                                currentFrame = 1
+                                playbackStart = tick()
+                                playbackPausedTime = 0
+                                playbackPauseStart = 0
+                                lastPlaybackState = nil
+                                lastStateChangeTime = 0
+                                
+                                SaveHumanoidState()
+                                DisableJump()
+                                
+                                continue
+                            else
+                                warn("⚠️ Respawn failed, retrying...")
+                                task.wait(2)
+                                continue
+                            end
+                        else
+                            warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
+                            
+                            local manualRespawnWait = 0
+                            local maxManualWait = 120
+                            
+                            while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                                manualRespawnWait = manualRespawnWait + 1
+                                
+                                if manualRespawnWait >= maxManualWait then
+                                    warn("⚠️ No manual respawn after 60s, pausing loop...")
+                                    warn("💡 Enable Auto Respawn or respawn manually to continue")
+                                    manualRespawnWait = 0
+                                end
+                                
+                                task.wait(0.5)
+                            end
+                            
+                            if not AutoLoop or not IsAutoLoopPlaying then break end
+                            
+                            warn("✅ Manual respawn detected! Restarting recording...")
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
@@ -1597,135 +2104,104 @@ function StartAutoLoopAll()
                             DisableJump()
                             
                             continue
-                        else
-                            warn("⚠️ Respawn failed, retrying...")
-                            task.wait(2)
-                            continue
                         end
-                    else
-                        warn("⏸️ Auto Respawn OFF - Waiting for manual respawn...")
-                        
-                        local manualRespawnWait = 0
-                        local maxManualWait = 120
-                        
-                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
-                            manualRespawnWait = manualRespawnWait + 1
-                            
-                            if manualRespawnWait >= maxManualWait then
-                                warn("⚠️ No manual respawn after 60s, pausing loop...")
-                                warn("💡 Enable Auto Respawn or respawn manually to continue")
-                                manualRespawnWait = 0
-                            end
-                            
-                            task.wait(0.5)
-                        end
-                        
-                        if not AutoLoop or not IsAutoLoopPlaying then break end
-                        
-                        warn("✅ Manual respawn detected! Restarting recording...")
-                        RestoreFullUserControl()
-                        task.wait(1.5)
-                        
-                        currentFrame = 1
-                        playbackStart = tick()
-                        playbackPausedTime = 0
-                        playbackPauseStart = 0
-                        lastPlaybackState = nil
-                        lastStateChangeTime = 0
-                        
-                        SaveHumanoidState()
-                        DisableJump()
-                        
-                        continue
-                    end
-                end
-                
-                if IsPaused then
-                    if playbackPauseStart == 0 then
-                        playbackPauseStart = tick()
-                        RestoreHumanoidState()
-                        EnableJump()
-                        if ShiftLockEnabled then
-                            ApplyVisibleShiftLock()
-                        end
-                        UpdatePauseMarker()
-                    end
-                    task.wait(0.1)
-                else
-                    if playbackPauseStart > 0 then
-                        playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
-                        playbackPauseStart = 0
-                        DisableJump()
-                        UpdatePauseMarker()
                     end
                     
-                    local char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then
-                        warn("⚠️ Character/HRP missing!")
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then
-                        warn("⚠️ Humanoid/HRP missing!")
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
-                    
-                    while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                        currentFrame = currentFrame + 1
-                    end
-                    
-                    if currentFrame >= #recording then
-                        playbackCompleted = true
-                        break
-                    end
-                    
-                    local frame = recording[currentFrame]
-                    if frame then
-                        pcall(function()
-                            -- Apply frame dengan height adjustment
-                            ApplyFrameWithHeightAdjustment(frame, hrp, hum, CurrentRecording.CharacterType or "Unknown", CurrentRecording.CharacterHeight or 5.0)
-                            
-                            if hum then
-                                local moveState = frame.MoveState
-                                local stateTime = tick()
-                                
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        local currentVelocity = hrp.AssemblyLinearVelocity
-                                        if currentVelocity.Y < -8 then
-                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                        end
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
-                            
+                    if IsPaused then
+                        if playbackPauseStart == 0 then
+                            playbackPauseStart = tick()
+                            RestoreHumanoidState()
+                            EnableJump()
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
                             end
-                        end)
+                            UpdatePauseMarker()
+                        end
+                        task.wait(0.1)
+                    else
+                        if playbackPauseStart > 0 then
+                            playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
+                            playbackPauseStart = 0
+                            DisableJump()
+                            UpdatePauseMarker()
+                        end
+                        
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") then
+                            warn("⚠️ Character/HRP missing!")
+                            task.wait(0.5)
+                            break
+                        end
+                        
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        local hrp = char:FindFirstChild("HumanoidRootPart")
+                        if not hum or not hrp then
+                            warn("⚠️ Humanoid/HRP missing!")
+                            task.wait(0.5)
+                            break
+                        end
+                        
+                        local currentTime = tick()
+                        local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
+                        
+                        while currentFrame < #recording.Frames and GetFrameTimestamp(recording.Frames[currentFrame + 1]) <= effectiveTime do
+                            currentFrame = currentFrame + 1
+                        end
+                        
+                        if currentFrame >= #recording.Frames then
+                            playbackCompleted = true
+                            break
+                        end
+                        
+                        local frame = recording.Frames[currentFrame]
+                        if frame then
+                            pcall(function()
+                                local targetPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+                                local lookDir = Vector3.new(frame.LookVector[1], 0, frame.LookVector[3])
+                                
+                                hrp.CFrame = CFrame.lookAt(targetPos, targetPos + lookDir)
+                                
+                                local smoothVelocity = GetFrameVelocity(frame) * 0.7
+                                hrp.AssemblyLinearVelocity = smoothVelocity
+                                
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = true
+                                
+                                if hum then
+                                    local moveState = frame.MoveState
+                                    local stateTime = tick()
+                                    
+                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                        lastPlaybackState = moveState
+                                        lastStateChangeTime = stateTime
+                                        
+                                        if moveState == "Climbing" then
+                                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                            hum.PlatformStand = false
+                                            hum.AutoRotate = false
+                                        elseif moveState == "Jumping" then
+                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                        elseif moveState == "Falling" then
+                                            local currentVelocity = hrp.AssemblyLinearVelocity
+                                            if currentVelocity.Y < -8 then
+                                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                            end
+                                        elseif moveState == "Swimming" then
+                                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                        else
+                                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                                        end
+                                    end
+                                end
+                                
+                                if ShiftLockEnabled then
+                                    ApplyVisibleShiftLock()
+                                end
+                            end)
+                        end
+                        
+                        task.wait()
                     end
-                    
-                    task.wait()
                 end
             end
             
@@ -1779,6 +2255,8 @@ function StopAutoLoopAll()
         loopConnection = nil
     end
     
+    BidirectionalAdapter.Player.Stop()
+    SmartResume.SetPlaybackActive(false)
     RestoreFullUserControl()
     UpdatePauseMarker()
     
@@ -1799,6 +2277,9 @@ function StopPlayback()
     IsPaused = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    
+    BidirectionalAdapter.Player.Stop()
+    SmartResume.SetPlaybackActive(false)
     RestoreFullUserControl()
     UpdatePauseMarker()
     
@@ -1868,9 +2349,9 @@ local function CreateMergedReplay()
         local checkpoint = RecordedMovements[checkpointName]
         if not checkpoint then continue end
         
-        if #mergedFrames > 0 and #checkpoint > 0 then
+        if #mergedFrames > 0 and #checkpoint.Frames > 0 then
             local lastFrame = mergedFrames[#mergedFrames]
-            local firstFrame = checkpoint[1]
+            local firstFrame = checkpoint.Frames[1]
             
             local transitionFrame = {
                 Position = lastFrame.Position,
@@ -1885,7 +2366,7 @@ local function CreateMergedReplay()
             totalTimeOffset = totalTimeOffset + 0.05
         end
         
-        for frameIndex, frame in ipairs(checkpoint) do
+        for frameIndex, frame in ipairs(checkpoint.Frames) do
             local newFrame = {
                 Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
                 LookVector = {frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]},
@@ -1898,8 +2379,8 @@ local function CreateMergedReplay()
             table.insert(mergedFrames, newFrame)
         end
         
-        if #checkpoint > 0 then
-            totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
+        if #checkpoint.Frames > 0 then
+            totalTimeOffset = totalTimeOffset + checkpoint.Frames[#checkpoint.Frames].Timestamp + 0.1
         end
     end
     
@@ -1926,7 +2407,7 @@ local function CreateMergedReplay()
     end
     
     local mergedName = "merged_" .. os.date("%H%M%S")
-    RecordedMovements[mergedName] = optimizedFrames
+    RecordedMovements[mergedName] = {Frames = optimizedFrames}
     table.insert(RecordingOrder, mergedName)
     checkpointNames[mergedName] = "MERGED ALL"
     
@@ -1947,18 +2428,19 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "2.0",
+            Version = "3.0",
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = RecordingOrder,
             CheckpointNames = checkpointNames
         }
         
-        for name, frames in pairs(RecordedMovements) do
+        for name, recording in pairs(RecordedMovements) do
             local checkpointData = {
                 Name = name,
                 DisplayName = checkpointNames[name] or "checkpoint",
-                Frames = frames
+                Frames = recording.Frames,
+                Meta = recording.Meta
             }
             table.insert(saveData.Checkpoints, checkpointData)
         end
@@ -2002,7 +2484,10 @@ local function LoadFromObfuscatedJSON()
                 local frames = deobfuscatedData[name]
                 
                 if frames then
-                    RecordedMovements[name] = frames
+                    RecordedMovements[name] = {
+                        Frames = frames,
+                        Meta = checkpointData.Meta
+                    }
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -2014,7 +2499,10 @@ local function LoadFromObfuscatedJSON()
                 local frames = checkpointData.Frames
                 
                 if frames then
-                    RecordedMovements[name] = frames
+                    RecordedMovements[name] = {
+                        Frames = frames,
+                        Meta = checkpointData.Meta
+                    }
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -2039,16 +2527,16 @@ local function VisualizeAllPaths()
     
     for _, name in ipairs(RecordingOrder) do
         local recording = RecordedMovements[name]
-        if not recording or #recording < 2 then continue end
+        if not recording or not recording.Frames or #recording.Frames < 2 then continue end
         
         local previousPos = Vector3.new(
-            recording[1].Position[1],
-            recording[1].Position[2], 
-            recording[1].Position[3]
+            recording.Frames[1].Position[1],
+            recording.Frames[1].Position[2], 
+            recording.Frames[1].Position[3]
         )
         
-        for i = 2, #recording, 3 do
-            local frame = recording[i]
+        for i = 2, #recording.Frames, 3 do
+            local frame = recording.Frames[i]
             local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
             
             if (currentPos - previousPos).Magnitude > 0.5 then
@@ -2060,7 +2548,7 @@ local function VisualizeAllPaths()
 end
 
 -- ========= MENU BUTTON - DIRECT EXECUTE =========
-local GITHUB_RAW_URL = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua" -- TEMPAT UNTUK NARUH LINK GITHUB
+local GITHUB_RAW_URL = "" -- TEMPAT UNTUK NARUH LINK GITHUB
 
 MenuBtnBig.MouseButton1Click:Connect(function()
     AnimateButtonClick(MenuBtnBig)
@@ -2069,7 +2557,7 @@ MenuBtnBig.MouseButton1Click:Connect(function()
         -- 🚀 LANGSUNG LOAD DARI RAW.GITHUB
         local url = GITHUB_RAW_URL
         if url == "" then
-            error("Failed.")
+            error("GitHub URL belum diatur! Silakan atur GITHUB_RAW_URL terlebih dahulu.")
         end
         
         local response = game:HttpGet(url)
@@ -2183,7 +2671,7 @@ end)
 RespawnBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RespawnBtn)
     AutoRespawn = not AutoRespawn
-    AnimateRespawn(AAutoRespawn)
+    AnimateRespawn(AutoRespawn)
     PlaySound("Toggle")
 end)
 
@@ -2305,6 +2793,8 @@ player.CharacterRemoving:Connect(function()
 end)
 
 warn("🎮 AutoWalk ByaruL System Loaded Successfully!")
+warn("🚀 BIDIRECTIONAL ADAPTER: Integrated")
+warn("🎯 SMART RESUME: Ready for auto-join")
 warn("📝 STATE_CHANGE_COOLDOWN: " .. STATE_CHANGE_COOLDOWN)
 warn("🔗 GITHUB_RAW_URL: " .. (GITHUB_RAW_URL ~= "" and "SET" or "NOT SET - Please configure"))
 
