@@ -798,10 +798,10 @@ local ResumeBtn = CreateStudioBtn("RESUME", 7, 75, 160, 32, Color3.fromRGB(40, 1
 local BackBtn = CreateStudioBtn("BACK", 7, 112, 78, 32, Color3.fromRGB(80, 120, 200))
 local NextBtn = CreateStudioBtn("NEXT", 89, 112, 78, 32, Color3.fromRGB(200, 120, 80))
 
--- ========= MAIN GUI (250x220) =========
+-- ========= MAIN GUI (250x280) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 220)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -110)
+MainFrame.Size = UDim2.fromOffset(250, 280)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -140)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1037,12 +1037,12 @@ WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(115, 18)
+FilenameBox.Size = UDim2.fromOffset(234, 18)
 FilenameBox.Position = UDim2.fromOffset(0, 94)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
-FilenameBox.PlaceholderText = "Filename"
+FilenameBox.PlaceholderText = "Custom Filename"
 FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 FilenameBox.Font = Enum.Font.GothamBold
 FilenameBox.TextSize = 8
@@ -1054,16 +1054,16 @@ local FilenameCorner = Instance.new("UICorner")
 FilenameCorner.CornerRadius = UDim.new(0, 4)
 FilenameCorner.Parent = FilenameBox
 
-local SaveFileBtn = CreateButton("SAVE", 119, 94, 56, 18, Color3.fromRGB(59, 15, 116))
-local LoadFileBtn = CreateButton("LOAD", 179, 94, 55, 18, Color3.fromRGB(59, 15, 116))
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 115, 115, 22, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 119, 115, 115, 22, Color3.fromRGB(59, 15, 116))
 
-local PathToggleBtn = CreateButton("PATH", 0, 115, 115, 18, Color3.fromRGB(59, 15, 116))
-local MergeBtn = CreateButton("MERGE", 119, 115, 115, 18, Color3.fromRGB(59, 15, 116))
+local PathToggleBtn = CreateButton("SHOW RUTE", 0, 140, 115, 22, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 119, 140, 115, 22, Color3.fromRGB(59, 15, 116))
 
 -- Recording List (Scrollable)
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 51)
-RecordList.Position = UDim2.fromOffset(0, 136)
+RecordList.Size = UDim2.new(1, 0, 0, 82)
+RecordList.Position = UDim2.fromOffset(0, 165)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
 RecordList.ScrollBarThickness = 4
@@ -1155,7 +1155,7 @@ function UpdateRecordList()
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -4, 0, 32)
+        item.Size = UDim2.new(1, -4, 0, 45)
         item.Position = UDim2.new(0, 2, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
         item.Parent = RecordList
@@ -1166,7 +1166,7 @@ function UpdateRecordList()
         
         local checkBox = Instance.new("TextButton")
         checkBox.Size = UDim2.fromOffset(18, 18)
-        checkBox.Position = UDim2.fromOffset(3, 7)
+        checkBox.Position = UDim2.fromOffset(3, 3)
         checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         checkBox.Text = CheckedRecordings[name] and "✓" or ""
         checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -1179,14 +1179,14 @@ function UpdateRecordList()
         checkCorner.Parent = checkBox
         
         local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(0, 75, 0, 18)
-        infoLabel.Position = UDim2.fromOffset(24, 7)
+        infoLabel.Size = UDim2.new(0, 200, 0, 18)
+        infoLabel.Position = UDim2.fromOffset(24, 3)
         infoLabel.BackgroundTransparency = 1
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. "f"
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
         else
-            infoLabel.Text = "0:00 • 0f"
+            infoLabel.Text = "0:00 • 0 frames"
         end
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
         infoLabel.Font = Enum.Font.GothamBold
@@ -1195,8 +1195,8 @@ function UpdateRecordList()
         infoLabel.Parent = item
         
         local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.fromOffset(22, 18)
-        playBtn.Position = UDim2.new(1, -110, 0, 7)
+        playBtn.Size = UDim2.fromOffset(28, 18)
+        playBtn.Position = UDim2.fromOffset(3, 24)
         playBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1209,8 +1209,8 @@ function UpdateRecordList()
         playCorner.Parent = playBtn
         
         local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(22, 18)
-        delBtn.Position = UDim2.new(1, -85, 0, 7)
+        delBtn.Size = UDim2.fromOffset(28, 18)
+        delBtn.Position = UDim2.fromOffset(34, 24)
         delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
         delBtn.Text = "🗑"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1223,16 +1223,16 @@ function UpdateRecordList()
         delCorner.Parent = delBtn
         
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(0, 30, 0, 18)
-        nameBox.Position = UDim2.new(1, -60, 0, 7)
+        nameBox.Size = UDim2.new(0, 120, 0, 18)
+        nameBox.Position = UDim2.fromOffset(65, 24)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
-        nameBox.Text = (checkpointNames[name] or "CP"):sub(1, 3)
+        nameBox.Text = checkpointNames[name] or "Checkpoint1"
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
         nameBox.TextSize = 7
         nameBox.TextXAlignment = Enum.TextXAlignment.Center
-        nameBox.PlaceholderText = "..."
+        nameBox.PlaceholderText = "Name"
         nameBox.ClearTextOnFocus = false
         nameBox.Parent = item
         
@@ -1249,8 +1249,8 @@ function UpdateRecordList()
         end)
         
         local upBtn = Instance.new("TextButton")
-        upBtn.Size = UDim2.fromOffset(13, 18)
-        upBtn.Position = UDim2.new(1, -27, 0, 7)
+        upBtn.Size = UDim2.fromOffset(18, 18)
+        upBtn.Position = UDim2.new(1, -40, 0, 24)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1263,8 +1263,8 @@ function UpdateRecordList()
         upCorner.Parent = upBtn
         
         local downBtn = Instance.new("TextButton")
-        downBtn.Size = UDim2.fromOffset(13, 18)
-        downBtn.Position = UDim2.new(1, -12, 0, 7)
+        downBtn.Size = UDim2.fromOffset(18, 18)
+        downBtn.Position = UDim2.new(1, -20, 0, 24)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1313,7 +1313,7 @@ function UpdateRecordList()
             UpdateRecordList()
         end)
         
-        yPos = yPos + 35
+        yPos = yPos + 48
     end
     
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
@@ -1536,14 +1536,25 @@ local function ResumeStudioRecording()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
+        -- PERBAIKAN: Hapus semua frame setelah TimelinePosition
         if TimelinePosition < #StudioCurrentRecording.Frames then
-            local framesDeleted = #StudioCurrentRecording.Frames - TimelinePosition
-            for i = #StudioCurrentRecording.Frames, TimelinePosition + 1, -1 do
-                table.remove(StudioCurrentRecording.Frames, i)
+            local framesToKeep = {}
+            for i = 1, TimelinePosition do
+                table.insert(framesToKeep, StudioCurrentRecording.Frames[i])
+            end
+            StudioCurrentRecording.Frames = framesToKeep
+            
+            -- Reset timestamp untuk frame terakhir
+            if #StudioCurrentRecording.Frames > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
             end
         end
         
+        -- Reset variables untuk recording baru
         IsTimelineMode = false
+        lastStudioRecordTime = tick()
+        lastStudioRecordPos = hrp.Position
         
         if hum then
             hum.WalkSpeed = CurrentWalkSpeed
@@ -2418,10 +2429,10 @@ PathToggleBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(PathToggleBtn)
     ShowPaths = not ShowPaths
     if ShowPaths then
-        PathToggleBtn.Text = "HIDE"
+        PathToggleBtn.Text = "HIDE RUTE"
         VisualizeAllPaths()
     else
-        PathToggleBtn.Text = "PATH"
+        PathToggleBtn.Text = "SHOW RUTE"
         ClearPathVisualization()
     end
 end)
