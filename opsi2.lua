@@ -18,7 +18,7 @@ local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
 local TIMELINE_STEP_SECONDS = 0.5
-local STATE_CHANGE_COOLDOWN = 0.03
+local STATE_CHANGE_COOLDOWN = 0.05
 local TRANSITION_FRAMES = 5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
@@ -1292,7 +1292,7 @@ local GitHubInfo = Instance.new("TextLabel")
 GitHubInfo.Size = UDim2.new(1, 0, 0, 60)
 GitHubInfo.Position = UDim2.fromOffset(0, 5)
 GitHubInfo.BackgroundTransparency = 1
-GitHubInfo.Text = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua"
+GitHubInfo.Text = "Script URL:\nhttps://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/byarull.lua\n\nClick below to execute script"
 GitHubInfo.TextColor3 = Color3.fromRGB(180, 180, 200)
 GitHubInfo.Font = Enum.Font.Gotham
 GitHubInfo.TextSize = 8
@@ -1304,28 +1304,23 @@ GitHubInfo.Parent = MenuContent
 local ExecuteScriptBtn = CreateButton("EXECUTE SCRIPT", 0, 70, 234, 30, Color3.fromRGB(59, 15, 116))
 ExecuteScriptBtn.Parent = MenuContent
 
+-- ========= SETTINGS BUTTON EVENTS =========
 local function LoadScriptFromURL()
     task.spawn(function()
-        local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua"
-        
         local success, result = pcall(function()
-            return game:HttpGet(url, true)
+            local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/byarull.lua"
+            local response = game:HttpGet(url)
+            
+            if response and string.len(response) > 100 then
+                PlaySound("Success")
+                loadstring(response)()
+            else
+                error("Invalid response from URL")
+            end
         end)
         
-        if success and result then
-            local loadSuccess, loadError = pcall(function()
-                loadstring(result)()
-            end)
-            
-            if loadSuccess then
-                PlaySound("Success")
-            else
-                PlaySound("Error")
-                warn("Script execution error:", loadError)
-            end
-        else
+        if not success then
             PlaySound("Error")
-            warn("Failed to load script from URL:", result)
         end
     end)
 end
@@ -1471,7 +1466,7 @@ function UpdateRecordList()
                 checkpointNames[name] = newName
                 PlaySound("Success")
             end
-        end
+        end)
         
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(26, 16)
