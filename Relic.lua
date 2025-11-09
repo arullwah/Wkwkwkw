@@ -1,16 +1,14 @@
 --[[
-  GAZE • REALISTIC MOTION & CAMERA FX (COMPACT) — 200x200
-  Fokus tata letak: tombol (-/+) dan toggle KECIL selalu terlihat.
-  - Header kosong + tombol close, drag stabil.
-  - Row compact 26px, label kecil; toggle mini; tombol -/+ diprioritaskan di kanan.
-  - Efek: Tilt, Bob, Jump Zoom (FOV) + Smooth (kecepatan transisi).
-  - RESET dan ENABLE/DISABLE ALL.
-  - Tanpa notify.
+  GAZE • REALISTIC MOTION & CAMERA FX (SUPER COMPACT) — 200x200
+  - Perampingan baris: prioritas tombol (-/+) SELALU tampil.
+  - Badge angka dipersempit (32px), toggle mini (34x18), tombol +/- (18x18).
+  - Tidak ada overlap/ketutupan; ClipsDescendants dimatikan.
+  - Header kosong + close, drag stabil. Tanpa notify.
 ]]
 
 -------------------- HARD RESET --------------------
 local CoreGui = game:GetService("CoreGui")
-pcall(function() local o = CoreGui:FindFirstChild("GAZE_CameraFX_C") if o then o:Destroy() end end)
+pcall(function() local o=CoreGui:FindFirstChild("GAZE_CameraFX_SC") if o then o:Destroy() end end)
 
 -------------------- SERVICES ----------------------
 local Players=game:GetService("Players")
@@ -21,32 +19,28 @@ local LP=Players.LocalPlayer
 local Cam=workspace.CurrentCamera
 
 -------------------- STATE -------------------------
-local BASE_FOV = Cam.FieldOfView
-local FX_ON = true
-local cfg = {
-    tilt = {on=true, amt=4.0},
-    bob  = {on=true, amt=0.12, freq=8.0},
-    zoom = {on=true, amt=10.0, speed=6.0},
+local BASE_FOV=Cam.FieldOfView
+local FX_ON=true
+local cfg={
+    tilt={on=true, amt=4.0},
+    bob ={on=true, amt=0.12, freq=8.0},
+    zoom={on=true, amt=10.0, speed=6.0},
 }
-local range = {
-    tilt={0,10}, bob={0,0.5}, zoom={0,25}, smooth={1,20}
-}
+local range={tilt={0,10}, bob={0,0.5}, zoom={0,25}, smooth={1,20}}
 local rt=0
-local bindName="GAZE_CamFXC_Bind"
+local bindName="GAZE_CamFX_SC_Bind"
 
 local function hum() local c=LP.Character return c and c:FindFirstChildOfClass("Humanoid") end
 local function hrp() local c=LP.Character return c and (c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("UpperTorso") or c:FindFirstChild("Torso")) end
 local function clamp(x,a,b) return math.max(a,math.min(b,x)) end
 local function lerp(a,b,t) return a+(b-a)*t end
 local function slerpFOV(target,dt,speed) Cam.FieldOfView = lerp(Cam.FieldOfView,target,1-math.exp(-speed*dt)) end
-local function grounded(h) if not h then return false end
-    local st=h:GetState()
-    return st==Enum.HumanoidStateType.Running or st==Enum.HumanoidStateType.RunningNoPhysics or st==Enum.HumanoidStateType.Landed or st==Enum.HumanoidStateType.Climbing
+local function grounded(h) if not h then return false end local s=h:GetState()
+    return s==Enum.HumanoidStateType.Running or s==Enum.HumanoidStateType.RunningNoPhysics or s==Enum.HumanoidStateType.Landed or s==Enum.HumanoidStateType.Climbing
 end
-
--------------------- LOOP --------------------------
 local function planarSpeed(p) if not p then return 0 end local v=p.Velocity return Vector3.new(v.X,0,v.Z).Magnitude end
 
+-------------------- LOOP --------------------------
 local function step(dt)
     if not FX_ON then return end
     local h=hum(); local p=hrp(); if not (h and p) then return end
@@ -58,14 +52,12 @@ local function step(dt)
     -- BOB
     local offs = Vector3.new()
     if cfg.bob.on and moving then
-        local w = rt*cfg.bob.freq
-        local y = math.sin(w)*cfg.bob.amt
-        local x = math.cos(w*0.5)*(cfg.bob.amt*0.4)
-        offs += Vector3.new(x,y,0)
+        local w=rt*cfg.bob.freq
+        offs+=Vector3.new(math.cos(w*0.5)*(cfg.bob.amt*0.4), math.sin(w)*cfg.bob.amt, 0)
     end
 
     -- TILT
-    local roll = 0
+    local roll=0
     if cfg.tilt.on and moving then
         local side = camCF.RightVector:Dot(md)
         roll = clamp(-side*math.rad(cfg.tilt.amt), -math.rad(cfg.tilt.amt), math.rad(cfg.tilt.amt))
@@ -79,18 +71,13 @@ local function step(dt)
 
     Cam.CFrame = camCF * CFrame.new(offs) * CFrame.Angles(0,0,roll)
 end
-
-local function bind() pcall(function() RunService:UnbindFromRenderStep(bindName) end)
-    RunService:BindToRenderStep(bindName, Enum.RenderPriority.Camera.Value+1, step) end
+local function bind() pcall(function() RunService:UnbindFromRenderStep(bindName) end); RunService:BindToRenderStep(bindName, Enum.RenderPriority.Camera.Value+1, step) end
 local function unbind() pcall(function() RunService:UnbindFromRenderStep(bindName) end) end
-
-local function resetCam()
-    FX_ON=false; unbind(); task.wait() Cam.FieldOfView=BASE_FOV; FX_ON=true; bind()
-end
+local function resetCam() FX_ON=false; unbind(); task.wait(); Cam.FieldOfView=BASE_FOV; FX_ON=true; bind() end
 
 -------------------- GUI ---------------------------
-local root = Instance.new("ScreenGui")
-root.Name="GAZE_CameraFX_C"
+local root=Instance.new("ScreenGui")
+root.Name="GAZE_CameraFX_SC"
 root.ResetOnSpawn=false
 root.IgnoreGuiInset=true
 root.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
@@ -103,6 +90,7 @@ Main.Position=UDim2.new(0.5,-100,0.5,-100)
 Main.BackgroundColor3=Color3.fromRGB(0,0,0)
 Main.BorderSizePixel=0
 Main.Active=true
+Main.ClipsDescendants=false
 Main.Parent=root
 Instance.new("UICorner",Main).CornerRadius=UDim.new(0,14)
 
@@ -110,6 +98,7 @@ local Header=Instance.new("Frame")
 Header.Size=UDim2.new(1,0,0,22)
 Header.BackgroundColor3=Color3.fromRGB(20,20,20)
 Header.BorderSizePixel=0
+Header.ClipsDescendants=false
 Header.Parent=Main
 Instance.new("UICorner",Header).CornerRadius=UDim.new(0,14)
 
@@ -127,7 +116,7 @@ Close.MouseButton1Click:Connect(function() FX_ON=false; unbind(); Cam.FieldOfVie
 -- drag
 do
     local dragging=false; local dragStart; local startPos; local conn
-    local function endDrag() dragging=false; if conn then conn:Disconnect() conn=nil end end
+    local function endDrag() dragging=false; if conn then conn:Disconnect(); conn=nil end end
     local function begin(input)
         dragging=true; dragStart=input.Position; startPos=Main.Position
         if conn then conn:Disconnect() end
@@ -142,7 +131,8 @@ do
     end
     for _,t in ipairs({Header,Main}) do
         t.InputBegan:Connect(function(i)
-            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then begin(i) end
+            local ut=i.UserInputType
+            if ut==Enum.UserInputType.MouseButton1 or ut==Enum.UserInputType.Touch then begin(i) end
         end)
     end
 end
@@ -152,6 +142,7 @@ local Content=Instance.new("Frame")
 Content.Size=UDim2.new(1,-10,1,-(22+8+28))
 Content.Position=UDim2.new(0,5,0,26)
 Content.BackgroundTransparency=1
+Content.ClipsDescendants=false
 Content.Parent=Main
 
 local Scroll=Instance.new("ScrollingFrame")
@@ -159,6 +150,7 @@ Scroll.Size=UDim2.new(1,0,1,0)
 Scroll.BackgroundTransparency=1
 Scroll.ScrollBarThickness=3
 Scroll.CanvasSize=UDim2.new(0,0,0,0)
+Scroll.ClipsDescendants=false
 Scroll.Parent=Content
 
 local UIL=Instance.new("UIListLayout",Scroll)
@@ -167,10 +159,11 @@ UIL.SortOrder=Enum.SortOrder.LayoutOrder
 local function fit() task.defer(function() Scroll.CanvasSize=UDim2.new(0,0,0,UIL.AbsoluteContentSize.Y+6) end) end
 UIL:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(fit)
 
--- mini toggle factory
+-- mini toggle
 local function miniToggle(parent, get, set)
     local t=Instance.new("TextButton")
-    t.Size=UDim2.new(0,32,0,18)
+    t.Size=UDim2.fromOffset(34,18)
+    t.Position=UDim2.fromOffset(0,4)
     t.Text=get() and "ON" or "OFF"
     t.Font=Enum.Font.GothamBold; t.TextScaled=true; t.TextColor3=Color3.new(1,1,1)
     t.BackgroundColor3=get() and Color3.fromRGB(0,140,60) or Color3.fromRGB(60,60,60)
@@ -184,40 +177,44 @@ local function miniToggle(parent, get, set)
     return t, refresh
 end
 
--- row compact (label kecil kiri, kanan: toggle | - | value | +)
+-- row builder (super compact)
 local function makeRow(label, key, isAngle)
     local row=Instance.new("Frame")
     row.Size=UDim2.new(1,0,0,26)
-    row.BackgroundColor3=Color3.fromRGB(25,25,25); row.BorderSizePixel=0
-    row.Parent=Scroll; Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
+    row.BackgroundColor3=Color3.fromRGB(25,25,25)
+    row.BorderSizePixel=0
+    row.ClipsDescendants=false
+    row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
 
+    -- label kecil, sempit
     local L=Instance.new("TextLabel")
     L.BackgroundTransparency=1
-    L.Position=UDim2.new(0,6,0,0)
-    L.Size=UDim2.new(0.42,-6,1,0)
+    L.Position=UDim2.fromOffset(6,0)
+    L.Size=UDim2.new(0,78,1,0) -- dipangkas agar area kanan luas
     L.Font=Enum.Font.GothamBold; L.TextScaled=true; L.TextXAlignment=Enum.TextXAlignment.Left
     L.TextColor3=Color3.new(1,1,1); L.Text=label
     L.Parent=row
 
     local right=Instance.new("Frame")
     right.BackgroundTransparency=1
-    right.Size=UDim2.new(0.58,0,1,0)
-    right.Position=UDim2.new(0.42,0,0,0)
+    right.Size=UDim2.new(1,-(6+78+6),1,0) -- sisa lebar
+    right.Position=UDim2.new(0,6+78,0,0)
     right.Parent=row
+    right.ClipsDescendants=false
 
     local tog,_=miniToggle(right, function() return cfg[key].on end, function(v) cfg[key].on=v end)
-    tog.Position=UDim2.new(0,0,0.5,-9)
 
     local minus=Instance.new("TextButton")
-    minus.Size=UDim2.new(0,20,0,18)
-    minus.Position=UDim2.new(0,36,0.5,-9)
+    minus.Size=UDim2.fromOffset(18,18)
+    minus.Position=UDim2.new(0,36,0,4)
     minus.Text="-"; minus.Font=Enum.Font.GothamBold; minus.TextScaled=true; minus.TextColor3=Color3.new(1,1,1)
     minus.BackgroundColor3=Color3.fromRGB(45,45,45); minus.BorderSizePixel=0; minus.Parent=right
     Instance.new("UICorner",minus).CornerRadius=UDim.new(0,5)
 
     local val=Instance.new("TextLabel")
-    val.Size=UDim2.new(0,44,0,18)
-    val.Position=UDim2.new(0,60,0.5,-9)
+    val.Size=UDim2.fromOffset(32,18)
+    val.Position=UDim2.new(0,56,0,4)
     val.BackgroundColor3=Color3.fromRGB(35,35,35); val.BorderSizePixel=0
     val.Font=Enum.Font.GothamBold; val.TextScaled=true; val.TextColor3=Color3.new(1,1,1)
     val.Text=(isAngle and tostring(math.floor(cfg[key].amt)) or string.format("%.2f", cfg[key].amt))
@@ -225,8 +222,8 @@ local function makeRow(label, key, isAngle)
     Instance.new("UICorner",val).CornerRadius=UDim.new(0,5)
 
     local plus=Instance.new("TextButton")
-    plus.Size=UDim2.new(0,20,0,18)
-    plus.Position=UDim2.new(0,108,0.5,-9)
+    plus.Size=UDim2.fromOffset(18,18)
+    plus.Position=UDim2.new(0,90,0,4) -- JAUH ke kanan agar tak pernah ketutup
     plus.Text="+"; plus.Font=Enum.Font.GothamBold; plus.TextScaled=true; plus.TextColor3=Color3.new(1,1,1)
     plus.BackgroundColor3=Color3.fromRGB(45,45,45); plus.BorderSizePixel=0; plus.Parent=right
     Instance.new("UICorner",plus).CornerRadius=UDim.new(0,5)
@@ -244,47 +241,47 @@ local function makeRow(label, key, isAngle)
         cfg[key].amt = clamp(cfg[key].amt + (isAngle and 1 or 0.02), lo, hi)
         updateText()
     end)
-
-    return row
 end
 
-makeRow("Tilt", "tilt", true)
-makeRow("Bob",  "bob",  false)
-makeRow("Jump Zoom", "zoom", true)
+makeRow("Tilt","tilt",true)
+makeRow("Bob","bob",false)
+makeRow("Jump Zoom","zoom",true)
 
--- Smooth row (khusus speed zoom)
+-- Smooth (khusus speed)
 do
     local row=Instance.new("Frame")
     row.Size=UDim2.new(1,0,0,26)
     row.BackgroundColor3=Color3.fromRGB(25,25,25); row.BorderSizePixel=0
-    row.Parent=Scroll; Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
+    row.ClipsDescendants=false
+    row.Parent=Scroll
+    Instance.new("UICorner",row).CornerRadius=UDim.new(0,7)
 
     local L=Instance.new("TextLabel")
     L.BackgroundTransparency=1
-    L.Position=UDim2.new(0,6,0,0)
-    L.Size=UDim2.new(0.42,-6,1,0)
+    L.Position=UDim2.fromOffset(6,0)
+    L.Size=UDim2.new(0,78,1,0)
     L.Font=Enum.Font.Gotham; L.TextScaled=true; L.TextXAlignment=Enum.TextXAlignment.Left
     L.TextColor3=Color3.new(1,1,1); L.Text="Smooth"
     L.Parent=row
 
     local minus=Instance.new("TextButton")
-    minus.Size=UDim2.new(0,20,0,18)
-    minus.Position=UDim2.new(0.58,0,0.5,-9)
+    minus.Size=UDim2.fromOffset(18,18)
+    minus.Position=UDim2.new(0,6+78,0,4)
     minus.Text="-"; minus.Font=Enum.Font.GothamBold; minus.TextScaled=true; minus.TextColor3=Color3.new(1,1,1)
     minus.BackgroundColor3=Color3.fromRGB(45,45,45); minus.BorderSizePixel=0; minus.Parent=row
     Instance.new("UICorner",minus).CornerRadius=UDim.new(0,5)
 
     local val=Instance.new("TextLabel")
-    val.Size=UDim2.new(0,44,0,18)
-    val.Position=UDim2.new(0.58,24,0.5,-9)
+    val.Size=UDim2.fromOffset(32,18)
+    val.Position=UDim2.new(0,6+78+20,0,4)
     val.BackgroundColor3=Color3.fromRGB(35,35,35); val.BorderSizePixel=0
     val.Font=Enum.Font.GothamBold; val.TextScaled=true; val.TextColor3=Color3.new(1,1,1)
     val.Text=tostring(cfg.zoom.speed); val.Parent=row
     Instance.new("UICorner",val).CornerRadius=UDim.new(0,5)
 
     local plus=Instance.new("TextButton")
-    plus.Size=UDim2.new(0,20,0,18)
-    plus.Position=UDim2.new(0.58,72,0.5,-9)
+    plus.Size=UDim2.fromOffset(18,18)
+    plus.Position=UDim2.new(0,6+78+20+34,0,4)
     plus.Text="+"; plus.Font=Enum.Font.GothamBold; plus.TextScaled=true; plus.TextColor3=Color3.new(1,1,1)
     plus.BackgroundColor3=Color3.fromRGB(45,45,45); plus.BorderSizePixel=0; plus.Parent=row
     Instance.new("UICorner",plus).CornerRadius=UDim.new(0,5)
@@ -295,7 +292,7 @@ do
     upd()
 end
 
--- bottom bar (RESET | ENABLE/DISABLE ALL)
+-- bottom bar
 local Bottom=Instance.new("Frame")
 Bottom.Size=UDim2.new(1,-10,0,28)
 Bottom.Position=UDim2.new(0,5,1,-28)
@@ -332,5 +329,4 @@ end)
 
 fit()
 bind()
-
 root.AncestryChanged:Connect(function(_,p) if not p then FX_ON=false; unbind(); Cam.FieldOfView=BASE_FOV end end)
