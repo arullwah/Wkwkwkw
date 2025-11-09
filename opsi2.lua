@@ -21,6 +21,10 @@ local INTERPOLATION_ALPHA = 0.7
 local MAX_INTERPOLATION_DISTANCE = 25
 local MIN_INTERPOLATION_DISTANCE = 0.05
 
+-- ========= RESUME SYSTEM IMPROVEMENT =========
+local RESUME_REWIND_SECONDS = 0.5  -- Mundur 0.5 detik saat resume
+local MAX_RESUME_REWINDS = 10      -- Maksimal 10x rewind (5 detik total)
+
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
     Position = "11",
@@ -76,6 +80,7 @@ local StudioRecording = {Frames = {}, StartTime = 0, Name = ""}
 local studioRecordConnection = nil
 local reverseConnection = nil
 local forwardConnection = nil
+local currentRewindCount = 0
 
 -- ========= PAUSE/RESUME VARIABLES =========
 local playbackStartTime = 0
@@ -884,6 +889,56 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
+-- ========= IMPROVED RESUME SYSTEM =========
+local function FindResumeFrameIndex(recording, currentRewindCount)
+    if not recording or #recording == 0 then return 1 end
+    
+    local targetRewindTime = currentRewindCount * RESUME_REWIND_SECONDS
+    local currentTime = recording[#recording].Timestamp
+    
+    local targetTime = math.max(0, currentTime - targetRewindTime)
+    
+    for i = #recording, 1, -1 do
+        if recording[i].Timestamp <= targetTime then
+            return math.max(1, i)
+        end
+    end
+    
+    return 1
+end
+
+local function SmartResumeRecording()
+    if not IsStudioRecording or #StudioRecording.Frames == 0 then
+        StudioStatusLabel.Text = "❌ No recording to resume!"
+        StudioStatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        PlaySound("Error")
+        return
+    end
+    
+    -- Increment rewind counter
+    currentRewindCount = math.min(currentRewindCount + 1, MAX_RESUME_REWINDS)
+    
+    local resumeFrameIndex = FindResumeFrameIndex(StudioRecording.Frames, currentRewindCount)
+    local framesToDelete = #StudioRecording.Frames - resumeFrameIndex
+    
+    if framesToDelete > 0 then
+        for i = #StudioRecording.Frames, resumeFrameIndex + 1, -1 do
+            table.remove(StudioRecording.Frames, i)
+        end
+    end
+    
+    StudioStatusLabel.Text = string.format("⏪ Rewind %d/%d (%d frames deleted)", 
+        currentRewindCount, MAX_RESUME_REWINDS, framesToDelete)
+    StudioStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+    
+    UpdateStudioUI()
+    PlaySound("Success")
+end
+
+local function ResetResumeRewind()
+    currentRewindCount = 0
+end
+
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -895,9 +950,10 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
+-- Main Frame 250x220
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 350) 
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -225)
+MainFrame.Size = UDim2.fromOffset(250, 220)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -110)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -964,7 +1020,7 @@ Content.ScrollBarThickness = 6
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 Content.ScrollingDirection = Enum.ScrollingDirection.Y
 Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
-Content.CanvasSize = UDim2.new(0, 0, 0, 800)
+Content.CanvasSize = UDim2.new(0, 0, 0, 500)
 Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
@@ -1091,6 +1147,8 @@ end
 
 -- ========= UI ELEMENTS =========
 local StudioBtn = CreateButton("🎬 STUDIO", 5, 5, 117, 30, Color3.fromRGB(59, 15, 116))
+local SettingsBtn = CreateButton("⚙️ SETTINGS", 127, 5, 117, 30, Color3.fromRGB(59, 15, 116))
+
 local PlayBtnBig = CreateButton("PLAY", 5, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local StopBtnBig = CreateButton("STOP", 85, 40, 75, 30, Color3.fromRGB(59, 15, 116))
 local PauseBtnBig = CreateButton("PAUSE", 165, 40, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1180,8 +1238,8 @@ ListCorner.Parent = RecordList
 
 -- ========= NEW STUDIO RECORDING GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(180, 180)
-RecordingStudio.Position = UDim2.new(0.5, -90, 0.5, -90)
+RecordingStudio.Size = UDim2.fromOffset(190, 190)
+RecordingStudio.Position = UDim2.new(0.5, -95, 0.5, -95)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -1284,22 +1342,22 @@ local function CreateStudioBtn(text, x, y, w, h, color)
 end
 
 -- Top Row: [SAVE] [CLEAR]
-local StudioSaveBtn = CreateStudioBtn("SAVE", 5, 5, 80, 25, Color3.fromRGB(59, 15, 116))
-local StudioClearBtn = CreateStudioBtn("CLEAR", 90, 5, 80, 25, Color3.fromRGB(59, 15, 116))
+local StudioSaveBtn = CreateStudioBtn("SAVE", 5, 5, 85, 25, Color3.fromRGB(59, 15, 116))
+local StudioClearBtn = CreateStudioBtn("CLEAR", 95, 5, 85, 25, Color3.fromRGB(59, 15, 116))
 
 -- Middle: [RECORD] (Full Width)
-local StudioRecordBtn = CreateStudioBtn("● RECORD", 5, 35, 165, 30, Color3.fromRGB(59, 15, 116))
+local StudioRecordBtn = CreateStudioBtn("● RECORD", 5, 35, 175, 30, Color3.fromRGB(59, 15, 116))
 
 -- Middle: [RESUME] (Full Width)
-local StudioResumeBtn = CreateStudioBtn("RESUME", 5, 70, 165, 30, Color3.fromRGB(59, 15, 116))
+local StudioResumeBtn = CreateStudioBtn("RESUME", 5, 70, 175, 30, Color3.fromRGB(59, 15, 116))
 
 -- Bottom: [BACK] [NEXT]
-local StudioReverseBtn = CreateStudioBtn("BACK", 5, 105, 80, 30, Color3.fromRGB(59, 15, 116))
-local StudioForwardBtn = CreateStudioBtn("NEXT", 90, 105, 80, 30, Color3.fromRGB(59, 15, 116))
+local StudioReverseBtn = CreateStudioBtn("BACK", 5, 105, 85, 30, Color3.fromRGB(59, 15, 116))
+local StudioForwardBtn = CreateStudioBtn("NEXT", 95, 105, 85, 30, Color3.fromRGB(59, 15, 116))
 
 -- Status Label
 local StudioStatusLabel = Instance.new("TextLabel")
-StudioStatusLabel.Size = UDim2.fromOffset(165, 20)
+StudioStatusLabel.Size = UDim2.fromOffset(175, 20)
 StudioStatusLabel.Position = UDim2.fromOffset(5, 140)
 StudioStatusLabel.BackgroundTransparency = 1
 StudioStatusLabel.Text = "Ready to record"
@@ -1308,6 +1366,87 @@ StudioStatusLabel.Font = Enum.Font.Gotham
 StudioStatusLabel.TextSize = 8
 StudioStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
 StudioStatusLabel.Parent = StudioContent
+
+-- ========= SETTINGS GUI =========
+local SettingsFrame = Instance.new("Frame")
+SettingsFrame.Size = UDim2.fromOffset(200, 150)
+SettingsFrame.Position = UDim2.new(0.5, -100, 0.5, -75)
+SettingsFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+SettingsFrame.BorderSizePixel = 0
+SettingsFrame.Active = true
+SettingsFrame.Draggable = true
+SettingsFrame.Visible = false
+SettingsFrame.Parent = ScreenGui
+
+local SettingsCorner = Instance.new("UICorner")
+SettingsCorner.CornerRadius = UDim.new(0, 10)
+SettingsCorner.Parent = SettingsFrame
+
+local SettingsHeader = Instance.new("Frame")
+SettingsHeader.Size = UDim2.new(1, 0, 0, 28)
+SettingsHeader.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+SettingsHeader.BorderSizePixel = 0
+SettingsHeader.Parent = SettingsFrame
+
+local SettingsHeaderCorner = Instance.new("UICorner")
+SettingsHeaderCorner.CornerRadius = UDim.new(0, 10)
+SettingsHeaderCorner.Parent = SettingsHeader
+
+local SettingsTitle = Instance.new("TextLabel")
+SettingsTitle.Size = UDim2.new(1, 0, 1, 0)
+SettingsTitle.BackgroundTransparency = 1
+SettingsTitle.Text = "Settings"
+SettingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+SettingsTitle.Font = Enum.Font.GothamBold
+SettingsTitle.TextSize = 12
+SettingsTitle.TextXAlignment = Enum.TextXAlignment.Center
+SettingsTitle.Parent = SettingsHeader
+
+local CloseSettingsBtn = Instance.new("TextButton")
+CloseSettingsBtn.Size = UDim2.fromOffset(20, 20)
+CloseSettingsBtn.Position = UDim2.new(1, -25, 0.5, -10)
+CloseSettingsBtn.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
+CloseSettingsBtn.Text = "×"
+CloseSettingsBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseSettingsBtn.Font = Enum.Font.GothamBold
+CloseSettingsBtn.TextSize = 14
+CloseSettingsBtn.Parent = SettingsHeader
+
+local CloseSettingsCorner = Instance.new("UICorner")
+CloseSettingsCorner.CornerRadius = UDim.new(0, 5)
+CloseSettingsCorner.Parent = CloseSettingsBtn
+
+local SettingsContent = Instance.new("Frame")
+SettingsContent.Size = UDim2.new(1, -16, 1, -36)
+SettingsContent.Position = UDim2.new(0, 8, 0, 32)
+SettingsContent.BackgroundTransparency = 1
+SettingsContent.Parent = SettingsFrame
+
+local LoadFromURLBtn = CreateStudioBtn("LOAD FROM URL", 10, 10, 180, 30, Color3.fromRGB(59, 15, 116))
+LoadFromURLBtn.Parent = SettingsContent
+
+local URLLabel = Instance.new("TextLabel")
+URLLabel.Size = UDim2.new(1, -20, 0, 40)
+URLLabel.Position = UDim2.new(0, 10, 0, 50)
+URLLabel.BackgroundTransparency = 1
+URLLabel.Text = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/autowalk.lua"
+URLLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+URLLabel.Font = Enum.Font.Gotham
+URLLabel.TextSize = 8
+URLLabel.TextWrapped = true
+URLLabel.TextXAlignment = Enum.TextXAlignment.Center
+URLLabel.Parent = SettingsContent
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -20, 0, 20)
+StatusLabel.Position = UDim2.new(0, 10, 0, 100)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Ready to load from URL"
+StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextSize = 8
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+StatusLabel.Parent = SettingsContent
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 local function UpdateStudioUI()
@@ -1327,6 +1466,7 @@ local function StartStudioRecording()
     IsStudioRecording = true
     IsReversing = false
     IsForwarding = false
+    ResetResumeRewind()  -- Reset rewind counter saat mulai recording baru
     StudioRecording = {Frames = {}, StartTime = tick(), Name = "Studio_" .. os.date("%H%M%S")}
     lastRecordTime = 0
     lastRecordPos = nil
@@ -1370,7 +1510,7 @@ local function StartStudioRecording()
             LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
             UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
             Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-            MoveState = "Grounded",
+            MoveState = GetCurrentMoveState(hum),
             WalkSpeed = hum and hum.WalkSpeed or 16,
             Timestamp = now - StudioRecording.StartTime
         })
@@ -1430,6 +1570,7 @@ local function SaveStudioRecording()
     PlaySound("Success")
     
     StudioRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+    ResetResumeRewind()
     UpdateStudioUI()
     
     wait(1.5)
@@ -1443,6 +1584,7 @@ local function ClearStudioRecording()
     end
     
     StudioRecording = {Frames = {}, StartTime = 0, Name = "Studio_" .. os.date("%H%M%S")}
+    ResetResumeRewind()
     
     UpdateStudioUI()
     StudioStatusLabel.Text = "🗑️ Cleared - Ready to record"
@@ -1676,6 +1818,7 @@ local function StopForwardPlayback()
     StudioStatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
 end
 
+-- ========= IMPROVED RESUME FUNCTION =========
 local function ResumeStudioRecording()
     if not IsStudioRecording then
         StudioStatusLabel.Text = "❌ Not recording!"
@@ -1690,46 +1833,7 @@ local function ResumeStudioRecording()
         StopForwardPlayback()
     end
     
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        StudioStatusLabel.Text = "❌ Character not found!"
-        return
-    end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    
-    local currentPos = hrp.Position
-    local nearestFrame = 1
-    local nearestDistance = math.huge
-    
-    for i, frame in ipairs(StudioRecording.Frames) do
-        local framePos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-        local distance = (framePos - currentPos).Magnitude
-        
-        if distance < nearestDistance then
-            nearestDistance = distance
-            nearestFrame = i
-        end
-    end
-    
-    if nearestFrame < #StudioRecording.Frames then
-        local framesDeleted = #StudioRecording.Frames - nearestFrame
-        for i = #StudioRecording.Frames, nearestFrame + 1, -1 do
-            table.remove(StudioRecording.Frames, i)
-        end
-        StudioStatusLabel.Text = "🗑️ Deleted " .. framesDeleted .. " frames"
-    end
-    
-    if hum then
-        hum.WalkSpeed = 16
-        hum.AutoRotate = true
-    end
-    
-    StudioStatusLabel.Text = "▶ Recording resumed"
-    StudioStatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-    
-    UpdateStudioUI()
+    SmartResumeRecording()
 end
 
 -- ========= STUDIO BUTTON EVENTS =========
@@ -1794,6 +1898,48 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
     end
     RecordingStudio.Visible = false
     MainFrame.Visible = true
+end)
+
+-- ========= SETTINGS BUTTON EVENTS =========
+SettingsBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(SettingsBtn)
+    MainFrame.Visible = false
+    SettingsFrame.Visible = true
+end)
+
+CloseSettingsBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(CloseSettingsBtn)
+    SettingsFrame.Visible = false
+    MainFrame.Visible = true
+end)
+
+LoadFromURLBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(LoadFromURLBtn)
+    
+    local success, result = pcall(function()
+        StatusLabel.Text = "⏳ Loading from URL..."
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+        
+        local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/autowalk.lua"
+        local response = game:HttpGet(url)
+        
+        if response and string.len(response) > 100 then
+            StatusLabel.Text = "✅ Successfully loaded from URL!"
+            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            PlaySound("Success")
+            
+            -- Execute the loaded script
+            loadstring(response)()
+        else
+            error("Invalid response from URL")
+        end
+    end)
+    
+    if not success then
+        StatusLabel.Text = "❌ Failed to load from URL"
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        PlaySound("Error")
+    end
 end)
 
 -- ========= SPEED VALIDATION FUNCTIONS =========
@@ -1889,15 +2035,48 @@ function UpdateRecordList()
         corner.CornerRadius = UDim.new(0, 4)
         corner.Parent = item
         
+        -- Checkbox
+        local checkbox = Instance.new("TextButton")
+        checkbox.Size = UDim2.fromOffset(16, 16)
+        checkbox.Position = UDim2.new(0, 8, 0, 4)
+        checkbox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        checkbox.Text = "✓"
+        checkbox.TextColor3 = Color3.new(1, 1, 1)
+        checkbox.Font = Enum.Font.GothamBold
+        checkbox.TextSize = 12
+        checkbox.Parent = item
+        
+        local checkboxCorner = Instance.new("UICorner")
+        checkboxCorner.CornerRadius = UDim.new(0, 3)
+        checkboxCorner.Parent = checkbox
+        
+        -- Info Label
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(1, -130, 0, 16)
+        infoLabel.Position = UDim2.new(0, 30, 0, 4)
+        infoLabel.BackgroundTransparency = 1
+        if #rec > 0 then
+            local totalSeconds = rec[#rec].Timestamp
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
+        else
+            infoLabel.Text = "0:00 • 0 frames"
+        end
+        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 8
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
+        
+        -- Custom Name Box
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(1, -130, 0, 18)
-        nameBox.Position = UDim2.new(0, 8, 0, 4)
+        nameBox.Size = UDim2.new(1, -130, 0, 16)
+        nameBox.Position = UDim2.new(0, 30, 0, 20)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
         nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
         nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
         nameBox.Font = Enum.Font.GothamBold
-        nameBox.TextSize = 10
+        nameBox.TextSize = 8
         nameBox.TextXAlignment = Enum.TextXAlignment.Left
         nameBox.PlaceholderText = "Enter name..."
         nameBox.ClearTextOnFocus = false
@@ -1915,22 +2094,7 @@ function UpdateRecordList()
             end
         end)
         
-        local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(1, -130, 0, 16)
-        infoLabel.Position = UDim2.new(0, 8, 0, 22)
-        infoLabel.BackgroundTransparency = 1
-        if #rec > 0 then
-            local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
-        else
-            infoLabel.Text = "0:00 • 0 frames"
-        end
-        infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        infoLabel.Font = Enum.Font.GothamBold
-        infoLabel.TextSize = 8
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-        infoLabel.Parent = item
-        
+        -- Buttons
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
         playBtn.Position = UDim2.new(1, -110, 0, 7)
@@ -1938,21 +2102,35 @@ function UpdateRecordList()
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 35
+        playBtn.TextSize = 12
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
         playCorner.CornerRadius = UDim.new(0, 6)
         playCorner.Parent = playBtn
         
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(25, 25)
+        delBtn.Position = UDim2.new(1, -80, 0, 7)
+        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        delBtn.Text = "🗑"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 12
+        delBtn.Parent = item
+        
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 6)
+        delCorner.Parent = delBtn
+        
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.new(1, -80, 0, 7)
+        upBtn.Position = UDim2.new(1, -50, 0, 7)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 35
+        upBtn.TextSize = 12
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
@@ -1961,31 +2139,17 @@ function UpdateRecordList()
         
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.new(1, -50, 0, 7)
+        downBtn.Position = UDim2.new(1, -20, 0, 7)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 35
+        downBtn.TextSize = 12
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
         downCorner.CornerRadius = UDim.new(0, 6)
         downCorner.Parent = downBtn
-        
-        local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(1, -20, 0, 7)
-        delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        delBtn.Text = "x"
-        delBtn.TextColor3 = Color3.new(1, 1, 1)
-        delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 30
-        delBtn.Parent = item
-        
-        local delCorner = Instance.new("UICorner")
-        delCorner.CornerRadius = UDim.new(0, 6)
-        delCorner.Parent = delBtn
         
         upBtn.MouseButton1Click:Connect(function()
             if index > 1 then 
@@ -2015,6 +2179,16 @@ function UpdateRecordList()
             local idx = table.find(RecordingOrder, name)
             if idx then table.remove(RecordingOrder, idx) end
             UpdateRecordList()
+        end)
+        
+        checkbox.MouseButton1Click:Connect(function()
+            AnimateButtonClick(checkbox)
+            -- Toggle checkbox state
+            if checkbox.BackgroundColor3 == Color3.fromRGB(40, 40, 50) then
+                checkbox.BackgroundColor3 = Color3.fromRGB(74, 195, 147)
+            else
+                checkbox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            end
         end)
         
         yPos = yPos + 43
@@ -2718,6 +2892,7 @@ StudioBtn.MouseButton1Click:Connect(function()
     RecordingStudio.Visible = true
     StudioStatusLabel.Text = "Ready to record"
     StudioStatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ResetResumeRewind()
     UpdateStudioUI()
 end)
 
@@ -2879,53 +3054,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
         end
     end
 end)
-
--- ========= GITHUB LOAD SUPPORT =========
-local function LoadFromURL(url)
-    local success, result = pcall(function()
-        local response = game:HttpGet(url)
-        local saveData = HttpService:JSONDecode(response)
-        
-        RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
-        
-        if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
-            
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                local name = checkpointData.Name
-                local frames = deobfuscatedData[name]
-                
-                if frames then
-                    RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-        else
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                local name = checkpointData.Name
-                local frames = checkpointData.Frames
-                
-                if frames then
-                    RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-        end
-        
-        UpdateRecordList()
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
 
 -- ========= INITIAL SETUP =========
 UpdateRecordList()
