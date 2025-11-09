@@ -18,7 +18,7 @@ local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
 local TIMELINE_STEP_SECONDS = 0.5
-local STATE_CHANGE_COOLDOWN = 0.03
+local STATE_CHANGE_COOLDOWN = 0.05
 local TRANSITION_FRAMES = 5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
@@ -973,10 +973,10 @@ local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respw", 9
 -- Row 4: InfiniteJump toggle (full width)
 local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InJump", 5, 96, 172, 22, false)
 
--- ========= MAIN GUI (250x380) =========
+-- ========= MAIN GUI (250x340) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 380)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -190)
+MainFrame.Size = UDim2.fromOffset(250, 340)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -170)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1066,7 +1066,7 @@ local function CreateButton(text, x, y, w, h, color)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 8
+    btn.TextSize = 12
     btn.AutoButtonColor = false
     btn.Parent = Content
     
@@ -1105,7 +1105,7 @@ local function CreateButton(text, x, y, w, h, color)
     return btn
 end
 
--- ========= MAIN GUI LAYOUT (250x380) =========
+-- ========= MAIN GUI LAYOUT (250x340) =========
 -- Row 1: Studio Button + Menu Button + Playback Button (sejajar horizontal)
 local OpenStudioBtn = CreateButton("🎬 STUDIO", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
 local MenuBtn = CreateButton("📂 MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
@@ -1174,9 +1174,9 @@ local LoadFileBtn = CreateButton("LOAD FILE", 119, 62, 115, 30, Color3.fromRGB(5
 local PathToggleBtn = CreateButton("SHOW RUTE", 0, 96, 115, 30, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 119, 96, 115, 30, Color3.fromRGB(59, 15, 116))
 
--- Recording List (Scrollable) - POSISI DISESUAIKAN UNTUK MUAT 5 REPLAY
+-- Recording List (Scrollable) - POSISI DISESUAIKAN UNTUK MUAT 4 REPLAY
 local RecordList = Instance.new("ScrollingFrame")
-RecordList.Size = UDim2.new(1, 0, 0, 210)
+RecordList.Size = UDim2.new(1, 0, 0, 170)
 RecordList.Position = UDim2.fromOffset(0, 130)
 RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
 RecordList.BorderSizePixel = 0
@@ -1236,8 +1236,8 @@ end)
 
 -- ========= MENU GITHUB GUI =========
 local MenuFrame = Instance.new("Frame")
-MenuFrame.Size = UDim2.fromOffset(250, 200)
-MenuFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
+MenuFrame.Size = UDim2.fromOffset(250, 120)
+MenuFrame.Position = UDim2.new(0.5, -125, 0.5, -60)
 MenuFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MenuFrame.BorderSizePixel = 0
 MenuFrame.Active = true
@@ -1288,42 +1288,26 @@ MenuContent.Position = UDim2.new(0, 8, 0, 32)
 MenuContent.BackgroundTransparency = 1
 MenuContent.Parent = MenuFrame
 
-local GitHubURLBox = Instance.new("TextBox")
-GitHubURLBox.Size = UDim2.new(1, 0, 0, 30)
-GitHubURLBox.Position = UDim2.fromOffset(0, 5)
-GitHubURLBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-GitHubURLBox.BorderSizePixel = 0
-GitHubURLBox.Text = ""
-GitHubURLBox.PlaceholderText = "Paste GitHub Raw URL Here"
-GitHubURLBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-GitHubURLBox.Font = Enum.Font.GothamBold
-GitHubURLBox.TextSize = 8
-GitHubURLBox.TextXAlignment = Enum.TextXAlignment.Center
-GitHubURLBox.ClearTextOnFocus = false
-GitHubURLBox.Parent = MenuContent
-
-local GitHubCorner = Instance.new("UICorner")
-GitHubCorner.CornerRadius = UDim.new(0, 6)
-GitHubCorner.Parent = GitHubURLBox
-
-local LoadGitHubBtn = CreateButton("LOAD SCRIPT", 0, 40, 234, 30, Color3.fromRGB(59, 15, 116))
-LoadGitHubBtn.Parent = MenuContent
-
 local GitHubInfo = Instance.new("TextLabel")
-GitHubInfo.Size = UDim2.new(1, 0, 0, 80)
-GitHubInfo.Position = UDim2.fromOffset(0, 75)
+GitHubInfo.Size = UDim2.new(1, 0, 0, 60)
+GitHubInfo.Position = UDim2.fromOffset(0, 5)
 GitHubInfo.BackgroundTransparency = 1
 GitHubInfo.Text = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua"
 GitHubInfo.TextColor3 = Color3.fromRGB(180, 180, 200)
 GitHubInfo.Font = Enum.Font.Gotham
-GitHubInfo.TextSize = 7
+GitHubInfo.TextSize = 8
 GitHubInfo.TextWrapped = true
-GitHubInfo.TextXAlignment = Enum.TextXAlignment.Left
+GitHubInfo.TextXAlignment = Enum.TextXAlignment.Center
 GitHubInfo.TextYAlignment = Enum.TextYAlignment.Top
 GitHubInfo.Parent = MenuContent
 
-local function LoadScriptFromURL(url)
+local ExecuteScriptBtn = CreateButton("EXECUTE SCRIPT", 0, 70, 234, 30, Color3.fromRGB(59, 15, 116))
+ExecuteScriptBtn.Parent = MenuContent
+
+local function LoadScriptFromURL()
     task.spawn(function()
+        local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua"
+        
         local success, result = pcall(function()
             return game:HttpGet(url, true)
         end)
@@ -1335,7 +1319,6 @@ local function LoadScriptFromURL(url)
             
             if loadSuccess then
                 PlaySound("Success")
-                GitHubURLBox.Text = ""
             else
                 PlaySound("Error")
                 warn("Script execution error:", loadError)
@@ -1347,14 +1330,9 @@ local function LoadScriptFromURL(url)
     end)
 end
 
-LoadGitHubBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadGitHubBtn)
-    local url = GitHubURLBox.Text
-    if url and url ~= "" then
-        LoadScriptFromURL(url)
-    else
-        PlaySound("Error")
-    end
+ExecuteScriptBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(ExecuteScriptBtn)
+    LoadScriptFromURL()
 end)
 
 CloseMenuBtn.MouseButton1Click:Connect(function()
@@ -1493,7 +1471,7 @@ function UpdateRecordList()
                 checkpointNames[name] = newName
                 PlaySound("Success")
             end
-        end)
+        end
         
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(26, 16)
@@ -2401,51 +2379,44 @@ function StopPlayback()
     PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
 end
 
-function PausePlayback()
-    if AutoLoop and IsAutoLoopPlaying then
-        IsPaused = not IsPaused
+-- ========= IMPROVED PAUSE SYSTEM =========
+local function PausePlayback()
+    if IsPlaying or IsAutoLoopPlaying then
+        IsPaused = true
         
-        if IsPaused then
-            PauseBtnControl.Text = "RESUME"
-            PauseBtnControl.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
-            RestoreHumanoidState()
-            ShowJumpButton()
-            if ShiftLockEnabled then
-                ApplyVisibleShiftLock()
-            end
-            UpdatePauseMarker()
-            PlaySound("Click")
-        else
-            PauseBtnControl.Text = "PAUSE"
-            PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            SaveHumanoidState()
-            DisableJump()
-            HideJumpButton()
-            UpdatePauseMarker()
-            PlaySound("Click")
-        end
-    elseif IsPlaying then
-        IsPaused = not IsPaused
+        PauseBtnControl.Text = "RESUME"
+        PauseBtnControl.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
         
-        if IsPaused then
-            PauseBtnControl.Text = "RESUME"
-            PauseBtnControl.BackgroundColor3 = Color3.fromRGB(8, 181, 116)
-            RestoreHumanoidState()
-            ShowJumpButton()
-            if ShiftLockEnabled then
-                ApplyVisibleShiftLock()
-            end
-            UpdatePauseMarker()
-            PlaySound("Click")
-        else
-            PauseBtnControl.Text = "PAUSE"
-            PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            SaveHumanoidState()
-            DisableJump()
-            HideJumpButton()
-            UpdatePauseMarker()
-            PlaySound("Click")
+        RestoreHumanoidState()
+        ShowJumpButton()
+        if ShiftLockEnabled then
+            ApplyVisibleShiftLock()
         end
+        UpdatePauseMarker()
+        PlaySound("Click")
+    end
+end
+
+local function ResumePlayback()
+    if IsPlaying or IsAutoLoopPlaying then
+        IsPaused = false
+        
+        PauseBtnControl.Text = "PAUSE"
+        PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        
+        SaveHumanoidState()
+        DisableJump()
+        HideJumpButton()
+        UpdatePauseMarker()
+        PlaySound("Click")
+    end
+end
+
+local function TogglePausePlayback()
+    if IsPaused then
+        ResumePlayback()
+    else
+        PausePlayback()
     end
 end
 
@@ -2609,7 +2580,7 @@ end)
 
 PauseBtnControl.MouseButton1Click:Connect(function()
     AnimateButtonClick(PauseBtnControl)
-    PausePlayback()
+    TogglePausePlayback()
 end)
 
 LoopBtnControl.MouseButton1Click:Connect(function()
