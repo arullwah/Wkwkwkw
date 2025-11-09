@@ -15,11 +15,11 @@ local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
--- ========= SMOOTH INTERPOLATION SYSTEM =========
+-- ========= OPTIMIZED INTERPOLATION SYSTEM =========
 local INTERPOLATION_ENABLED = true
-local INTERPOLATION_ALPHA = 0.3
-local MAX_INTERPOLATION_DISTANCE = 50
-local MIN_INTERPOLATION_DISTANCE = 0.1
+local INTERPOLATION_ALPHA = 0.7
+local MAX_INTERPOLATION_DISTANCE = 25
+local MIN_INTERPOLATION_DISTANCE = 0.05
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -679,17 +679,83 @@ local function SmoothCFrameLerp(currentCF, targetCF, alpha, maxDistance)
         return targetCF
     end
     
-    local newPos = currentPos:Lerp(targetPos, alpha)
-    local newCF = currentCF:Lerp(targetCF, alpha * 0.7)
+    local dynamicAlpha = math.min(alpha, distance * 2)
+    
+    local newPos = currentPos:Lerp(targetPos, dynamicAlpha)
+    local newCF = currentCF:Lerp(targetCF, dynamicAlpha * 0.8)
     
     return CFrame.new(newPos) * (newCF - newCF.Position)
 end
 
 local function SmoothVector3Lerp(currentVec, targetVec, alpha)
-    return currentVec:Lerp(targetVec, alpha)
+    return currentVec:Lerp(targetVec, alpha * 0.6)
 end
 
--- ========= ENHANCED MERGE SYSTEM WITH SMOOTH TRANSITION =========
+-- ========= ENHANCED RESUME & MERGE SYSTEM =========
+local function FixBrokenTransitions(recording)
+    if not recording or #recording < 10 then return recording end
+    
+    local fixedFrames = {}
+    local lastGoodFrame = recording[1]
+    
+    table.insert(fixedFrames, lastGoodFrame)
+    
+    for i = 2, #recording do
+        local currentFrame = recording[i]
+        local prevFrame = recording[i-1]
+        
+        local currentPos = Vector3.new(currentFrame.Position[1], currentFrame.Position[2], currentFrame.Position[3])
+        local prevPos = Vector3.new(prevFrame.Position[1], prevFrame.Position[2], prevFrame.Position[3])
+        
+        local distance = (currentPos - prevPos).Magnitude
+        local timeGap = currentFrame.Timestamp - prevFrame.Timestamp
+        
+        if distance > 5 and timeGap < 0.5 then
+            local transitionFrames = math.min(15, math.max(5, math.floor(distance * 1.5)))
+            
+            for j = 1, transitionFrames do
+                local progress = j / transitionFrames
+                local easeProgress = progress * progress
+                
+                local transitionFrame = {
+                    Position = {
+                        prevFrame.Position[1] + (currentFrame.Position[1] - prevFrame.Position[1]) * easeProgress,
+                        prevFrame.Position[2] + (currentFrame.Position[2] - prevFrame.Position[2]) * easeProgress,
+                        prevFrame.Position[3] + (currentFrame.Position[3] - prevFrame.Position[3]) * easeProgress
+                    },
+                    LookVector = {
+                        prevFrame.LookVector[1] + (currentFrame.LookVector[1] - prevFrame.LookVector[1]) * progress,
+                        prevFrame.LookVector[2] + (currentFrame.LookVector[2] - prevFrame.LookVector[2]) * progress,
+                        prevFrame.LookVector[3] + (currentFrame.LookVector[3] - prevFrame.LookVector[3]) * progress
+                    },
+                    UpVector = {
+                        prevFrame.UpVector[1] + (currentFrame.UpVector[1] - prevFrame.UpVector[1]) * progress,
+                        prevFrame.UpVector[2] + (currentFrame.UpVector[2] - prevFrame.UpVector[2]) * progress,
+                        prevFrame.UpVector[3] + (currentFrame.UpVector[3] - prevFrame.UpVector[3]) * progress
+                    },
+                    Velocity = {
+                        prevFrame.Velocity[1] * (1 - progress) + currentFrame.Velocity[1] * progress,
+                        prevFrame.Velocity[2] * (1 - progress) + currentFrame.Velocity[2] * progress,
+                        prevFrame.Velocity[3] * (1 - progress) + currentFrame.Velocity[3] * progress
+                    },
+                    MoveState = distance > 10 and "Grounded" or prevFrame.MoveState,
+                    WalkSpeed = prevFrame.WalkSpeed + (currentFrame.WalkSpeed - prevFrame.WalkSpeed) * progress,
+                    Timestamp = prevFrame.Timestamp + (timeGap * progress)
+                }
+                
+                table.insert(fixedFrames, transitionFrame)
+            end
+        else
+            table.insert(fixedFrames, currentFrame)
+        end
+        
+        lastGoodFrame = currentFrame
+    end
+    
+    return fixedFrames
+end
+
+-- ========= UPDATED MERGE SYSTEM =========
 local function CreateMergedReplayWithSmoothTransition()
     if #RecordingOrder < 2 then
         PlaySound("Error")
@@ -703,19 +769,21 @@ local function CreateMergedReplayWithSmoothTransition()
         local checkpoint = RecordedMovements[checkpointName]
         if not checkpoint then continue end
         
-        if #mergedFrames > 0 and #checkpoint > 0 then
+        local fixedCheckpoint = FixBrokenTransitions(checkpoint)
+        
+        if #mergedFrames > 0 and #fixedCheckpoint > 0 then
             local lastFrame = mergedFrames[#mergedFrames]
-            local firstFrame = checkpoint[1]
+            local firstFrame = fixedCheckpoint[1]
             
             local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
             local firstPos = Vector3.new(firstFrame.Position[1], firstFrame.Position[2], firstFrame.Position[3])
             local distance = (firstPos - lastPos).Magnitude
             
-            local transitionFramesCount = math.min(30, math.max(10, math.floor(distance * 2)))
+            local transitionFramesCount = math.min(20, math.max(8, math.floor(distance * 1.2)))
             
             for i = 1, transitionFramesCount do
                 local progress = i / transitionFramesCount
-                local easeProgress = 1 - math.cos(progress * math.pi / 2)
+                local easeProgress = progress * (2 - progress)
                 
                 local transitionFrame = {
                     Position = {
@@ -728,27 +796,22 @@ local function CreateMergedReplayWithSmoothTransition()
                         lastFrame.LookVector[2] + (firstFrame.LookVector[2] - lastFrame.LookVector[2]) * progress,
                         lastFrame.LookVector[3] + (firstFrame.LookVector[3] - lastFrame.LookVector[3]) * progress
                     },
-                    UpVector = {
-                        lastFrame.UpVector[1] + (firstFrame.UpVector[1] - lastFrame.UpVector[1]) * progress,
-                        lastFrame.UpVector[2] + (firstFrame.UpVector[2] - lastFrame.UpVector[2]) * progress,
-                        lastFrame.UpVector[3] + (firstFrame.UpVector[3] - lastFrame.UpVector[3]) * progress
-                    },
+                    UpVector = firstFrame.UpVector,
                     Velocity = {
                         lastFrame.Velocity[1] * (1 - progress) + firstFrame.Velocity[1] * progress,
                         lastFrame.Velocity[2] * (1 - progress) + firstFrame.Velocity[2] * progress,
                         lastFrame.Velocity[3] * (1 - progress) + firstFrame.Velocity[3] * progress
                     },
-                    MoveState = distance > 10 and "Grounded" or lastFrame.MoveState,
+                    MoveState = "Grounded",
                     WalkSpeed = lastFrame.WalkSpeed + (firstFrame.WalkSpeed - lastFrame.WalkSpeed) * progress,
-                    Timestamp = lastFrame.Timestamp + (0.1 * i)
+                    Timestamp = lastFrame.Timestamp + (0.08 * i)
                 }
                 
                 table.insert(mergedFrames, transitionFrame)
-                totalTimeOffset = totalTimeOffset + 0.1
             end
         end
         
-        for frameIndex, frame in ipairs(checkpoint) do
+        for frameIndex, frame in ipairs(fixedCheckpoint) do
             local newFrame = {
                 Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
                 LookVector = {frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]},
@@ -761,14 +824,13 @@ local function CreateMergedReplayWithSmoothTransition()
             table.insert(mergedFrames, newFrame)
         end
         
-        if #checkpoint > 0 then
-            totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.2
+        if #fixedCheckpoint > 0 then
+            totalTimeOffset = totalTimeOffset + fixedCheckpoint[#fixedCheckpoint].Timestamp + 0.15
         end
     end
     
     local optimizedFrames = {}
     local lastSignificantFrame = nil
-    local lastSignificantDistance = 0
     
     for i, frame in ipairs(mergedFrames) do
         local shouldInclude = true
@@ -778,10 +840,8 @@ local function CreateMergedReplayWithSmoothTransition()
             local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
             local distance = (pos1 - pos2).Magnitude
             
-            if distance < 0.05 and frame.MoveState == lastSignificantFrame.MoveState then
+            if distance < 0.02 and frame.MoveState == lastSignificantFrame.MoveState then
                 shouldInclude = false
-            else
-                lastSignificantDistance = distance
             end
         end
         
@@ -1118,10 +1178,10 @@ local ListCorner = Instance.new("UICorner")
 ListCorner.CornerRadius = UDim.new(0, 6)
 ListCorner.Parent = RecordList
 
--- ========= STUDIO RECORDING GUI =========
+-- ========= NEW STUDIO RECORDING GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(230, 200)
-RecordingStudio.Position = UDim2.new(0.5, -115, 0.5, -100)
+RecordingStudio.Size = UDim2.fromOffset(180, 180)
+RecordingStudio.Position = UDim2.new(0.5, -90, 0.5, -90)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -1138,7 +1198,7 @@ StudioStroke.Color = Color3.fromRGB(59, 15, 116)
 StudioStroke.Thickness = 2
 StudioStroke.Parent = RecordingStudio
 
--- Studio Header
+-- Studio Header dengan Frame Label di tengah
 local StudioHeader = Instance.new("Frame")
 StudioHeader.Size = UDim2.new(1, 0, 0, 28)
 StudioHeader.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
@@ -1149,20 +1209,20 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 10)
 HeaderCorner.Parent = StudioHeader
 
-local StudioTitle = Instance.new("TextLabel")
-StudioTitle.Size = UDim2.new(1, -30, 1, 0)
-StudioTitle.Position = UDim2.new(0, 10, 0, 0)
-StudioTitle.BackgroundTransparency = 1
-StudioTitle.Text = "🎬 RECORDING STUDIO"
-StudioTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-StudioTitle.Font = Enum.Font.GothamBold
-StudioTitle.TextSize = 11
-StudioTitle.TextXAlignment = Enum.TextXAlignment.Left
-StudioTitle.Parent = StudioHeader
+local StudioFrameLabel = Instance.new("TextLabel")
+StudioFrameLabel.Size = UDim2.new(1, -60, 1, 0)
+StudioFrameLabel.Position = UDim2.new(0, 30, 0, 0)
+StudioFrameLabel.BackgroundTransparency = 1
+StudioFrameLabel.Text = "Frame: 0"
+StudioFrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StudioFrameLabel.Font = Enum.Font.GothamBold
+StudioFrameLabel.TextSize = 11
+StudioFrameLabel.TextXAlignment = Enum.TextXAlignment.Center
+StudioFrameLabel.Parent = StudioHeader
 
 local CloseStudioBtn = Instance.new("TextButton")
 CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
-CloseStudioBtn.Position = UDim2.new(1, -24, 0.5, -10)
+CloseStudioBtn.Position = UDim2.new(1, -25, 0.5, -10)
 CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
 CloseStudioBtn.Text = "×"
 CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1174,11 +1234,13 @@ local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 5)
 CloseCorner.Parent = CloseStudioBtn
 
--- Studio Content
+-- Studio Content - Full Drag
 local StudioContent = Instance.new("Frame")
 StudioContent.Size = UDim2.new(1, -16, 1, -36)
 StudioContent.Position = UDim2.new(0, 8, 0, 32)
 StudioContent.BackgroundTransparency = 1
+StudioContent.Active = true
+StudioContent.Draggable = true
 StudioContent.Parent = RecordingStudio
 
 -- Helper function for studio buttons
@@ -1221,52 +1283,35 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Top Row Buttons
-local StudioRecordBtn = CreateStudioBtn("● RECORD", 5, 5, 68, 30, Color3.fromRGB(59, 15, 116))
-local StudioSaveBtn = CreateStudioBtn("💾 SAVE", 78, 5, 68, 30, Color3.fromRGB(59, 15, 116))
-local StudioClearBtn = CreateStudioBtn("🗑️ CLEAR", 151, 5, 68, 30, Color3.fromRGB(59, 15, 116))
+-- Top Row: [SAVE] [CLEAR]
+local StudioSaveBtn = CreateStudioBtn("SAVE", 5, 5, 80, 25, Color3.fromRGB(59, 15, 116))
+local StudioClearBtn = CreateStudioBtn("CLEAR", 90, 5, 80, 25, Color3.fromRGB(59, 15, 116))
 
--- Frame Counter
-local StudioFrameLabel = Instance.new("TextLabel")
-StudioFrameLabel.Size = UDim2.fromOffset(214, 28)
-StudioFrameLabel.Position = UDim2.fromOffset(5, 40)
-StudioFrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-StudioFrameLabel.Text = "Frames: 0 / 30000"
-StudioFrameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-StudioFrameLabel.Font = Enum.Font.GothamBold
-StudioFrameLabel.TextSize = 10
-StudioFrameLabel.Parent = StudioContent
+-- Middle: [RECORD] (Full Width)
+local StudioRecordBtn = CreateStudioBtn("● RECORD", 5, 35, 165, 30, Color3.fromRGB(59, 15, 116))
 
-local FrameCorner = Instance.new("UICorner")
-FrameCorner.CornerRadius = UDim.new(0, 5)
-FrameCorner.Parent = StudioFrameLabel
+-- Middle: [RESUME] (Full Width)
+local StudioResumeBtn = CreateStudioBtn("RESUME", 5, 70, 165, 30, Color3.fromRGB(59, 15, 116))
 
-local FrameStroke = Instance.new("UIStroke")
-FrameStroke.Color = Color3.fromRGB(60, 60, 70)
-FrameStroke.Thickness = 1
-FrameStroke.Parent = StudioFrameLabel
-
--- Timeline Buttons
-local StudioReverseBtn = CreateStudioBtn("⏪ MUNDUR 0.5s", 5, 73, 104, 35, Color3.fromRGB(59, 15, 116))
-local StudioForwardBtn = CreateStudioBtn("⏩ MAJU 0.5s", 114, 73, 105, 35, Color3.fromRGB(59, 15, 116))
-
--- Resume Button
-local StudioResumeBtn = CreateStudioBtn("▶ RESUME & HAPUS", 5, 113, 214, 30, Color3.fromRGB(59, 15, 116))
+-- Bottom: [BACK] [NEXT]
+local StudioReverseBtn = CreateStudioBtn("BACK", 5, 105, 80, 30, Color3.fromRGB(59, 15, 116))
+local StudioForwardBtn = CreateStudioBtn("NEXT", 90, 105, 80, 30, Color3.fromRGB(59, 15, 116))
 
 -- Status Label
 local StudioStatusLabel = Instance.new("TextLabel")
-StudioStatusLabel.Size = UDim2.fromOffset(214, 20)
-StudioStatusLabel.Position = UDim2.fromOffset(5, 148)
+StudioStatusLabel.Size = UDim2.fromOffset(165, 20)
+StudioStatusLabel.Position = UDim2.fromOffset(5, 140)
 StudioStatusLabel.BackgroundTransparency = 1
 StudioStatusLabel.Text = "Ready to record"
 StudioStatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 StudioStatusLabel.Font = Enum.Font.Gotham
 StudioStatusLabel.TextSize = 8
+StudioStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
 StudioStatusLabel.Parent = StudioContent
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 local function UpdateStudioUI()
-    StudioFrameLabel.Text = string.format("Frames: %d / 30000", #StudioRecording.Frames)
+    StudioFrameLabel.Text = string.format("Frame: %d", #StudioRecording.Frames)
 end
 
 local function StartStudioRecording()
@@ -1431,7 +1476,7 @@ local function StartReversePlayback()
         hum.AutoRotate = false
     end
     
-    StudioStatusLabel.Text = "⏪ Reversing 0.5s..."
+    StudioStatusLabel.Text = "⏪ Reversing..."
     StudioStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
     
     local currentFrame = #StudioRecording.Frames
@@ -1537,7 +1582,7 @@ local function StartForwardPlayback()
         hum.AutoRotate = false
     end
     
-    StudioStatusLabel.Text = "⏩ Forwarding 0.5s..."
+    StudioStatusLabel.Text = "⏩ Forwarding..."
     StudioStatusLabel.TextColor3 = Color3.fromRGB(200, 150, 100)
     
     local currentPos = hrp.Position
@@ -2671,8 +2716,9 @@ StudioBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(StudioBtn)
     MainFrame.Visible = false
     RecordingStudio.Visible = true
-    StudioStatusLabel.Text = "🎬 Recording Studio Ready"
-    StudioStatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+    StudioStatusLabel.Text = "Ready to record"
+    StudioStatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    UpdateStudioUI()
 end)
 
 PlayBtnBig.MouseButton1Click:Connect(function()
@@ -2833,6 +2879,53 @@ UserInputService.InputBegan:Connect(function(input, processed)
         end
     end
 end)
+
+-- ========= GITHUB LOAD SUPPORT =========
+local function LoadFromURL(url)
+    local success, result = pcall(function()
+        local response = game:HttpGet(url)
+        local saveData = HttpService:JSONDecode(response)
+        
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        else
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
 
 -- ========= INITIAL SETUP =========
 UpdateRecordList()
