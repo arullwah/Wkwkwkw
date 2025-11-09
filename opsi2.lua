@@ -16,7 +16,7 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 
 -- ========= OPTIMIZED INTERPOLATION SYSTEM =========
-local INTERPOLATION_ENABLED = false
+local INTERPOLATION_ENABLED = true
 local INTERPOLATION_ALPHA = 0.7
 local MAX_INTERPOLATION_DISTANCE = 25
 local MIN_INTERPOLATION_DISTANCE = 0.05
@@ -950,10 +950,10 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- Main Frame 250x220
+-- Main Frame 250x280
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(250, 220)
-MainFrame.Position = UDim2.new(0.5, -125, 0.5, -110)
+MainFrame.Size = UDim2.fromOffset(250, 280)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -140)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1020,7 +1020,7 @@ Content.ScrollBarThickness = 6
 Content.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
 Content.ScrollingDirection = Enum.ScrollingDirection.Y
 Content.VerticalScrollBarInset = Enum.ScrollBarInset.Always
-Content.CanvasSize = UDim2.new(0, 0, 0, 500)
+Content.CanvasSize = UDim2.new(0, 0, 0, 600)
 Content.Parent = MainFrame
 
 local MiniButton = Instance.new("TextButton")
@@ -1366,87 +1366,6 @@ StudioStatusLabel.Font = Enum.Font.Gotham
 StudioStatusLabel.TextSize = 8
 StudioStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
 StudioStatusLabel.Parent = StudioContent
-
--- ========= SETTINGS GUI =========
-local SettingsFrame = Instance.new("Frame")
-SettingsFrame.Size = UDim2.fromOffset(200, 150)
-SettingsFrame.Position = UDim2.new(0.5, -100, 0.5, -75)
-SettingsFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-SettingsFrame.BorderSizePixel = 0
-SettingsFrame.Active = true
-SettingsFrame.Draggable = true
-SettingsFrame.Visible = false
-SettingsFrame.Parent = ScreenGui
-
-local SettingsCorner = Instance.new("UICorner")
-SettingsCorner.CornerRadius = UDim.new(0, 10)
-SettingsCorner.Parent = SettingsFrame
-
-local SettingsHeader = Instance.new("Frame")
-SettingsHeader.Size = UDim2.new(1, 0, 0, 28)
-SettingsHeader.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-SettingsHeader.BorderSizePixel = 0
-SettingsHeader.Parent = SettingsFrame
-
-local SettingsHeaderCorner = Instance.new("UICorner")
-SettingsHeaderCorner.CornerRadius = UDim.new(0, 10)
-SettingsHeaderCorner.Parent = SettingsHeader
-
-local SettingsTitle = Instance.new("TextLabel")
-SettingsTitle.Size = UDim2.new(1, 0, 1, 0)
-SettingsTitle.BackgroundTransparency = 1
-SettingsTitle.Text = "Settings"
-SettingsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-SettingsTitle.Font = Enum.Font.GothamBold
-SettingsTitle.TextSize = 12
-SettingsTitle.TextXAlignment = Enum.TextXAlignment.Center
-SettingsTitle.Parent = SettingsHeader
-
-local CloseSettingsBtn = Instance.new("TextButton")
-CloseSettingsBtn.Size = UDim2.fromOffset(20, 20)
-CloseSettingsBtn.Position = UDim2.new(1, -25, 0.5, -10)
-CloseSettingsBtn.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
-CloseSettingsBtn.Text = "×"
-CloseSettingsBtn.TextColor3 = Color3.new(1, 1, 1)
-CloseSettingsBtn.Font = Enum.Font.GothamBold
-CloseSettingsBtn.TextSize = 14
-CloseSettingsBtn.Parent = SettingsHeader
-
-local CloseSettingsCorner = Instance.new("UICorner")
-CloseSettingsCorner.CornerRadius = UDim.new(0, 5)
-CloseSettingsCorner.Parent = CloseSettingsBtn
-
-local SettingsContent = Instance.new("Frame")
-SettingsContent.Size = UDim2.new(1, -16, 1, -36)
-SettingsContent.Position = UDim2.new(0, 8, 0, 32)
-SettingsContent.BackgroundTransparency = 1
-SettingsContent.Parent = SettingsFrame
-
-local LoadFromURLBtn = CreateStudioBtn("LOAD FROM URL", 10, 10, 180, 30, Color3.fromRGB(59, 15, 116))
-LoadFromURLBtn.Parent = SettingsContent
-
-local URLLabel = Instance.new("TextLabel")
-URLLabel.Size = UDim2.new(1, -20, 0, 40)
-URLLabel.Position = UDim2.new(0, 10, 0, 50)
-URLLabel.BackgroundTransparency = 1
-URLLabel.Text = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/autowalk.lua"
-URLLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
-URLLabel.Font = Enum.Font.Gotham
-URLLabel.TextSize = 8
-URLLabel.TextWrapped = true
-URLLabel.TextXAlignment = Enum.TextXAlignment.Center
-URLLabel.Parent = SettingsContent
-
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -20, 0, 20)
-StatusLabel.Position = UDim2.new(0, 10, 0, 100)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Ready to load from URL"
-StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.TextSize = 8
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-StatusLabel.Parent = SettingsContent
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 local function UpdateStudioUI()
@@ -1903,32 +1822,13 @@ end)
 -- ========= SETTINGS BUTTON EVENTS =========
 SettingsBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(SettingsBtn)
-    MainFrame.Visible = false
-    SettingsFrame.Visible = true
-end)
-
-CloseSettingsBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(CloseSettingsBtn)
-    SettingsFrame.Visible = false
-    MainFrame.Visible = true
-end)
-
-LoadFromURLBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadFromURLBtn)
     
     local success, result = pcall(function()
-        StatusLabel.Text = "⏳ Loading from URL..."
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
-        
         local url = "https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/autowalk.lua"
         local response = game:HttpGet(url)
         
         if response and string.len(response) > 100 then
-            StatusLabel.Text = "✅ Successfully loaded from URL!"
-            StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
             PlaySound("Success")
-            
-            -- Execute the loaded script
             loadstring(response)()
         else
             error("Invalid response from URL")
@@ -1936,8 +1836,6 @@ LoadFromURLBtn.MouseButton1Click:Connect(function()
     end)
     
     if not success then
-        StatusLabel.Text = "❌ Failed to load from URL"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
         PlaySound("Error")
     end
 end)
@@ -2014,6 +1912,25 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
+-- ========= CHECKBOX SYSTEM =========
+local SelectedCheckpoints = {}
+
+local function ToggleCheckpoint(name)
+    if SelectedCheckpoints[name] then
+        SelectedCheckpoints[name] = nil
+    else
+        SelectedCheckpoints[name] = true
+    end
+end
+
+local function GetSelectedCheckpoints()
+    local selected = {}
+    for name, _ in pairs(SelectedCheckpoints) do
+        table.insert(selected, name)
+    end
+    return selected
+end
+
 -- ========= UPDATE RECORD LIST =========
 function UpdateRecordList()
     for _, child in pairs(RecordList:GetChildren()) do
@@ -2026,7 +1943,7 @@ function UpdateRecordList()
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -6, 0, 40)
+        item.Size = UDim2.new(1, -6, 0, 50)
         item.Position = UDim2.new(0, 3, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         item.Parent = RecordList
@@ -2039,8 +1956,8 @@ function UpdateRecordList()
         local checkbox = Instance.new("TextButton")
         checkbox.Size = UDim2.fromOffset(16, 16)
         checkbox.Position = UDim2.new(0, 8, 0, 4)
-        checkbox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-        checkbox.Text = "✓"
+        checkbox.BackgroundColor3 = SelectedCheckpoints[name] and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+        checkbox.Text = SelectedCheckpoints[name] and "✓" or ""
         checkbox.TextColor3 = Color3.new(1, 1, 1)
         checkbox.Font = Enum.Font.GothamBold
         checkbox.TextSize = 12
@@ -2067,37 +1984,10 @@ function UpdateRecordList()
         infoLabel.TextXAlignment = Enum.TextXAlignment.Left
         infoLabel.Parent = item
         
-        -- Custom Name Box
-        local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(1, -130, 0, 16)
-        nameBox.Position = UDim2.new(0, 30, 0, 20)
-        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        nameBox.BorderSizePixel = 0
-        nameBox.Text = checkpointNames[name] or "checkpoint_" .. index
-        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-        nameBox.Font = Enum.Font.GothamBold
-        nameBox.TextSize = 8
-        nameBox.TextXAlignment = Enum.TextXAlignment.Left
-        nameBox.PlaceholderText = "Enter name..."
-        nameBox.ClearTextOnFocus = false
-        nameBox.Parent = item
-        
-        local nameBoxCorner = Instance.new("UICorner")
-        nameBoxCorner.CornerRadius = UDim.new(0, 3)
-        nameBoxCorner.Parent = nameBox
-        
-        nameBox.FocusLost:Connect(function()
-            local newName = nameBox.Text
-            if newName and newName ~= "" then
-                checkpointNames[name] = newName
-                PlaySound("Success")
-            end
-        end)
-        
-        -- Buttons
+        -- Button Row
         local playBtn = Instance.new("TextButton")
         playBtn.Size = UDim2.fromOffset(25, 25)
-        playBtn.Position = UDim2.new(1, -110, 0, 7)
+        playBtn.Position = UDim2.new(0, 8, 0, 23)
         playBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         playBtn.Text = "▶"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2111,7 +2001,7 @@ function UpdateRecordList()
         
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(1, -80, 0, 7)
+        delBtn.Position = UDim2.new(0, 38, 0, 23)
         delBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         delBtn.Text = "🗑"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2123,9 +2013,28 @@ function UpdateRecordList()
         delCorner.CornerRadius = UDim.new(0, 6)
         delCorner.Parent = delBtn
         
+        -- Custom Name Box
+        local nameBox = Instance.new("TextBox")
+        nameBox.Size = UDim2.new(0, 80, 0, 25)
+        nameBox.Position = UDim2.new(0, 68, 0, 23)
+        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        nameBox.BorderSizePixel = 0
+        nameBox.Text = checkpointNames[name] or "Checkpoint" .. index
+        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameBox.Font = Enum.Font.GothamBold
+        nameBox.TextSize = 8
+        nameBox.TextXAlignment = Enum.TextXAlignment.Center
+        nameBox.PlaceholderText = "Name..."
+        nameBox.ClearTextOnFocus = false
+        nameBox.Parent = item
+        
+        local nameBoxCorner = Instance.new("UICorner")
+        nameBoxCorner.CornerRadius = UDim.new(0, 3)
+        nameBoxCorner.Parent = nameBox
+        
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(25, 25)
-        upBtn.Position = UDim2.new(1, -50, 0, 7)
+        upBtn.Position = UDim2.new(1, -50, 0, 23)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(30, 30, 30)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2139,7 +2048,7 @@ function UpdateRecordList()
         
         local downBtn = Instance.new("TextButton")
         downBtn.Size = UDim2.fromOffset(25, 25)
-        downBtn.Position = UDim2.new(1, -20, 0, 7)
+        downBtn.Position = UDim2.new(1, -20, 0, 23)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(30, 30, 30)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -2176,6 +2085,7 @@ function UpdateRecordList()
             AnimateButtonClick(delBtn)
             RecordedMovements[name] = nil
             checkpointNames[name] = nil
+            SelectedCheckpoints[name] = nil
             local idx = table.find(RecordingOrder, name)
             if idx then table.remove(RecordingOrder, idx) end
             UpdateRecordList()
@@ -2183,15 +2093,20 @@ function UpdateRecordList()
         
         checkbox.MouseButton1Click:Connect(function()
             AnimateButtonClick(checkbox)
-            -- Toggle checkbox state
-            if checkbox.BackgroundColor3 == Color3.fromRGB(40, 40, 50) then
-                checkbox.BackgroundColor3 = Color3.fromRGB(74, 195, 147)
-            else
-                checkbox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+            ToggleCheckpoint(name)
+            checkbox.BackgroundColor3 = SelectedCheckpoints[name] and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+            checkbox.Text = SelectedCheckpoints[name] and "✓" or ""
+        end)
+        
+        nameBox.FocusLost:Connect(function()
+            local newName = nameBox.Text
+            if newName and newName ~= "" then
+                checkpointNames[name] = newName
+                PlaySound("Success")
             end
         end)
         
-        yPos = yPos + 43
+        yPos = yPos + 53
     end
     
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
@@ -2771,6 +2686,26 @@ local function SaveToObfuscatedJSON()
         return
     end
     
+    local selected = GetSelectedCheckpoints()
+    local checkpointsToSave = {}
+    
+    if #selected > 0 then
+        -- Save only selected checkpoints
+        for _, name in ipairs(selected) do
+            if RecordedMovements[name] then
+                checkpointsToSave[name] = RecordedMovements[name]
+            end
+        end
+    else
+        -- Save all checkpoints if none selected
+        checkpointsToSave = RecordedMovements
+    end
+    
+    if not next(checkpointsToSave) then
+        PlaySound("Error")
+        return
+    end
+    
     local success, err = pcall(function()
         local saveData = {
             Version = "2.0",
@@ -2780,7 +2715,7 @@ local function SaveToObfuscatedJSON()
             CheckpointNames = checkpointNames
         }
         
-        for name, frames in pairs(RecordedMovements) do
+        for name, frames in pairs(checkpointsToSave) do
             local checkpointData = {
                 Name = name,
                 DisplayName = checkpointNames[name] or "checkpoint",
@@ -2789,7 +2724,7 @@ local function SaveToObfuscatedJSON()
             table.insert(saveData.Checkpoints, checkpointData)
         end
         
-        local obfuscatedData = ObfuscateRecordingData(RecordedMovements)
+        local obfuscatedData = ObfuscateRecordingData(checkpointsToSave)
         saveData.ObfuscatedFrames = obfuscatedData
         
         local jsonString = HttpService:JSONEncode(saveData)
@@ -2819,6 +2754,7 @@ local function LoadFromObfuscatedJSON()
         RecordedMovements = {}
         RecordingOrder = saveData.RecordingOrder or {}
         checkpointNames = saveData.CheckpointNames or {}
+        SelectedCheckpoints = {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
