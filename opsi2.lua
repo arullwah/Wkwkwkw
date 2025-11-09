@@ -1,5 +1,5 @@
--- ========= AUTO WALK PRO v8.7 - SMOOTH RECORDING SYSTEM =========
--- Enhanced Recording + Smooth Reverse/Forward + Universal Character Support
+-- ========= AUTO WALK PRO v8.7 - ADVANCED FALL RECOVERY SYSTEM =========
+-- Enhanced Recording + Smart Fall Recovery + Smooth Playback + Clean GUI
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -17,14 +17,7 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local ROUTE_PROXIMITY_THRESHOLD = 10
 
--- ========= SMOOTH REVERSE/FORWARD CONFIG =========
-local REVERSE_SPEED_MULTIPLIER = 1.0
-local FORWARD_SPEED_MULTIPLIER = 1.0
-local REVERSE_FRAME_STEP = 1
-local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.5
-
--- ========= STABILITY CONFIG =========
+-- ========= SMOOTH PLAYBACK CONFIG =========
 local INTERPOLATION_ENABLED = true
 local INTERPOLATION_ALPHA = 0.45
 local MIN_INTERPOLATION_DISTANCE = 0.3
@@ -55,24 +48,18 @@ local totalPausedDuration = 0
 local pauseStartTime = 0
 local lastPlaybackState = nil
 
--- ========= REAL-TIME FALL DETECTION VARIABLES =========
-local lastStablePosition = nil
-local fallSequence = {}
-local consecutiveFallFrames = 0
-
--- ========= TIMELINE NAVIGATION VARIABLES =========
-local TimelinePosition = 0
-local IsTimelineMode = false
-local reverseConnection = nil
-local forwardConnection = nil
-
--- ========= REAL-TIME PLAYBACK VARIABLES =========
-local lastPlaybackCFrame = nil
-local lastPlaybackVelocity = Vector3.new(0, 0, 0)
-local prePauseHumanoidState = nil
-local prePauseWalkSpeed = 16
-local prePauseAutoRotate = true
-local prePauseJumpPower = 50
+-- ========= ADVANCED FALL RECOVERY SYSTEM =========
+local AdvancedFallRecovery = {
+    fallTracking = {
+        isFalling = false,
+        fallStartFrame = nil,
+        fallStartPosition = nil,
+        maxFallDepth = 0,
+        fallFrames = {}
+    },
+    lastStablePosition = nil,
+    lastStableFrame = 1
+}
 
 -- ========= EVENT CLEANUP =========
 local eventConnections = {}
@@ -216,49 +203,136 @@ local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
--- ========= REAL-TIME FALL DETECTION =========
-local function IsPositionStable(currentPos, previousPos)
-    if not previousPos then return true end
-    local verticalChange = math.abs(currentPos.Y - previousPos.Y)
-    return verticalChange < 2.0  -- Threshold untuk stable movement
-end
-
-local function ProcessRealTimeFallDetection()
-    if not IsRecording or #CurrentRecording.Frames < 2 then return end
+-- ========= ADVANCED FALL RECOVERY FUNCTIONS =========
+function AdvancedFallRecovery:TrackFallStatus()
+    if not IsRecording then return end
     
-    local currentFrameIndex = #CurrentRecording.Frames
-    local currentFrame = CurrentRecording.Frames[currentFrameIndex]
-    local currentPos = GetFramePosition(currentFrame)
+    local char = player.Character
+    if not char then return end
     
-    -- Initialize last stable position
-    if not lastStablePosition then
-        lastStablePosition = currentPos
-        return
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local currentVel = hrp.AssemblyLinearVelocity
+    local currentPos = hrp.Position
+    
+    -- ✅ DETEKSI AWAL JATUH: Velocity Y sangat negatif
+    if currentVel.Y < -30 and not self.fallTracking.isFalling then
+        self.fallTracking.isFalling = true
+        self.fallTracking.fallStartFrame = #CurrentRecording.Frames
+        self.fallTracking.fallStartPosition = currentPos
+        self.fallTracking.maxFallDepth = 0
+        self.fallTracking.fallFrames = {}
+        
+        -- Simpan posisi stabil terakhir
+        if #CurrentRecording.Frames > 5 then
+            self.lastStableFrame = math.max(1, #CurrentRecording.Frames - 5)
+            self.lastStablePosition = GetFramePosition(CurrentRecording.Frames[self.lastStableFrame])
+        end
     end
     
-    -- Check vertical velocity for fall detection
-    local velocity = GetFrameVelocity(currentFrame)
-    local verticalVelocity = math.abs(velocity.Y)
-    
-    -- Check if current position is stable
-    if IsPositionStable(currentPos, lastStablePosition) and verticalVelocity < 15 then
-        -- Position is stable, update last stable position
-        lastStablePosition = currentPos
-        consecutiveFallFrames = 0
-    else
-        -- Position unstable, potentially falling
-        consecutiveFallFrames = consecutiveFallFrames + 1
+    -- ✅ UPDATE KEDALAMAN JATUH DAN KUMPULKAN FRAME JATUH
+    if self.fallTracking.isFalling then
+        if self.fallTracking.fallStartPosition then
+            local currentDepth = self.fallTracking.fallStartPosition.Y - currentPos.Y
+            self.fallTracking.maxFallDepth = math.max(self.fallTracking.maxFallDepth, currentDepth)
+        end
         
-        -- If fall sequence is significant, mark frames for cleanup
-        if consecutiveFallFrames > 8 then  -- 8 frames of falling
-            -- Mark these frames as fall frames
-            for i = math.max(1, currentFrameIndex - consecutiveFallFrames), currentFrameIndex do
-                if CurrentRecording.Frames[i] then
-                    CurrentRecording.Frames[i].IsFallFrame = true
-                end
+        -- Simpan frame jatuh untuk potential deletion
+        table.insert(self.fallTracking.fallFrames, #CurrentRecording.Frames)
+    end
+    
+    -- ✅ RESET JIKA SUDAH STABIL (velocity Y mendekati 0)
+    if self.fallTracking.isFalling and currentVel.Y > -10 and math.abs(currentVel.Y) < 15 then
+        self:ResetFallTracking()
+    end
+end
+
+function AdvancedFallRecovery:ExecuteFallRecovery()
+    if not self.fallTracking.isFalling then return false end
+    
+    print("🎯 Executing fall recovery! Depth: " .. self.fallTracking.maxFallDepth .. " studs")
+    
+    -- ✅ 1. FIND SAFE FRAME (5 frame sebelum jatuh)
+    local safeFrameIndex = math.max(1, self.fallTracking.fallStartFrame - 5)
+    
+    -- ✅ 2. DELETE ALL FALL FRAMES
+    local framesBeforeFall = {}
+    for i = 1, safeFrameIndex do
+        if CurrentRecording.Frames[i] then
+            table.insert(framesBeforeFall, CurrentRecording.Frames[i])
+        end
+    end
+    
+    local deletedFrameCount = #CurrentRecording.Frames - #framesBeforeFall
+    
+    -- ✅ 3. GET SAFE POSITION DAN TELEPORT
+    local safeFrame = CurrentRecording.Frames[safeFrameIndex]
+    if safeFrame then
+        local safePosition = GetFramePosition(safeFrame)
+        pcall(function()
+            player.Character.HumanoidRootPart.CFrame = CFrame.new(safePosition)
+            player.Character.HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        end)
+        
+        -- ✅ 4. CREATE MINIMAL TRANSITION (jika perlu)
+        local currentPos = player.Character.HumanoidRootPart.Position
+        local distance = (currentPos - safePosition).Magnitude
+        
+        if distance > 1 then
+            local transitionFrames = self:CreateMicroTransition(safeFrame, currentPos)
+            for _, frame in pairs(transitionFrames) do
+                table.insert(framesBeforeFall, frame)
             end
         end
     end
+    
+    -- ✅ 5. UPDATE RECORDING
+    CurrentRecording.Frames = framesBeforeFall
+    
+    print("✅ Fall recovery completed! Deleted " .. deletedFrameCount .. " fall frames")
+    
+    -- ✅ 6. RESET TRACKING
+    self:ResetFallTracking()
+    
+    return true
+end
+
+function AdvancedFallRecovery:CreateMicroTransition(fromFrame, toPosition)
+    local transitionFrames = {}
+    
+    local startPos = GetFramePosition(fromFrame)
+    local distance = (toPosition - startPos).Magnitude
+    
+    -- ✅ SUPER MINIMAL TRANSITION: Hanya 2-3 frame!
+    local transitionSteps = math.min(3, math.max(2, math.floor(distance / 2)))
+    
+    for i = 1, transitionSteps do
+        local alpha = i / transitionSteps
+        local interpPos = startPos:Lerp(toPosition, alpha)
+        
+        table.insert(transitionFrames, {
+            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+            LookVector = fromFrame.LookVector,
+            UpVector = fromFrame.UpVector,
+            Velocity = {0, 0, 0},
+            MoveState = "Running",
+            WalkSpeed = fromFrame.WalkSpeed or 16,
+            Timestamp = fromFrame.Timestamp + (i * 0.05)
+        })
+    end
+    
+    return transitionFrames
+end
+
+function AdvancedFallRecovery:ResetFallTracking()
+    self.fallTracking = {
+        isFalling = false,
+        fallStartFrame = nil,
+        fallStartPosition = nil,
+        maxFallDepth = 0,
+        fallFrames = {}
+    }
 end
 
 -- ========= FIND NEAREST FRAME =========
@@ -279,28 +353,6 @@ local function FindNearestFrame(recording, position)
     end
     
     return nearestFrame, nearestDistance
-end
-
--- ========= FIND NEAREST STABLE FRAME =========
-local function FindNearestStableFrame(recording, position)
-    if not recording or #recording == 0 then return 1 end
-    
-    local nearestFrame = 1
-    local nearestDistance = math.huge
-    
-    for i = 1, #recording do
-        local frame = recording[i]
-        local framePos = GetFramePosition(frame)
-        local distance = (framePos - position).Magnitude
-        
-        -- Skip fall frames when looking for stable frame
-        if not frame.IsFallFrame and distance < nearestDistance then
-            nearestDistance = distance
-            nearestFrame = i
-        end
-    end
-    
-    return nearestFrame
 end
 
 -- ========= INTERPOLATION FUNCTION =========
@@ -334,16 +386,8 @@ local function UniversalStateControl(humanoid, targetState, frameData)
     pcall(function()
         if targetState == "Climbing" then
             humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
-            -- Add slight delay for climb animation to trigger
-            if frameData and frameData.Velocity then
-                local vel = GetFrameVelocity(frameData)
-                if vel.Y > 5 then  -- Moving upward while climbing
-                    humanoid.Jump = true
-                end
-            end
         elseif targetState == "Jumping" then
             humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            -- Force jump for better animation
             humanoid.Jump = true
         elseif targetState == "Swimming" then
             humanoid:ChangeState(Enum.HumanoidStateType.Swimming)
@@ -355,111 +399,6 @@ local function UniversalStateControl(humanoid, targetState, frameData)
             humanoid:ChangeState(Enum.HumanoidStateType.RunningNoPhysics)
         end
     end)
-end
-
--- ========= SEAMLESS TRANSITION CREATOR =========
-local function CreateSeamlessTransition(fromFrame, toPosition)
-    local TransitionFrames = {}
-    
-    if not fromFrame then return TransitionFrames end
-    
-    local startPos = GetFramePosition(fromFrame)
-    local distance = (toPosition - startPos).Magnitude
-    local transitionSteps = math.max(3, math.floor(distance / 1.5))
-    
-    for i = 1, transitionSteps do
-        local alpha = i / transitionSteps
-        local interpPos = startPos:Lerp(toPosition, alpha)
-        
-        table.insert(TransitionFrames, {
-            Position = {interpPos.X, interpPos.Y, interpPos.Z},
-            LookVector = fromFrame.LookVector,
-            UpVector = fromFrame.UpVector,
-            Velocity = {0, 0, 0},
-            MoveState = "Running",
-            WalkSpeed = fromFrame.WalkSpeed or 16,
-            Timestamp = fromFrame.Timestamp + (i * 0.016)
-        })
-    end
-    
-    return TransitionFrames
-end
-
--- ========= FALL FRAME CLEANUP =========
-local function DetectAndRemoveFallFrames(recording)
-    if not recording or #recording < 10 then return recording end
-    
-    local cleanedFrames = {}
-    local fallStartIndex = 0
-    local inFallSequence = false
-    
-    for i = 1, #recording do
-        local frame = recording[i]
-        
-        if frame.IsFallFrame then
-            if not inFallSequence then
-                inFallSequence = true
-                fallStartIndex = math.max(1, i - 1)
-            end
-        else
-            if inFallSequence then
-                inFallSequence = false
-                local fallEndIndex = i
-                local fallFrameCount = fallEndIndex - fallStartIndex
-                
-                if fallFrameCount > 5 then
-                    -- Keep frames before fall
-                    for j = 1, fallStartIndex do
-                        if recording[j] and not recording[j].IsFallFrame then
-                            table.insert(cleanedFrames, recording[j])
-                        end
-                    end
-                    
-                    -- Create transition
-                    local preFallFrame = recording[fallStartIndex]
-                    local postFallFrame = recording[fallEndIndex]
-                    
-                    if preFallFrame and postFallFrame then
-                        local startPos = GetFramePosition(preFallFrame)
-                        local endPos = GetFramePosition(postFallFrame)
-                        
-                        if (endPos - startPos).Magnitude < 50 then
-                            local transitionFrames = CreateSeamlessTransition(preFallFrame, endPos)
-                            for _, transFrame in ipairs(transitionFrames) do
-                                table.insert(cleanedFrames, transFrame)
-                            end
-                        else
-                            table.insert(cleanedFrames, postFallFrame)
-                        end
-                    end
-                    
-                    -- Skip the fall frames
-                    i = fallEndIndex
-                else
-                    -- Short fall, keep the frames
-                    for j = fallStartIndex, fallEndIndex do
-                        if recording[j] then
-                            recording[j].IsFallFrame = nil
-                            table.insert(cleanedFrames, recording[j])
-                        end
-                    end
-                end
-            else
-                table.insert(cleanedFrames, frame)
-            end
-        end
-    end
-    
-    -- Handle case where fall sequence continues to end
-    if inFallSequence and #cleanedFrames > 0 then
-        local lastGoodFrame = cleanedFrames[#cleanedFrames]
-        local transitionFrames = CreateSeamlessTransition(lastGoodFrame, GetFramePosition(recording[#recording]))
-        for _, transFrame in ipairs(transitionFrames) do
-            table.insert(cleanedFrames, transFrame)
-        end
-    end
-    
-    return #cleanedFrames > 0 and cleanedFrames or recording
 end
 
 -- ========= GUI SETUP =========
@@ -476,10 +415,10 @@ pcall(function()
     end
 end)
 
--- ========= SIMPLE RECORDING STUDIO GUI =========
+-- ========= CLEAN RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(180, 200)
-RecordingStudio.Position = UDim2.new(0.5, -90, 0.5, -100)
+RecordingStudio.Size = UDim2.fromOffset(200, 180)
+RecordingStudio.Position = UDim2.new(0.5, -100, 0.5, -90)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -498,7 +437,7 @@ StudioStroke.Parent = RecordingStudio
 
 -- Studio Header dengan Close Button
 local StudioHeader = Instance.new("Frame")
-StudioHeader.Size = UDim2.new(1, 0, 0, 24)
+StudioHeader.Size = UDim2.new(1, 0, 0, 28)
 StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 StudioHeader.BorderSizePixel = 0
 StudioHeader.Parent = RecordingStudio
@@ -506,6 +445,17 @@ StudioHeader.Parent = RecordingStudio
 local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = StudioHeader
+
+-- Frame Counter di Header (sesuai permintaan)
+local FrameLabel = Instance.new("TextLabel")
+FrameLabel.Size = UDim2.new(0.6, 0, 0.7, 0)
+FrameLabel.Position = UDim2.new(0.2, 0, 0.15, 0)
+FrameLabel.BackgroundTransparency = 1
+FrameLabel.Text = "Frame 0"
+FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+FrameLabel.Font = Enum.Font.GothamBold
+FrameLabel.TextSize = 12
+FrameLabel.Parent = StudioHeader
 
 local CloseStudioBtn = Instance.new("TextButton")
 CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
@@ -523,8 +473,8 @@ CloseCorner.Parent = CloseStudioBtn
 
 -- Studio Content
 local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -16, 1, -30)
-StudioContent.Position = UDim2.new(0, 8, 0, 28)
+StudioContent.Size = UDim2.new(1, -16, 1, -40)
+StudioContent.Position = UDim2.new(0, 8, 0, 32)
 StudioContent.BackgroundTransparency = 1
 StudioContent.Parent = RecordingStudio
 
@@ -566,40 +516,26 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Top Row Buttons - Sesuai permintaan
-local SaveBtn = CreateStudioBtn("SAVE", 5, 5, 50, 25, Color3.fromRGB(100, 200, 100))
-local RecordBtn = CreateStudioBtn("RECORD", 60, 5, 55, 25, Color3.fromRGB(200, 50, 60))
-local ClearBtn = CreateStudioBtn("CLEAR", 120, 5, 50, 25, Color3.fromRGB(150, 50, 60))
+-- Top Row Buttons - Layout sesuai permintaan
+local SaveBtn = CreateStudioBtn("SAVE", 10, 10, 50, 25, Color3.fromRGB(100, 200, 100))
+local RecordBtn = CreateStudioBtn("RECORD", 70, 10, 60, 25, Color3.fromRGB(200, 50, 60))
+local ClearBtn = CreateStudioBtn("CLEAR", 140, 10, 50, 25, Color3.fromRGB(150, 50, 60))
 
--- Frame Counter
-local FrameLabel = Instance.new("TextLabel")
-FrameLabel.Size = UDim2.fromOffset(164, 28)
-FrameLabel.Position = UDim2.fromOffset(5, 35)
-FrameLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-FrameLabel.Text = "Frame 0"
-FrameLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-FrameLabel.Font = Enum.Font.GothamBold
-FrameLabel.TextSize = 11
-FrameLabel.Parent = StudioContent
-
-local FrameCorner = Instance.new("UICorner")
-FrameCorner.CornerRadius = UDim.new(0, 5)
-FrameCorner.Parent = FrameLabel
-
--- Bottom Row Buttons - Sesuai permintaan
-local ReverseBtn = CreateStudioBtn("⏪", 5, 68, 50, 30, Color3.fromRGB(80, 120, 200))
-local ResumeBtn = CreateStudioBtn("RESUME", 60, 68, 55, 30, Color3.fromRGB(40, 180, 80))
-local ForwardBtn = CreateStudioBtn("⏩", 120, 68, 50, 30, Color3.fromRGB(200, 120, 80))
+-- Bottom Row Buttons - Layout sesuai permintaan
+local ReverseBtn = CreateStudioBtn("⏪", 20, 50, 40, 30, Color3.fromRGB(80, 120, 200))
+local ResumeBtn = CreateStudioBtn("RESUME", 70, 50, 60, 30, Color3.fromRGB(40, 180, 80))
+local ForwardBtn = CreateStudioBtn("⏩", 140, 50, 40, 30, Color3.fromRGB(200, 120, 80))
 
 -- Status Label
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.fromOffset(164, 20)
-StatusLabel.Position = UDim2.fromOffset(5, 103)
+StatusLabel.Size = UDim2.fromOffset(184, 40)
+StatusLabel.Position = UDim2.fromOffset(8, 90)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Ready to record"
 StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
 StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 9
+StatusLabel.TextWrapped = true
 StatusLabel.Parent = StudioContent
 
 -- ========= MAIN GUI =========
@@ -631,17 +567,6 @@ Header.Parent = MainFrame
 local MainHeaderCorner = Instance.new("UICorner")
 MainHeaderCorner.CornerRadius = UDim.new(0, 12)
 MainHeaderCorner.Parent = Header
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -60, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
-Title.BackgroundTransparency = 1
-Title.Text = "AUTO WALK PRO v8.7"
-Title.TextColor3 = Color3.fromRGB(100, 255, 150)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 12
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = Header
 
 local HideButton = Instance.new("TextButton")
 HideButton.Size = UDim2.fromOffset(20, 20)
@@ -818,7 +743,7 @@ Status.Size = UDim2.fromOffset(234, 20)
 Status.Position = UDim2.fromOffset(0, 380)
 Status.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Status.BackgroundTransparency = 0
-Status.Text = "System Ready - v8.7 Smooth Recording"
+Status.Text = "System Ready - Advanced Fall Recovery"
 Status.TextColor3 = Color3.fromRGB(100, 255, 150)
 Status.Font = Enum.Font.Gotham
 Status.TextSize = 9
@@ -915,206 +840,6 @@ local BarCorner = Instance.new("UICorner")
 BarCorner.CornerRadius = UDim.new(0, 3)
 BarCorner.Parent = ProgressBar
 
--- ========= ROUTE VISUALIZATION =========
-local routeParts = {}
-local routeBeams = {}
-
-local function ClearRouteVisualization()
-    pcall(function()
-        for _, part in pairs(routeParts) do
-            if part and part.Parent then
-                part:Destroy()
-            end
-        end
-        for _, beam in pairs(routeBeams) do
-            if beam and beam.Parent then
-                beam:Destroy()
-            end
-        end
-        routeParts = {}
-        routeBeams = {}
-    end)
-end
-
-local function ShowRouteVisualization(recording)
-    ClearRouteVisualization()
-    
-    if not recording or #recording == 0 or not ShowVisualization then return end
-    
-    pcall(function()
-        local folder = Instance.new("Folder")
-        folder.Name = "RouteVisualization"
-        folder.Parent = workspace
-        
-        local lastPart = nil
-        local step = math.max(10, math.floor(#recording / 500))
-        
-        for i = 1, #recording, step do
-            local frame = recording[i]
-            local pos = GetFramePosition(frame)
-            
-            local part = Instance.new("Part")
-            part.Size = Vector3.new(0.3, 0.3, 0.3)
-            part.Position = pos
-            part.Anchored = true
-            part.CanCollide = false
-            part.Transparency = 0.4
-            part.Color = Color3.fromRGB(100, 255, 150)
-            part.Material = Enum.Material.Neon
-            part.Shape = Enum.PartType.Ball
-            part.Parent = folder
-            
-            table.insert(routeParts, part)
-            
-            if lastPart then
-                local beam = Instance.new("Beam")
-                beam.Attachment0 = Instance.new("Attachment")
-                beam.Attachment0.Parent = lastPart
-                beam.Attachment1 = Instance.new("Attachment")
-                beam.Attachment1.Parent = part
-                beam.Color = ColorSequence.new(Color3.fromRGB(100, 255, 150))
-                beam.Width0 = 0.15
-                beam.Width1 = 0.15
-                beam.Brightness = 2
-                beam.Parent = folder
-                
-                table.insert(routeBeams, beam)
-                table.insert(routeBeams, beam.Attachment0)
-                table.insert(routeBeams, beam.Attachment1)
-            end
-            
-            lastPart = part
-        end
-    end)
-end
-
--- ========= REPLAY LIST MANAGEMENT =========
-local function UpdateReplayList()
-    CleanupConnections()
-    
-    pcall(function()
-        for _, child in pairs(ReplayList:GetChildren()) do
-            if child:IsA("Frame") then
-                child:Destroy()
-            end
-        end
-        
-        local recordingNames = {}
-        for name, recording in pairs(RecordedMovements) do
-            if recording and #recording > 0 then
-                table.insert(recordingNames, name)
-            end
-        end
-        
-        table.sort(recordingNames)
-        
-        local yPos = 0
-        for index, name in ipairs(recordingNames) do
-            local rec = RecordedMovements[name]
-            local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -8, 0, 16)
-            item.Position = UDim2.new(0, 4, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-            item.Parent = ReplayList
-            
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 4)
-            corner.Parent = item
-            
-            local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(0, 120, 1, 0)
-            nameBox.Position = UDim2.new(0, 4, 0, 0)
-            nameBox.BackgroundTransparency = 1
-            nameBox.Text = name
-            nameBox.TextColor3 = Color3.new(1, 1, 1)
-            nameBox.Font = Enum.Font.Gotham
-            nameBox.TextSize = 8
-            nameBox.PlaceholderText = "Rename..."
-            nameBox.Parent = item
-            
-            local framesLabel = Instance.new("TextLabel")
-            framesLabel.Size = UDim2.new(0, 40, 1, 0)
-            framesLabel.Position = UDim2.new(0, 125, 0, 0)
-            framesLabel.BackgroundTransparency = 1
-            framesLabel.Text = "(" .. #rec .. ")"
-            framesLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-            framesLabel.Font = Enum.Font.Gotham
-            framesLabel.TextSize = 7
-            framesLabel.TextXAlignment = Enum.TextXAlignment.Left
-            framesLabel.Parent = item
-            
-            local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(30, 12)
-            playBtn.Position = UDim2.new(1, -60, 0.5, -6)
-            playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-            playBtn.Text = "PLAY"
-            playBtn.TextColor3 = Color3.new(1, 1, 1)
-            playBtn.Font = Enum.Font.GothamBold
-            playBtn.TextSize = 6
-            playBtn.AutoButtonColor = false
-            playBtn.Parent = item
-            
-            local playCorner = Instance.new("UICorner")
-            playCorner.CornerRadius = UDim.new(0, 3)
-            playCorner.Parent = playBtn
-            
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(30, 12)
-            delBtn.Position = UDim2.new(1, -25, 0.5, -6)
-            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "DEL"
-            delBtn.TextColor3 = Color3.new(1, 1, 1)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 6
-            delBtn.AutoButtonColor = false
-            delBtn.Parent = item
-            
-            local delCorner = Instance.new("UICorner")
-            delCorner.CornerRadius = UDim.new(0, 3)
-            delCorner.Parent = delBtn
-            
-            nameBox.FocusLost:Connect(function(enterPressed)
-                pcall(function()
-                    if enterPressed and nameBox.Text ~= "" and nameBox.Text ~= name then
-                        if not RecordedMovements[nameBox.Text] then
-                            RecordedMovements[nameBox.Text] = RecordedMovements[name]
-                            RecordedMovements[name] = nil
-                            UpdateReplayList()
-                        else
-                            nameBox.Text = name
-                            UpdateStatus("Name already exists!")
-                        end
-                    else
-                        nameBox.Text = name
-                    end
-                end)
-            end)
-            
-            local playConn = playBtn.MouseButton1Click:Connect(function()
-                pcall(function()
-                    if not IsPlaying then
-                        PlayRecording(name)
-                    end
-                end)
-            end)
-            AddConnection(playConn)
-            
-            local delConn = delBtn.MouseButton1Click:Connect(function()
-                pcall(function()
-                    RecordedMovements[name] = nil
-                    UpdateReplayList()
-                    UpdateStatus("Deleted: " .. name)
-                end)
-            end)
-            AddConnection(delConn)
-            
-            yPos = yPos + 18
-        end
-        
-        ReplayList.CanvasSize = UDim2.new(0, 0, 0, yPos)
-    end)
-end
-
 -- ========= STUDIO UI UPDATE =========
 local function UpdateStudioUI()
     pcall(function()
@@ -1122,7 +847,7 @@ local function UpdateStudioUI()
     end)
 end
 
--- ========= ENHANCED RECORDING WITH REAL-TIME FALL DETECTION =========
+-- ========= ENHANCED RECORDING WITH FALL RECOVERY =========
 local function StartEnhancedRecording()
     if IsRecording then return end
     
@@ -1135,13 +860,12 @@ local function StartEnhancedRecording()
         end
         
         IsRecording = true
-        IsTimelineMode = false
         CurrentRecording = {Frames = {}, StartTime = tick(), Name = "Recording_" .. os.date("%H%M%S")}
         lastRecordTime = 0
         lastRecordPos = nil
-        lastStablePosition = nil
-        fallSequence = {}
-        consecutiveFallFrames = 0
+        
+        -- Reset fall tracking
+        AdvancedFallRecovery:ResetFallTracking()
         
         RecordBtn.Text = "STOP"
         RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
@@ -1157,10 +881,6 @@ local function StartEnhancedRecording()
                 
                 local hrp = char.HumanoidRootPart
                 local hum = char:FindFirstChildOfClass("Humanoid")
-                
-                if IsTimelineMode then
-                    return
-                end
                 
                 local now = tick()
                 if (now - lastRecordTime) < (1 / RECORDING_FPS) then return end
@@ -1197,8 +917,8 @@ local function StartEnhancedRecording()
                 
                 table.insert(CurrentRecording.Frames, newFrame)
                 
-                -- Real-time fall detection
-                ProcessRealTimeFallDetection()
+                -- ✅ ADVANCED FALL DETECTION & TRACKING
+                AdvancedFallRecovery:TrackFallStatus()
                 
                 lastRecordTime = now
                 lastRecordPos = currentPos
@@ -1211,7 +931,6 @@ end
 
 local function StopStudioRecording()
     IsRecording = false
-    IsTimelineMode = false
     
     pcall(function()
         if recordConnection then
@@ -1229,14 +948,28 @@ local function StopStudioRecording()
             StatusLabel.Text = "Stopped (0 frames)"
             StatusLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
         end
+        
+        -- Reset fall tracking
+        AdvancedFallRecovery:ResetFallTracking()
     end)
 end
 
--- ========= SMOOTH REVERSE PLAYBACK SYSTEM =========
+-- ========= SMOOTH REVERSE WITH FALL RECOVERY =========
 local function StartReversePlayback()
-    if IsReversing or not IsRecording then return end
+    if IsReversing then return end
     
     pcall(function()
+        -- ✅ CHECK IF WE'RE IN FALL STATE - EXECUTE FALL RECOVERY
+        if AdvancedFallRecovery.fallTracking.isFalling then
+            if AdvancedFallRecovery:ExecuteFallRecovery() then
+                StatusLabel.Text = "🔄 Fall Recovery Executed!"
+                StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+                UpdateStudioUI()
+            end
+            return
+        end
+        
+        -- NORMAL REVERSE
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             StatusLabel.Text = "❌ Character not found!"
@@ -1251,7 +984,6 @@ local function StartReversePlayback()
         end
         
         IsReversing = true
-        IsTimelineMode = true
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1264,10 +996,10 @@ local function StartReversePlayback()
         StatusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
         
         local currentFrame = #CurrentRecording.Frames
-        local targetFrame = math.max(1, currentFrame - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+        local targetFrame = math.max(1, currentFrame - 60) -- 1 second reverse
         
         reverseConnection = RunService.Heartbeat:Connect(function()
-            if not IsReversing or not IsRecording then
+            if not IsReversing then
                 if reverseConnection then
                     reverseConnection:Disconnect()
                     reverseConnection = nil
@@ -1286,9 +1018,8 @@ local function StartReversePlayback()
             end
             
             hrp = char:FindFirstChild("HumanoidRootPart")
-            hum = char:FindFirstChildOfClass("Humanoid")
             
-            if not hrp or not hum then
+            if not hrp then
                 IsReversing = false
                 if reverseConnection then
                     reverseConnection:Disconnect()
@@ -1309,7 +1040,7 @@ local function StartReversePlayback()
                 return
             end
             
-            currentFrame = currentFrame - REVERSE_FRAME_STEP
+            currentFrame = currentFrame - 2
             
             local frame = CurrentRecording.Frames[math.floor(currentFrame)]
             if frame then
@@ -1317,14 +1048,10 @@ local function StartReversePlayback()
                     local targetCFrame = GetFrameCFrame(frame)
                     hrp.CFrame = targetCFrame
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    
-                    if hum then
-                        hum.WalkSpeed = 0
-                    end
-                    
-                    UpdateStudioUI()
                 end)
             end
+            
+            UpdateStudioUI()
         end)
         
         AddConnection(reverseConnection)
@@ -1345,9 +1072,9 @@ local function StopReversePlayback()
     end)
 end
 
--- ========= SMOOTH FORWARD PLAYBACK SYSTEM =========
+-- ========= SMOOTH FORWARD PLAYBACK =========
 local function StartForwardPlayback()
-    if IsForwarding or not IsRecording then return end
+    if IsForwarding then return end
     
     pcall(function()
         local char = player.Character
@@ -1364,7 +1091,6 @@ local function StartForwardPlayback()
         end
         
         IsForwarding = true
-        IsTimelineMode = true
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1379,10 +1105,10 @@ local function StartForwardPlayback()
         local currentPos = hrp.Position
         local nearestFrame, _ = FindNearestFrame(CurrentRecording.Frames, currentPos)
         local currentFrame = nearestFrame
-        local targetFrame = math.min(#CurrentRecording.Frames, currentFrame + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+        local targetFrame = math.min(#CurrentRecording.Frames, currentFrame + 60) -- 1 second forward
         
         forwardConnection = RunService.Heartbeat:Connect(function()
-            if not IsForwarding or not IsRecording then
+            if not IsForwarding then
                 if forwardConnection then
                     forwardConnection:Disconnect()
                     forwardConnection = nil
@@ -1401,9 +1127,8 @@ local function StartForwardPlayback()
             end
             
             hrp = char:FindFirstChild("HumanoidRootPart")
-            hum = char:FindFirstChildOfClass("Humanoid")
             
-            if not hrp or not hum then
+            if not hrp then
                 IsForwarding = false
                 if forwardConnection then
                     forwardConnection:Disconnect()
@@ -1424,7 +1149,7 @@ local function StartForwardPlayback()
                 return
             end
             
-            currentFrame = currentFrame + FORWARD_FRAME_STEP
+            currentFrame = currentFrame + 2
             
             local frame = CurrentRecording.Frames[math.floor(currentFrame)]
             if frame then
@@ -1432,14 +1157,10 @@ local function StartForwardPlayback()
                     local targetCFrame = GetFrameCFrame(frame)
                     hrp.CFrame = targetCFrame
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    
-                    if hum then
-                        hum.WalkSpeed = 0
-                    end
-                    
-                    UpdateStudioUI()
                 end)
             end
+            
+            UpdateStudioUI()
         end)
         
         AddConnection(forwardConnection)
@@ -1468,6 +1189,11 @@ local function SmartResumeRecording()
     end
     
     pcall(function()
+        -- ✅ AUTO FALL CLEANUP ON RESUME
+        if AdvancedFallRecovery.fallTracking.isFalling then
+            AdvancedFallRecovery:ExecuteFallRecovery()
+        end
+        
         if IsReversing then
             StopReversePlayback()
         end
@@ -1484,56 +1210,20 @@ local function SmartResumeRecording()
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
-        local currentPos = hrp.Position
-        
-        -- Find nearest stable frame
-        local nearestStableFrame = FindNearestStableFrame(CurrentRecording.Frames, currentPos)
-        
-        -- Delete frames after the stable frame
-        if nearestStableFrame < #CurrentRecording.Frames then
-            local framesDeleted = #CurrentRecording.Frames - nearestStableFrame
-            for i = #CurrentRecording.Frames, nearestStableFrame + 1, -1 do
-                table.remove(CurrentRecording.Frames, i)
-            end
-            StatusLabel.Text = "Deleted " .. framesDeleted .. " frames"
-        end
-        
-        -- Apply fall cleanup to remaining frames
-        if #CurrentRecording.Frames > 10 then
-            CurrentRecording.Frames = DetectAndRemoveFallFrames(CurrentRecording.Frames)
-        end
-        
-        -- Create seamless transition
-        if #CurrentRecording.Frames > 0 then
-            local lastFrame = CurrentRecording.Frames[#CurrentRecording.Frames]
-            local lastPos = GetFramePosition(lastFrame)
-            
-            if (currentPos - lastPos).Magnitude > 1.5 then
-                local transitionFrames = CreateSeamlessTransition(lastFrame, currentPos)
-                
-                for _, transFrame in ipairs(transitionFrames) do
-                    table.insert(CurrentRecording.Frames, transFrame)
-                end
-                
-                StatusLabel.Text = "Smart transition created"
-                StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-            end
-        end
-        
-        IsTimelineMode = false
         
         if hum then
             hum.WalkSpeed = 16
             hum.AutoRotate = true
         end
         
-        StatusLabel.Text = "Resumed (Fall Cleaned)"
+        StatusLabel.Text = "Resumed - Ready to record"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
         UpdateStudioUI()
     end)
 end
 
+-- ========= SAVE STUDIO RECORDING =========
 local function SaveStudioRecording()
     pcall(function()
         if #CurrentRecording.Frames == 0 then
@@ -1546,22 +1236,16 @@ local function SaveStudioRecording()
             StopStudioRecording()
         end
         
-        -- Apply final fall cleanup before saving
-        local cleanedRecording = DetectAndRemoveFallFrames(CurrentRecording.Frames)
-        
-        -- Simpan recording yang sudah dibersihkan
-        RecordedMovements[CurrentRecording.Name] = cleanedRecording
+        RecordedMovements[CurrentRecording.Name] = CurrentRecording.Frames
         UpdateReplayList()
         
         StatusLabel.Text = "Saved: " .. CurrentRecording.Name
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
         
-        UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #cleanedRecording .. " cleaned frames)")
+        UpdateStatus("Saved: " .. CurrentRecording.Name .. " (" .. #CurrentRecording.Frames .. " frames)")
         
         -- Reset recording
         CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
-        TimelinePosition = 0
-        IsTimelineMode = false
         UpdateStudioUI()
         
         wait(1.5)
@@ -1570,6 +1254,7 @@ local function SaveStudioRecording()
     end)
 end
 
+-- ========= CLEAR STUDIO RECORDING =========
 local function ClearStudioRecording()
     pcall(function()
         if IsRecording then
@@ -1577,8 +1262,7 @@ local function ClearStudioRecording()
         end
         
         CurrentRecording = {Frames = {}, StartTime = 0, Name = "Recording_" .. os.date("%H%M%S")}
-        TimelinePosition = 0
-        IsTimelineMode = false
+        AdvancedFallRecovery:ResetFallTracking()
         
         UpdateStudioUI()
         StatusLabel.Text = "Cleared - Ready to record"
@@ -1657,7 +1341,7 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= ENHANCED PLAYBACK SYSTEM =========
+-- ========= SMOOTH PLAYBACK SYSTEM =========
 function PlayRecordingWithEnhancedSystem(recording, startFrame)
     if not recording or #recording == 0 then return end
     
@@ -1858,10 +1542,6 @@ function StopPlayback()
             CompleteCharacterReset(char)
         end
         
-        if ShowVisualization then
-            ClearRouteVisualization()
-        end
-        
         UpdateStatus("■ Playback Stopped")
     end)
 end
@@ -1914,6 +1594,133 @@ SpeedPlus.MouseButton1Click:Connect(function()
         end
     end)
 end)
+
+-- ========= REPLAY LIST MANAGEMENT =========
+local function UpdateReplayList()
+    CleanupConnections()
+    
+    pcall(function()
+        for _, child in pairs(ReplayList:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+        
+        local recordingNames = {}
+        for name, recording in pairs(RecordedMovements) do
+            if recording and #recording > 0 then
+                table.insert(recordingNames, name)
+            end
+        end
+        
+        table.sort(recordingNames)
+        
+        local yPos = 0
+        for index, name in ipairs(recordingNames) do
+            local rec = RecordedMovements[name]
+            local item = Instance.new("Frame")
+            item.Size = UDim2.new(1, -8, 0, 16)
+            item.Position = UDim2.new(0, 4, 0, yPos)
+            item.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            item.Parent = ReplayList
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 4)
+            corner.Parent = item
+            
+            local nameBox = Instance.new("TextBox")
+            nameBox.Size = UDim2.new(0, 120, 1, 0)
+            nameBox.Position = UDim2.new(0, 4, 0, 0)
+            nameBox.BackgroundTransparency = 1
+            nameBox.Text = name
+            nameBox.TextColor3 = Color3.new(1, 1, 1)
+            nameBox.Font = Enum.Font.Gotham
+            nameBox.TextSize = 8
+            nameBox.PlaceholderText = "Rename..."
+            nameBox.Parent = item
+            
+            local framesLabel = Instance.new("TextLabel")
+            framesLabel.Size = UDim2.new(0, 40, 1, 0)
+            framesLabel.Position = UDim2.new(0, 125, 0, 0)
+            framesLabel.BackgroundTransparency = 1
+            framesLabel.Text = "(" .. #rec .. ")"
+            framesLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            framesLabel.Font = Enum.Font.Gotham
+            framesLabel.TextSize = 7
+            framesLabel.TextXAlignment = Enum.TextXAlignment.Left
+            framesLabel.Parent = item
+            
+            local playBtn = Instance.new("TextButton")
+            playBtn.Size = UDim2.fromOffset(30, 12)
+            playBtn.Position = UDim2.new(1, -60, 0.5, -6)
+            playBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+            playBtn.Text = "PLAY"
+            playBtn.TextColor3 = Color3.new(1, 1, 1)
+            playBtn.Font = Enum.Font.GothamBold
+            playBtn.TextSize = 6
+            playBtn.AutoButtonColor = false
+            playBtn.Parent = item
+            
+            local playCorner = Instance.new("UICorner")
+            playCorner.CornerRadius = UDim.new(0, 3)
+            playCorner.Parent = playBtn
+            
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.fromOffset(30, 12)
+            delBtn.Position = UDim2.new(1, -25, 0.5, -6)
+            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            delBtn.Text = "DEL"
+            delBtn.TextColor3 = Color3.new(1, 1, 1)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 6
+            delBtn.AutoButtonColor = false
+            delBtn.Parent = item
+            
+            local delCorner = Instance.new("UICorner")
+            delCorner.CornerRadius = UDim.new(0, 3)
+            delCorner.Parent = delBtn
+            
+            nameBox.FocusLost:Connect(function(enterPressed)
+                pcall(function()
+                    if enterPressed and nameBox.Text ~= "" and nameBox.Text ~= name then
+                        if not RecordedMovements[nameBox.Text] then
+                            RecordedMovements[nameBox.Text] = RecordedMovements[name]
+                            RecordedMovements[name] = nil
+                            UpdateReplayList()
+                        else
+                            nameBox.Text = name
+                            UpdateStatus("Name already exists!")
+                        end
+                    else
+                        nameBox.Text = name
+                    end
+                end)
+            end)
+            
+            local playConn = playBtn.MouseButton1Click:Connect(function()
+                pcall(function()
+                    if not IsPlaying then
+                        PlayRecording(name)
+                    end
+                end)
+            end)
+            AddConnection(playConn)
+            
+            local delConn = delBtn.MouseButton1Click:Connect(function()
+                pcall(function()
+                    RecordedMovements[name] = nil
+                    UpdateReplayList()
+                    UpdateStatus("Deleted: " .. name)
+                end)
+            end)
+            AddConnection(delConn)
+            
+            yPos = yPos + 18
+        end
+        
+        ReplayList.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    end)
+end
 
 -- ========= FILE MANAGEMENT =========
 local function SaveToFile()
@@ -2032,6 +1839,7 @@ OpenStudioBtn.MouseButton1Click:Connect(function()
         RecordingStudio.Visible = true
         StatusLabel.Text = "Ready to record"
         StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        UpdateStudioUI()
     end)
 end)
 
@@ -2073,17 +1881,6 @@ VisualBtn.MouseButton1Click:Connect(function()
     pcall(function()
         ShowVisualization = not ShowVisualization
         SetVisualState(ShowVisualization)
-        if ShowVisualization then
-            local recording = currentRecordingName and RecordedMovements[currentRecordingName]
-            if not recording and next(RecordedMovements) then
-                recording = select(2, next(RecordedMovements))
-            end
-            if recording then
-                ShowRouteVisualization(recording)
-            end
-        else
-            ClearRouteVisualization()
-        end
         UpdateStatus("👁️ Visual: " .. (ShowVisualization and "ON" or "OFF"))
     end)
 end)
@@ -2129,7 +1926,6 @@ CloseButton.MouseButton1Click:Connect(function()
         if IsReversing then StopReversePlayback() end
         if IsForwarding then StopForwardPlayback() end
         CleanupConnections()
-        ClearRouteVisualization()
         ScreenGui:Destroy()
     end)
 end)
@@ -2192,6 +1988,9 @@ player.CharacterAdded:Connect(function(newChar)
         if IsForwarding then
             StopForwardPlayback()
         end
+        
+        -- Reset fall tracking
+        AdvancedFallRecovery:ResetFallTracking()
     end)
 end)
 
@@ -2211,12 +2010,13 @@ end)
 -- ========= INITIALIZATION =========
 pcall(function()
     UpdateReplayList()
-    UpdateStatus("✅ Auto Walk Pro v8.7 - Smooth Recording Ready!")
+    UpdateStatus("✅ Auto Walk Pro - Advanced Fall Recovery Ready!")
     UpdateSpeedDisplay()
+    UpdateStudioUI()
 end)
 
 -- ========= FINAL STATUS UPDATE =========
 task.wait(0.5)
 pcall(function()
-    UpdateStatus("✅ Smooth Recording System - All Systems Go!")
+    UpdateStatus("✅ Advanced Fall Recovery System - All Systems Go!")
 end)
