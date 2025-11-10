@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.1
+local TIMELINE_STEP_SECONDS = 0.5
 local STATE_CHANGE_COOLDOWN = 0.03
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -1351,7 +1351,7 @@ function UpdateRecordList()
                 checkpointNames[name] = newName
                 PlaySound("Success")
             end
-        end
+        end)
         
         local upBtn = Instance.new("TextButton")
         upBtn.Size = UDim2.fromOffset(26, 16)
