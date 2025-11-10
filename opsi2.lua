@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.5
+local TIMELINE_STEP_SECONDS = 0.1
 local STATE_CHANGE_COOLDOWN = 0.03
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -524,6 +524,7 @@ local function EliminateTimeGaps(recording)
     
     local cleanedFrames = {recording[1]}
     local expectedInterval = 1 / RECORDING_FPS
+    local toleranceMultiplier = 2.5 -- ✅ Increase tolerance
     
     for i = 2, #recording do
         local currentFrame = recording[i]
@@ -531,10 +532,10 @@ local function EliminateTimeGaps(recording)
         
         local timeDiff = currentFrame.Timestamp - previousFrame.Timestamp
         
-        -- Deteksi gap besar (lebih dari 2x expected interval)
-        if timeDiff > expectedInterval * 2 then
-            -- INTERPOLASI UNTUK MENGISI GAP
-            local gapFrames = math.floor(timeDiff / expectedInterval)
+        -- Deteksi gap besar
+        if timeDiff > expectedInterval * toleranceMultiplier then
+            -- INTERPOLASI
+            local gapFrames = math.floor(timeDiff / expectedInterval) - 1
             
             for j = 1, gapFrames do
                 local alpha = j / (gapFrames + 1)
@@ -554,12 +555,16 @@ local function EliminateTimeGaps(recording)
                     },
                     MoveState = currentFrame.MoveState,
                     WalkSpeed = currentFrame.WalkSpeed,
-                    Timestamp = previousFrame.Timestamp + (expectedInterval * j)
+                    Timestamp = previousFrame.Timestamp + (expectedInterval * (j)) -- ✅ Sequential
                 }
                 
                 table.insert(cleanedFrames, interpolatedFrame)
             end
         end
+        
+        -- ✅ Normalize current frame timestamp
+        local expectedTimestamp = cleanedFrames[#cleanedFrames].Timestamp + expectedInterval
+        currentFrame.Timestamp = expectedTimestamp
         
         table.insert(cleanedFrames, currentFrame)
     end
@@ -579,7 +584,7 @@ local function CreateContinuousTimeline()
             Velocity = frame.Velocity,
             MoveState = frame.MoveState,
             WalkSpeed = frame.WalkSpeed,
-            Timestamp = lastTimestamp + (1 / RECORDING_FPS)
+            Timestamp = currentTimestamp + (1 / RECORDING_FPS)
         }
         
         table.insert(continuousFrames, normalizedFrame)
@@ -1551,29 +1556,6 @@ local function StopStudioRecording()
     end)
 end
 
-local function GoBackTimeline()
-    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
-        PlaySound("Error")
-        return
-    end
-    
-    task.spawn(function()
-        IsTimelineMode = true
-        
-        local targetFrame = math.max(1, TimelinePosition - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
-        
-        TimelinePosition = targetFrame
-        CurrentTimelineFrame = targetFrame
-        
-        local frame = StudioCurrentRecording.Frames[targetFrame]
-        if frame then
-            ApplyFrameToCharacter(frame)
-            UpdateStudioUI()
-            PlaySound("Click")
-        end
-    end)
-end
-
 local function GoNextTimeline()
     if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
         PlaySound("Error")
@@ -1618,7 +1600,7 @@ local function ResumeStudioRecording()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         local hum = char:FindFirstChildOfClass("Humanoid")
         
-        -- ========= SISTEM BYPASS TIME BARU =========
+        -- ✅ BYPASS TIME YANG BENAR
         if TimelinePosition < #StudioCurrentRecording.Frames then
             local newFrames = {}
             for i = 1, TimelinePosition do
@@ -1627,13 +1609,12 @@ local function ResumeStudioRecording()
             StudioCurrentRecording.Frames = newFrames
         end
         
+        -- ✅ KEY FIX: NORMALIZE TIMESTAMPS
         if #StudioCurrentRecording.Frames > 0 then
             local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-            local currentTime = tick()
+            local lastTimestamp = lastFrame.Timestamp
             
-            local timeGap = currentTime - (StudioCurrentRecording.StartTime + lastFrame.Timestamp)
-            
-            StudioCurrentRecording.StartTime = StudioCurrentRecording.StartTime - timeGap + 0.016
+            StudioCurrentRecording.StartTime = tick() - lastTimestamp
             
             local currentCFrame = hrp.CFrame
             local lastCFrame = GetFrameCFrame(lastFrame)
@@ -1654,11 +1635,90 @@ local function ResumeStudioRecording()
                     Velocity = {0, 0, 0},
                     MoveState = "Grounded",
                     WalkSpeed = CurrentWalkSpeed,
-                    Timestamp = lastFrame.Timestamp + 0.008
+                    Timestamp = lastTimestamp + (1 / RECORDING_FPS)
                 }
                 table.insert(StudioCurrentRecording.Frames, transitionFrame)
             end
         end
+        
+        IsTimelineMode = false
+        lastStudioRecordTime = tick()
+        lastStudioRecordPos = hrp.Position
+        
+        if hum then
+            hum.WalkSpeed = CurrentWalkSpeed
+            hum.AutoRotate = true
+        end
+        
+        UpdateStudioUI()
+        PlaySound("Success")
+    end)
+end
+
+local function SaveStudioRecording()
+    task.spawn(function()
+        if #StudioCurrentRecording.Frames == 0 then
+            PlaySound("Error")
+            return
+        end
+        
+        if StudioIsRecording then
+            StopStudioRecording()
+        end
+        
+        -- ✅ APLIKASI FIXES
+        print("=== BEFORE PROCESSING ===")
+        print("Total frames:", #StudioCurrentRecording.Frames)
+        if #StudioCurrentRecording.Frames > 0 then
+            print("First timestamp:", StudioCurrentRecording.Frames[1].Timestamp)
+            print("Last timestamp:", StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp)
+        end
+        
+        local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
+        processedFrames = CreateContinuousTimeline()
+        
+        print("=== AFTER PROCESSING ===")
+        print("Total frames:", #processedFrames)
+        if #processedFrames > 0 then
+            print("First timestamp:", processedFrames[1].Timestamp)
+            print("Last timestamp:", processedFrames[#processedFrames].Timestamp)
+        end
+        
+        RecordedMovements[StudioCurrentRecording.Name] = processedFrames
+        table.insert(RecordingOrder, StudioCurrentRecording.Name)
+        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
+        UpdateRecordList()
+        
+        PlaySound("Success")
+        
+        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+        IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
+        UpdateStudioUI()
+        
+        wait(1)
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end
+
+local function ClearStudioRecording()
+    task.spawn(function()
+        if StudioIsRecording then
+            StopStudioRecording()
+        end
+        
+        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+        IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
+        
+        UpdateStudioUI()
+        PlaySound("Success")
+    end)
+  end
+    
         -- ========= END BYPASS TIME =========
         
         IsTimelineMode = false
@@ -1685,6 +1745,43 @@ local function SaveStudioRecording()
         if StudioIsRecording then
             StopStudioRecording()
         end
+        
+        -- ✅ APLIKASI FIXES
+        print("=== BEFORE PROCESSING ===")
+        print("Total frames:", #StudioCurrentRecording.Frames)
+        if #StudioCurrentRecording.Frames > 0 then
+            print("First timestamp:", StudioCurrentRecording.Frames[1].Timestamp)
+            print("Last timestamp:", StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp)
+        end
+        
+        local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
+        processedFrames = CreateContinuousTimeline() -- ✅ Use the fixed function
+        
+        print("=== AFTER PROCESSING ===")
+        print("Total frames:", #processedFrames)
+        if #processedFrames > 0 then
+            print("First timestamp:", processedFrames[1].Timestamp)
+            print("Last timestamp:", processedFrames[#processedFrames].Timestamp)
+        end
+        
+        RecordedMovements[StudioCurrentRecording.Name] = processedFrames
+        table.insert(RecordingOrder, StudioCurrentRecording.Name)
+        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
+        UpdateRecordList()
+        
+        PlaySound("Success")
+        
+        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+        IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
+        UpdateStudioUI()
+        
+        wait(1)
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end
         
         -- ========= APLIKASI TIME BYPASS =========
         local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
