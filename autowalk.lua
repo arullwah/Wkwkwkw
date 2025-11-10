@@ -22,6 +22,32 @@ local STATE_CHANGE_COOLDOWN = 0.05
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
 
+-- ========= FPS-INDEPENDENT SYSTEM =========
+local USE_STEPPED_PLAYBACK = true  -- Toggle untuk menggunakan Stepped vs Heartbeat
+local PLAYBACK_UPDATE_RATE = 1/90  -- Target 90Hz playback (lebih stabil dari 120Hz)
+local lastPlaybackUpdate = 0
+local accumulatedDeltaTime = 0
+local MAX_DELTA_TIME = 0.1  -- Prevent huge jumps saat lag spike
+
+-- Frame interpolation buffer
+local lastAppliedFrame = nil
+local nextTargetFrame = nil
+local frameBlendAlpha = 0
+
+local function GetDeltaTime()
+    local currentTime = tick()
+    local deltaTime = currentTime - lastPlaybackUpdate
+    lastPlaybackUpdate = currentTime
+    
+    -- Clamp untuk prevent lag spike
+    return math.min(deltaTime, MAX_DELTA_TIME)
+end
+
+local function ResetPlaybackTimer()
+    lastPlaybackUpdate = tick()
+    accumulatedDeltaTime = 0
+end
+
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
     Position = "11",
@@ -341,23 +367,47 @@ end
 local function RestoreFullUserControl()
     local char = player.Character
     if not char then return end
+    
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    
     if humanoid then
+        -- Reset semua property ke default
         humanoid.AutoRotate = true
         humanoid.WalkSpeed = CurrentWalkSpeed
         humanoid.JumpPower = prePauseJumpPower or 50
         humanoid.PlatformStand = false
         humanoid.Sit = false
+        
+        -- Force state change
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
+        
+        -- Enable jumping kembali
+        EnableJump()
     end
+    
     if hrp then
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
-    if ShiftLockEnabled then
-        EnableVisibleShiftLock()
+    
+    -- Reset shift lock state
+    if isShiftLockActive then
+        DisableVisibleShiftLock()
     end
+    
+    -- Clear semua playback state
+    IsPlaying = false
+    IsPaused = false
+    CurrentPlayingRecording = nil
+    CurrentPlayingRecordingName = nil
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
+    
+    PlayBtnControl.Text = "PLAY"
+    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    PauseBtnControl.Text = "PAUSE" 
+    PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
 end
 
 local function GetCurrentMoveState(hum)
@@ -627,6 +677,118 @@ local function FindNearestFrame(recording, position)
         end
     end
     return nearestFrame, nearestDistance
+end
+
+-- ========= FPS-INDEPENDENT INTERPOLATION FUNCTIONS =========
+local function InterpolateFrame(frame1, frame2, alpha)
+    local pos1 = Vector3.new(frame1.Position[1], frame1.Position[2], frame1.Position[3])
+    local pos2 = Vector3.new(frame2.Position[1], frame2.Position[2], frame2.Position[3])
+    local lerpedPos = pos1:Lerp(pos2, alpha)
+    
+    local look1 = Vector3.new(frame1.LookVector[1], frame1.LookVector[2], frame1.LookVector[3])
+    local look2 = Vector3.new(frame2.LookVector[1], frame2.LookVector[2], frame2.LookVector[3])
+    local lerpedLook = look1:Lerp(look2, alpha).Unit
+    
+    local up1 = Vector3.new(frame1.UpVector[1], frame1.UpVector[2], frame1.UpVector[3])
+    local up2 = Vector3.new(frame2.UpVector[1], frame2.UpVector[2], frame2.UpVector[3])
+    local lerpedUp = up1:Lerp(up2, alpha).Unit
+    
+    local vel1 = Vector3.new(frame1.Velocity[1], frame1.Velocity[2], frame1.Velocity[3])
+    local vel2 = Vector3.new(frame2.Velocity[1], frame2.Velocity[2], frame2.Velocity[3])
+    local lerpedVel = vel1:Lerp(vel2, alpha)
+    
+    local ws1 = frame1.WalkSpeed
+    local ws2 = frame2.WalkSpeed
+    local lerpedWS = ws1 + (ws2 - ws1) * alpha
+    
+    return {
+        Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
+        LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
+        UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
+        Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
+        MoveState = frame1.MoveState,
+        WalkSpeed = lerpedWS,
+        Timestamp = frame1.Timestamp + (frame2.Timestamp - frame1.Timestamp) * alpha
+    }
+end
+
+local function GetInterpolatedFrameWithDelta(recording, effectiveTime, deltaTime)
+    if not recording or #recording == 0 then return nil, nil, 0 end
+    if #recording == 1 then return recording[1], 1, 0 end
+    
+    -- Binary search untuk frame terdekat
+    local left, right = 1, #recording
+    local currentFrame = 1
+    
+    while left <= right do
+        local mid = math.floor((left + right) / 2)
+        local timestamp = recording[mid].Timestamp or 0
+        
+        if timestamp <= effectiveTime then
+            currentFrame = mid
+            left = mid + 1
+        else
+            right = mid - 1
+        end
+    end
+    
+    -- Check bounds
+    if currentFrame >= #recording then
+        return recording[#recording], #recording, 0
+    end
+    
+    local frame1 = recording[currentFrame]
+    local frame2 = recording[math.min(currentFrame + 1, #recording)]
+    
+    local t1 = frame1.Timestamp or 0
+    local t2 = frame2.Timestamp or 0
+    
+    if t2 <= t1 then return frame1, currentFrame, 0 end
+    
+    -- Calculate blend alpha
+    local alpha = math.clamp((effectiveTime - t1) / (t2 - t1), 0, 1)
+    
+    -- Smooth interpolation dengan delta time compensation
+    local smoothAlpha = alpha
+    if deltaTime > 0 then
+        -- Adaptive smoothing based on frame time
+        local smoothFactor = math.clamp(deltaTime * 30, 0.1, 1)
+        smoothAlpha = alpha * smoothFactor + (1 - smoothFactor) * frameBlendAlpha
+    end
+    
+    frameBlendAlpha = smoothAlpha
+    
+    return InterpolateFrame(frame1, frame2, smoothAlpha), currentFrame, smoothAlpha
+end
+
+local function ApplyAnimationState(hum, hrp, moveState, velocity, shouldApplyVelocity)
+    local stateTime = tick()
+    
+    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+        lastPlaybackState = moveState
+        lastStateChangeTime = stateTime
+        
+        if moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+            return true
+        elseif moveState == "Jumping" then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            return false  -- Biarkan velocity natural untuk jumping
+        elseif moveState == "Falling" then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            return true
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            return true
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            return true
+        end
+    end
+    
+    return shouldApplyVelocity
 end
 
 -- ========= GUI SETUP =========
@@ -1833,22 +1995,29 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= PERBAIKAN FUNGSI PLAYBACK =========
+-- ========= FPS-INDEPENDENT PLAYBACK SYSTEM =========
 function PlayRecording(name)
-    if IsPlaying then return end
+    if IsPlaying then 
+        StopPlayback()
+        return 
+    end
     
-    -- PERBAIKAN: Gunakan nama recording yang spesifik, bukan selalu yang pertama
+    -- FIX: Validasi parameter name
     local recording = nil
     local recordingName = nil
     
-    if name then
-        -- Jika ada nama spesifik, gunakan itu
+    if name and RecordedMovements[name] then
+        -- Jika name valid dan ada di RecordedMovements
         recording = RecordedMovements[name]
         recordingName = name
-    else
-        -- Jika tidak ada nama, gunakan yang pertama
+    elseif #RecordingOrder > 0 then
+        -- Jika tidak ada name, ambil yang pertama di RecordingOrder
         recordingName = RecordingOrder[1]
         recording = RecordedMovements[recordingName]
+    else
+        -- Tidak ada recording sama sekali
+        PlaySound("Error")
+        return
     end
     
     if not recording or #recording == 0 then
@@ -1862,27 +2031,36 @@ function PlayRecording(name)
         return
     end
 
+    -- FIX: Reset state sebelum mulai
+    RestoreFullUserControl()
+    
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
-    CurrentPlayingRecordingName = recordingName  -- SIMPAN NAMA RECORDING
+    CurrentPlayingRecordingName = recordingName
     PausedAtFrame = 0
+    
+    ResetPlaybackTimer()  -- Initialize FPS-independent timer
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local currentPos = hrp.Position
     
+    -- FIX: Smart start - cari frame terdekat
     local nearestFrame, distance = FindNearestFrame(recording, currentPos)
     
-    -- Cek apakah dalam jarak resume
     if distance <= RESUME_DISTANCE_THRESHOLD then
+        -- Smart resume: mulai dari posisi terdekat
         currentPlaybackFrame = nearestFrame
         playbackStartTime = tick() - (GetFrameTimestamp(recording[nearestFrame]) / CurrentSpeed)
         PlaySound("Success")
+        print("Smart Resume: Starting from frame", nearestFrame, "distance:", distance)
     else
+        -- Normal start: mulai dari awal
         currentPlaybackFrame = 1
         playbackStartTime = tick()
         hrp.CFrame = GetFrameCFrame(recording[1])
         PlaySound("Play")
+        print("Normal Start: Starting from frame 1")
     end
     
     totalPausedDuration = 0
@@ -1896,152 +2074,244 @@ function PlayRecording(name)
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
-    playbackConnection = RunService.Heartbeat:Connect(function()
-        if not IsPlaying then
-            playbackConnection:Disconnect()
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            CurrentPlayingRecordingName = nil
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            return
-        end
-        
-        if IsPaused then
-            if pauseStartTime == 0 then
-                pauseStartTime = tick()
-                PausedAtFrame = currentPlaybackFrame
-                RestoreHumanoidState()
-                EnableJump()
+    -- FIX: Improved playback connection dengan FPS-independent system
+    if playbackConnection then
+        playbackConnection:Disconnect()
+    end
+    
+    -- CHOOSE PLAYBACK METHOD
+    if USE_STEPPED_PLAYBACK then
+        -- METHOD 1: Fixed Timestep (RECOMMENDED untuk FPS stability)
+        playbackConnection = RunService.Stepped:Connect(function(time, deltaTime)
+            if not IsPlaying then
+                playbackConnection:Disconnect()
+                RestoreFullUserControl()
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                return
+            end
+            
+            -- Pause handling
+            if IsPaused then
+                if pauseStartTime == 0 then
+                    pauseStartTime = tick()
+                    PausedAtFrame = currentPlaybackFrame
+                    RestoreHumanoidState()
+                    EnableJump()
+                    if ShiftLockEnabled then ApplyVisibleShiftLock() end
+                    UpdatePauseMarker()
+                end
+                return
+            else
+                if pauseStartTime > 0 then
+                    totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                    pauseStartTime = 0
+                    DisableJump()
+                    UpdatePauseMarker()
+                end
+            end
+
+            -- FIXED TIMESTEP ACCUMULATOR
+            accumulatedDeltaTime = accumulatedDeltaTime + deltaTime
+            
+            -- Update pada rate yang consistent
+            while accumulatedDeltaTime >= PLAYBACK_UPDATE_RATE do
+                accumulatedDeltaTime = accumulatedDeltaTime - PLAYBACK_UPDATE_RATE
+                
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    IsPlaying = false
+                    RestoreFullUserControl()
+                    UpdatePauseMarker()
+                    lastPlaybackState = nil
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    return
+                end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then
+                    IsPlaying = false
+                    RestoreFullUserControl()
+                    UpdatePauseMarker()
+                    lastPlaybackState = nil
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    return
+                end
+
+                -- Calculate time dengan compensation
+                local currentTime = tick()
+                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+                
+                -- Get frame dengan delta time awareness
+                local frame, frameIndex, blendAlpha = GetInterpolatedFrameWithDelta(recording, effectiveTime, deltaTime)
+                
+                if frameIndex then
+                    currentPlaybackFrame = frameIndex
+                end
+
+                if not frame or currentPlaybackFrame >= #recording then
+                    IsPlaying = false
+                    RestoreFullUserControl()
+                    PlaySound("Success")
+                    UpdatePauseMarker()
+                    lastPlaybackState = nil
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    return
+                end
+
+                -- APPLY FRAME
+                task.spawn(function()
+                    local velocity = GetFrameVelocity(frame)
+                    local moveState = frame.MoveState
+                    local walkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    
+                    hrp.CFrame = GetFrameCFrame(frame)
+                    
+                    if hum then
+                        hum.WalkSpeed = walkSpeed
+                        hum.AutoRotate = false
+                    end
+                    
+                    local shouldApplyVelocity = ApplyAnimationState(hum, hrp, moveState, velocity, false)
+                    
+                    if shouldApplyVelocity then
+                        hrp.AssemblyLinearVelocity = velocity
+                    else
+                        if moveState == "Jumping" and velocity.Y > 0 then
+                            hrp.AssemblyLinearVelocity = Vector3.new(
+                                velocity.X * 0.5,
+                                velocity.Y,
+                                velocity.Z * 0.5
+                            )
+                        end
+                    end
+                    
+                    if ShiftLockEnabled then
+                        ApplyVisibleShiftLock()
+                    end
+                end)
+            end
+        end)
+    else
+        -- METHOD 2: Heartbeat dengan manual delta compensation (fallback)
+        playbackConnection = RunService.Heartbeat:Connect(function()
+            local deltaTime = GetDeltaTime()
+            
+            if not IsPlaying then
+                playbackConnection:Disconnect()
+                RestoreFullUserControl()
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                return
+            end
+            
+            -- Pause handling
+            if IsPaused then
+                if pauseStartTime == 0 then
+                    pauseStartTime = tick()
+                    PausedAtFrame = currentPlaybackFrame
+                    RestoreHumanoidState()
+                    EnableJump()
+                    if ShiftLockEnabled then ApplyVisibleShiftLock() end
+                    UpdatePauseMarker()
+                end
+                return
+            else
+                if pauseStartTime > 0 then
+                    totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
+                    pauseStartTime = 0
+                    DisableJump()
+                    UpdatePauseMarker()
+                end
+            end
+
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                IsPlaying = false
+                RestoreFullUserControl()
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                return
+            end
+            
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not hrp then
+                IsPlaying = false
+                RestoreFullUserControl()
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                return
+            end
+
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            
+            local frame, frameIndex, blendAlpha = GetInterpolatedFrameWithDelta(recording, effectiveTime, deltaTime)
+            
+            if frameIndex then
+                currentPlaybackFrame = frameIndex
+            end
+
+            if not frame or currentPlaybackFrame >= #recording then
+                IsPlaying = false
+                RestoreFullUserControl()
+                PlaySound("Success")
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                return
+            end
+
+            task.spawn(function()
+                local velocity = GetFrameVelocity(frame)
+                local moveState = frame.MoveState
+                local walkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                
+                hrp.CFrame = GetFrameCFrame(frame)
+                
+                if hum then
+                    hum.WalkSpeed = walkSpeed
+                    hum.AutoRotate = false
+                end
+                
+                local shouldApplyVelocity = ApplyAnimationState(hum, hrp, moveState, velocity, false)
+                
+                if shouldApplyVelocity then
+                    hrp.AssemblyLinearVelocity = velocity
+                else
+                    if moveState == "Jumping" and velocity.Y > 0 then
+                        hrp.AssemblyLinearVelocity = Vector3.new(
+                            velocity.X * 0.5,
+                            velocity.Y,
+                            velocity.Z * 0.5
+                        )
+                    end
+                end
+                
                 if ShiftLockEnabled then
                     ApplyVisibleShiftLock()
                 end
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if pauseStartTime > 0 then
-                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                pauseStartTime = 0
-                DisableJump()
-                UpdatePauseMarker()
-            end
-        end
-
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            CurrentPlayingRecordingName = nil
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            return
-        end
-        
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hum or not hrp then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            CurrentPlayingRecordingName = nil
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            return
-        end
-
-        local currentTime = tick()
-        local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-        
-        -- PERBAIKAN: Interpolasi frame untuk gerakan lebih smooth
-        local nextFrame = currentPlaybackFrame + 1
-        while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame]) <= effectiveTime do
-            currentPlaybackFrame = nextFrame
-            nextFrame = nextFrame + 1
-        end
-
-        if currentPlaybackFrame >= #recording then
-            IsPlaying = false
-            RestoreFullUserControl()
-            PlaySound("Success")
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            CurrentPlayingRecordingName = nil
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            return
-        end
-
-        local frame = recording[currentPlaybackFrame]
-        if not frame then
-            IsPlaying = false
-            RestoreFullUserControl()
-            UpdatePauseMarker()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            CurrentPlayingRecordingName = nil
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            return
-        end
-
-        task.spawn(function()
-            -- PERBAIKAN: Smooth interpolation antar frame
-            local targetCFrame = GetFrameCFrame(frame)
-            local currentCFrame = hrp.CFrame
-            
-            -- Lerp untuk transisi lebih smooth (0.3 = 30% smoothing)
-            local smoothCFrame = currentCFrame:Lerp(targetCFrame, 0.3)
-            hrp.CFrame = smoothCFrame
-            
-            -- Velocity smoothing
-            local targetVelocity = GetFrameVelocity(frame)
-            local currentVelocity = hrp.AssemblyLinearVelocity
-            local smoothVelocity = currentVelocity:Lerp(targetVelocity, 0.5)
-            hrp.AssemblyLinearVelocity = smoothVelocity
-            
-            if hum then
-                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                hum.AutoRotate = false
-                
-                local moveState = frame.MoveState
-                local stateTime = tick()
-                
-                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = stateTime
-                    
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                        hum.AutoRotate = false
-                    elseif moveState == "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    elseif moveState == "Falling" then
-                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end
-            end
-            
-            if ShiftLockEnabled then
-                ApplyVisibleShiftLock()
-            end
+            end)
         end)
-    end)
+    end
     
     AddConnection(playbackConnection)
+    print("Now playing:", recordingName, "Total frames:", #recording)
 end
 
 function StartAutoLoopAll()
@@ -2054,6 +2324,9 @@ function StartAutoLoopAll()
         return
     end
     
+    -- FIX: Reset state sebelum mulai loop
+    RestoreFullUserControl()
+    
     PlaySound("Play")
     
     CurrentLoopIndex = 1
@@ -2064,16 +2337,23 @@ function StartAutoLoopAll()
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     
+    -- FIX: Cancel existing loop connection
+    if loopConnection then
+        task.cancel(loopConnection)
+    end
+    
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            if not AutoLoop or not IsAutoLoopPlaying then
-                break
+            -- FIX: Validasi CurrentLoopIndex
+            if CurrentLoopIndex > #RecordingOrder then
+                CurrentLoopIndex = 1
             end
             
             local recordingName = RecordingOrder[CurrentLoopIndex]
             local recording = RecordedMovements[recordingName]
             
             if not recording or #recording == 0 then
+                print("Skipping empty recording:", recordingName)
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2081,6 +2361,8 @@ function StartAutoLoopAll()
                 task.wait(1)
                 continue
             end
+            
+            print("AutoLoop: Playing", recordingName, "Index:", CurrentLoopIndex)
             
             if not IsCharacterReady() then
                 if AutoRespawn then
@@ -2129,6 +2411,10 @@ function StartAutoLoopAll()
             
             SaveHumanoidState()
             DisableJump()
+            
+            -- FIX: Set current playing recording untuk resume
+            CurrentPlayingRecording = recording
+            CurrentPlayingRecordingName = recordingName
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recording and deathRetryCount < maxDeathRetries do
                 
@@ -2230,8 +2516,12 @@ function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
                     
-                    while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                        currentFrame = currentFrame + 1
+                    -- FIX: Gunakan FPS-independent frame progression
+                    local deltaTime = GetDeltaTime()
+                    local frame, frameIndex, blendAlpha = GetInterpolatedFrameWithDelta(recording, effectiveTime, deltaTime)
+                    
+                    if frameIndex then
+                        currentFrame = frameIndex
                     end
                     
                     if currentFrame >= #recording then
@@ -2419,7 +2709,8 @@ function PausePlayback()
                             end
                             
                             -- Setelah sampai, mulai playback normal
-                            playbackConnection = RunService.Heartbeat:Connect(function()
+                            ResetPlaybackTimer()
+                            playbackConnection = RunService.Stepped:Connect(function(time, deltaTime)
                                 if not IsPlaying then
                                     playbackConnection:Disconnect()
                                     RestoreFullUserControl()
@@ -2480,14 +2771,14 @@ function PausePlayback()
                                 local currentTime = tick()
                                 local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
                                 
-                                -- Smooth frame progression
-                                local nextFrame = currentPlaybackFrame + 1
-                                while nextFrame < #CurrentPlayingRecording and GetFrameTimestamp(CurrentPlayingRecording[nextFrame]) <= effectiveTime do
-                                    currentPlaybackFrame = nextFrame
-                                    nextFrame = nextFrame + 1
+                                -- Smooth frame progression dengan FPS-independent
+                                local frame, frameIndex, blendAlpha = GetInterpolatedFrameWithDelta(CurrentPlayingRecording, effectiveTime, deltaTime)
+                                
+                                if frameIndex then
+                                    currentPlaybackFrame = frameIndex
                                 end
                                 
-                                if currentPlaybackFrame >= #CurrentPlayingRecording then
+                                if not frame or currentPlaybackFrame >= #CurrentPlayingRecording then
                                     IsPlaying = false
                                     RestoreFullUserControl()
                                     PlaySound("Success")
@@ -2500,55 +2791,29 @@ function PausePlayback()
                                     return
                                 end
                                 
-                                local frame = CurrentPlayingRecording[currentPlaybackFrame]
-                                if not frame then
-                                    IsPlaying = false
-                                    RestoreFullUserControl()
-                                    UpdatePauseMarker()
-                                    lastPlaybackState = nil
-                                    lastStateChangeTime = 0
-                                    CurrentPlayingRecordingName = nil
-                                    PlayBtnControl.Text = "PLAY"
-                                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                                    return
-                                end
-                                
                                 task.spawn(function()
-                                    -- Smooth interpolation
-                                    local targetCFrame = GetFrameCFrame(frame)
-                                    local currentCFrame = hrp.CFrame
-                                    local smoothCFrame = currentCFrame:Lerp(targetCFrame, 0.3)
-                                    hrp.CFrame = smoothCFrame
+                                    local velocity = GetFrameVelocity(frame)
+                                    local moveState = frame.MoveState
+                                    local walkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                                     
-                                    local targetVelocity = GetFrameVelocity(frame)
-                                    local currentVelocity = hrp.AssemblyLinearVelocity
-                                    local smoothVelocity = currentVelocity:Lerp(targetVelocity, 0.5)
-                                    hrp.AssemblyLinearVelocity = smoothVelocity
+                                    hrp.CFrame = GetFrameCFrame(frame)
                                     
                                     if hum then
-                                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                        hum.WalkSpeed = walkSpeed
                                         hum.AutoRotate = false
-                                        
-                                        local moveState = frame.MoveState
-                                        local stateTime = tick()
-                                        
-                                        if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                            lastPlaybackState = moveState
-                                            lastStateChangeTime = stateTime
-                                            
-                                            if moveState == "Climbing" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                                hum.PlatformStand = false
-                                                hum.AutoRotate = false
-                                            elseif moveState == "Jumping" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                            elseif moveState == "Falling" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                            elseif moveState == "Swimming" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                            else
-                                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                                            end
+                                    end
+                                    
+                                    local shouldApplyVelocity = ApplyAnimationState(hum, hrp, moveState, velocity, false)
+                                    
+                                    if shouldApplyVelocity then
+                                        hrp.AssemblyLinearVelocity = velocity
+                                    else
+                                        if moveState == "Jumping" and velocity.Y > 0 then
+                                            hrp.AssemblyLinearVelocity = Vector3.new(
+                                                velocity.X * 0.5,
+                                                velocity.Y,
+                                                velocity.Z * 0.5
+                                            )
                                         end
                                     end
                                     
@@ -2591,7 +2856,8 @@ function PausePlayback()
                 PauseBtnControl.Text = "PAUSE"
                 PauseBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
                 
-                playbackConnection = RunService.Heartbeat:Connect(function()
+                ResetPlaybackTimer()
+                playbackConnection = RunService.Stepped:Connect(function(time, deltaTime)
                     if not IsPlaying then
                         playbackConnection:Disconnect()
                         RestoreFullUserControl()
@@ -2652,11 +2918,11 @@ function PausePlayback()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
                     
-                    -- Smooth frame progression
-                    local nextFrame = currentPlaybackFrame + 1
-                    while nextFrame < #CurrentPlayingRecording and GetFrameTimestamp(CurrentPlayingRecording[nextFrame]) <= effectiveTime do
-                        currentPlaybackFrame = nextFrame
-                        nextFrame = nextFrame + 1
+                    -- Smooth frame progression dengan FPS-independent
+                    local frame, frameIndex, blendAlpha = GetInterpolatedFrameWithDelta(CurrentPlayingRecording, effectiveTime, deltaTime)
+                    
+                    if frameIndex then
+                        currentPlaybackFrame = frameIndex
                     end
                     
                     if currentPlaybackFrame >= #CurrentPlayingRecording then
@@ -2672,55 +2938,29 @@ function PausePlayback()
                         return
                     end
                     
-                    local frame = CurrentPlayingRecording[currentPlaybackFrame]
-                    if not frame then
-                        IsPlaying = false
-                        RestoreFullUserControl()
-                        UpdatePauseMarker()
-                        lastPlaybackState = nil
-                        lastStateChangeTime = 0
-                        CurrentPlayingRecordingName = nil
-                        PlayBtnControl.Text = "PLAY"
-                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                        return
-                    end
-                    
                     task.spawn(function()
-                        -- Smooth interpolation
-                        local targetCFrame = GetFrameCFrame(frame)
-                        local currentCFrame = hrp.CFrame
-                        local smoothCFrame = currentCFrame:Lerp(targetCFrame, 0.3)
-                        hrp.CFrame = smoothCFrame
+                        local velocity = GetFrameVelocity(frame)
+                        local moveState = frame.MoveState
+                        local walkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                         
-                        local targetVelocity = GetFrameVelocity(frame)
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        local smoothVelocity = currentVelocity:Lerp(targetVelocity, 0.5)
-                        hrp.AssemblyLinearVelocity = smoothVelocity
+                        hrp.CFrame = GetFrameCFrame(frame)
                         
                         if hum then
-                            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                            hum.WalkSpeed = walkSpeed
                             hum.AutoRotate = false
-                            
-                            local moveState = frame.MoveState
-                            local stateTime = tick()
-                            
-                            if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                lastPlaybackState = moveState
-                                lastStateChangeTime = stateTime
-                                
-                                if moveState == "Climbing" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                    hum.PlatformStand = false
-                                    hum.AutoRotate = false
-                                elseif moveState == "Jumping" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                elseif moveState == "Falling" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                elseif moveState == "Swimming" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                else
-                                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                                end
+                        end
+                        
+                        local shouldApplyVelocity = ApplyAnimationState(hum, hrp, moveState, velocity, false)
+                        
+                        if shouldApplyVelocity then
+                            hrp.AssemblyLinearVelocity = velocity
+                        else
+                            if moveState == "Jumping" and velocity.Y > 0 then
+                                hrp.AssemblyLinearVelocity = Vector3.new(
+                                    velocity.X * 0.5,
+                                    velocity.Y,
+                                    velocity.Z * 0.5
+                                )
                             end
                         end
                         
@@ -3114,6 +3354,14 @@ UserInputService.InputBegan:Connect(function(input, processed)
         if RecordingStudio.Visible then
             GoNextTimeline()
         end
+    elseif input.KeyCode == Enum.KeyCode.P then
+        -- Toggle playback method
+        USE_STEPPED_PLAYBACK = not USE_STEPPED_PLAYBACK
+        
+        local method = USE_STEPPED_PLAYBACK and "STEPPED (FPS Independent)" or "HEARTBEAT (FPS Dependent)"
+        warn("⚙️ Playback Method: " .. method)
+        
+        PlaySound("Toggle")
     end
 end)
 
