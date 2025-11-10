@@ -2984,4 +2984,4 @@ game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
         CleanupConnections()
         ClearPathVisualization()
     end
-end)
+end) 
