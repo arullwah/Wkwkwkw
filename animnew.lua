@@ -2935,7 +2935,7 @@ FloatingBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = not MainFrame.Visible
     MiniButton.Visible = not MainFrame.Visible
     
-    -- Toggle floating GUIs
+    -- ✅ FIX: Toggle floating RECORDER GUI
     if not MiniRecorderGUI then
         MiniRecorderGUI, MiniRecorderButtons = CreateMiniRecorderGUI()
         
@@ -2951,10 +2951,8 @@ FloatingBtn.MouseButton1Click:Connect(function()
             PlaySound("Click")
             if StudioIsRecording then
                 StopRecording()
-                MiniRecorderButtons.Record.Text = "🎦"
             else
                 StartRecording()
-                MiniRecorderButtons.Record.Text = "⏹"
             end
         end)
 
@@ -2965,7 +2963,7 @@ FloatingBtn.MouseButton1Click:Connect(function()
 
         MiniRecorderButtons.Pause.MouseButton1Click:Connect(function() 
             PlaySound("Click")
-            PausePlayback()
+            ResumeRecording()
         end)
 
         MiniRecorderButtons.Next.MouseButton1Click:Connect(function() 
@@ -2976,32 +2974,34 @@ FloatingBtn.MouseButton1Click:Connect(function()
         MiniRecorderGUI.Enabled = not MiniRecorderGUI.Enabled
     end
     
+    -- ✅ FIX: Toggle floating PLAYBACK GUI dengan variable lokal
     if not PlaybackGUI then
-        PlaybackGUI, PlaybackButtons = CreatePlaybackGUI()
+        local playbackGUIInstance, playbackButtonsInstance = CreatePlaybackGUI()
+        PlaybackGUI = playbackGUIInstance
         
-        -- Connect floating playback buttons
-        PlaybackButtons.Play.MouseButton1Click:Connect(function()
+        -- Connect floating playback buttons dengan variable lokal
+        playbackButtonsInstance.Play.MouseButton1Click:Connect(function()
             PlaySound("Click")
             if IsPlaying or IsAutoLoopPlaying then
                 StopPlayback()
-                PlaybackButtons.Play.Text = "▶️"
+                playbackButtonsInstance.Play.Text = "▶️"
             else
                 if AutoLoop then
                     StartAutoLoopAll()
                 else
                     PlayRecording()
                 end
-                PlaybackButtons.Play.Text = "⏹"
+                playbackButtonsInstance.Play.Text = "⏹"
             end
         end)
 
-        PlaybackButtons.Pause.MouseButton1Click:Connect(function()
+        playbackButtonsInstance.Pause.MouseButton1Click:Connect(function()
             PlaySound("Click")
             PausePlayback()
             if IsPaused then
-                PlaybackButtons.Pause.Text = "⏸"
+                playbackButtonsInstance.Pause.Text = "⏸"
             else
-                PlaybackButtons.Pause.Text = "⏹"
+                playbackButtonsInstance.Pause.Text = "⏹"
             end
         end)
     else
