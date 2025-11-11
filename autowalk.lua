@@ -13,8 +13,6 @@ local States = {
     RECORDING = "recording", 
     PLAYING = "playing",
     PAUSED = "paused",
-    REVERSING = "reversing",
-    FORWARDING = "forwarding",
     TIMELINE = "timeline"
 }
 
@@ -35,8 +33,7 @@ local Config = {
         ForwardSpeed = 3.0,
         FixedTimestep = 1 / 60,
         ResumeDistance = 15,
-        StateChangeCooldown = 0.01,
-        TransitionFrames = 5
+        StateChangeCooldown = 0.01
     },
     Features = {
         AutoRespawn = false,
@@ -86,7 +83,6 @@ local totalPausedDuration = 0
 local pauseStartTime = 0
 local currentPlaybackFrame = 1
 local CurrentPlayingRecording = nil
-local PausedAtFrame = 0
 local playbackAccumulator = 0
 local LastPausePosition = nil
 local LastPauseRecording = nil
@@ -422,67 +418,32 @@ local function ApplyFrameToCharacter(frame)
     task.spawn(function()
         local targetCFrame = GetFrameCFrame(frame)
         hrp.CFrame = targetCFrame
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         
         if hum then
-            hum.WalkSpeed = 0
+            hum.WalkSpeed = GetFrameWalkSpeed(frame)
             hum.AutoRotate = false
+            
+            local moveState = frame.MoveState
+            if moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                hum.AutoRotate = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
         end
     end)
 end
 
 -- ========= DATA PROCESSING =========
-local function EliminateTimeGaps(recording)
-    if #recording < 2 then return recording end
-    
-    local cleanedFrames = {recording[1]}
-    local expectedInterval = 1 / Config.Recording.FPS
-    local toleranceMultiplier = 2.5
-    
-    for i = 2, #recording do
-        local currentFrame = recording[i]
-        local previousFrame = cleanedFrames[#cleanedFrames]
-        
-        local timeDiff = currentFrame.Timestamp - previousFrame.Timestamp
-        
-        if timeDiff > expectedInterval * toleranceMultiplier then
-            local gapFrames = math.floor(timeDiff / expectedInterval) - 1
-            
-            for j = 1, gapFrames do
-                local alpha = j / (gapFrames + 1)
-                
-                local interpolatedFrame = {
-                    Position = {
-                        previousFrame.Position[1] + (currentFrame.Position[1] - previousFrame.Position[1]) * alpha,
-                        previousFrame.Position[2] + (currentFrame.Position[2] - previousFrame.Position[2]) * alpha,
-                        previousFrame.Position[3] + (currentFrame.Position[3] - previousFrame.Position[3]) * alpha
-                    },
-                    LookVector = currentFrame.LookVector,
-                    UpVector = currentFrame.UpVector,
-                    Velocity = {
-                        previousFrame.Velocity[1] + (currentFrame.Velocity[1] - previousFrame.Velocity[1]) * alpha,
-                        previousFrame.Velocity[2] + (currentFrame.Velocity[2] - previousFrame.Velocity[2]) * alpha,
-                        previousFrame.Velocity[3] + (currentFrame.Velocity[3] - previousFrame.Velocity[3]) * alpha
-                    },
-                    MoveState = currentFrame.MoveState,
-                    WalkSpeed = currentFrame.WalkSpeed,
-                    Timestamp = previousFrame.Timestamp + (expectedInterval * (j))
-                }
-                
-                table.insert(cleanedFrames, interpolatedFrame)
-            end
-        end
-        
-        local expectedTimestamp = cleanedFrames[#cleanedFrames].Timestamp + expectedInterval
-        currentFrame.Timestamp = expectedTimestamp
-        
-        table.insert(cleanedFrames, currentFrame)
-    end
-    
-    return cleanedFrames
-end
-
 local function CreateContinuousTimeline(frames)
     if not frames or #frames == 0 then return {} end
     
@@ -611,7 +572,7 @@ local function ResumeRecording()
         return
     end
     
-    -- Potong frames setelah timeline position
+    -- HAPUS SEMUA FRAME SETELAH TIMELINE POSITION
     if TimelinePosition < #CurrentRecording.Frames then
         local newFrames = {}
         for i = 1, TimelinePosition do
@@ -620,7 +581,7 @@ local function ResumeRecording()
         CurrentRecording.Frames = newFrames
     end
     
-    -- Update start time untuk melanjutkan
+    -- RESET START TIME UNTUK MELANJUTKAN
     if #CurrentRecording.Frames > 0 then
         local lastFrame = CurrentRecording.Frames[#CurrentRecording.Frames]
         CurrentRecording.StartTime = tick() - lastFrame.Timestamp
@@ -746,8 +707,8 @@ local function SaveRecording()
         StopRecording()
     end
     
-    local processedFrames = EliminateTimeGaps(CurrentRecording.Frames)
-    processedFrames = CreateContinuousTimeline(processedFrames)
+    -- LANGSUNG PAKAI FRAME ASLI TANPA INTERPOLATION
+    local processedFrames = CreateContinuousTimeline(CurrentRecording.Frames)
     
     RecordedMovements[CurrentRecording.Name] = processedFrames
     table.insert(RecordingOrder, CurrentRecording.Name)
@@ -779,7 +740,6 @@ local function PlayRecording(name)
 
     CurrentState = States.PLAYING
     CurrentPlayingRecording = recording
-    PausedAtFrame = 0
     playbackAccumulator = 0
     
     local hrp = char.HumanoidRootPart
@@ -793,6 +753,7 @@ local function PlayRecording(name)
     else
         currentPlaybackFrame = 1
         playbackStartTime = tick()
+        -- INSTANT TELEPORT KE FRAME PERTAMA TANPA INTERPOLATION
         hrp.CFrame = GetFrameCFrame(recording[1])
     end
     
@@ -813,7 +774,6 @@ local function PlayRecording(name)
         if CurrentState == States.PAUSED then
             if pauseStartTime == 0 then
                 pauseStartTime = tick()
-                PausedAtFrame = currentPlaybackFrame
                 local char = player.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
                     LastPausePosition = char.HumanoidRootPart.Position
@@ -876,6 +836,7 @@ local function PlayRecording(name)
                 return
             end
 
+            -- INSTANT APPLY FRAME TANPA INTERPOLATION
             task.spawn(function()
                 hrp.CFrame = GetFrameCFrame(frame)
                 hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
@@ -1108,6 +1069,7 @@ local function StartAutoLoopAll()
                         
                         local frame = recording[currentFrame]
                         if frame then
+                            -- INSTANT APPLY FRAME TANPA INTERPOLATION
                             task.spawn(function()
                                 hrp.CFrame = GetFrameCFrame(frame)
                                 hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
@@ -1405,38 +1367,6 @@ function UpdateRecordList()
 end
 
 -- ========= MERGE FUNCTION =========
-local function CreateSmoothTransition(lastFrame, firstFrame, numFrames)
-    local transitionFrames = {}
-    for i = 1, numFrames do
-        local alpha = i / (numFrames + 1)
-        local pos1 = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-        local pos2 = Vector3.new(firstFrame.Position[1], firstFrame.Position[2], firstFrame.Position[3])
-        local lerpedPos = pos1:Lerp(pos2, alpha)
-        local look1 = Vector3.new(lastFrame.LookVector[1], lastFrame.LookVector[2], lastFrame.LookVector[3])
-        local look2 = Vector3.new(firstFrame.LookVector[1], firstFrame.LookVector[2], firstFrame.LookVector[3])
-        local lerpedLook = look1:Lerp(look2, alpha).Unit
-        local up1 = Vector3.new(lastFrame.UpVector[1], lastFrame.UpVector[2], lastFrame.UpVector[3])
-        local up2 = Vector3.new(firstFrame.UpVector[1], firstFrame.UpVector[2], firstFrame.UpVector[3])
-        local lerpedUp = up1:Lerp(up2, alpha).Unit
-        local vel1 = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-        local vel2 = Vector3.new(firstFrame.Velocity[1], firstFrame.Velocity[2], firstFrame.Velocity[3])
-        local lerpedVel = vel1:Lerp(vel2, alpha)
-        local ws1 = lastFrame.WalkSpeed
-        local ws2 = firstFrame.WalkSpeed
-        local lerpedWS = ws1 + (ws2 - ws1) * alpha
-        table.insert(transitionFrames, {
-            Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
-            LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
-            UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
-            Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
-            MoveState = lastFrame.MoveState,
-            WalkSpeed = lerpedWS,
-            Timestamp = lastFrame.Timestamp + (i * 0.016)
-        })
-    end
-    return transitionFrames
-end
-
 local function CreateMergedReplay()
     if #RecordingOrder < 2 then
         PlaySound("Error")
@@ -1444,19 +1374,11 @@ local function CreateMergedReplay()
     end
     local mergedFrames = {}
     local totalTimeOffset = 0
+    
     for _, checkpointName in ipairs(RecordingOrder) do
         local checkpoint = RecordedMovements[checkpointName]
         if not checkpoint then continue end
-        if #mergedFrames > 0 and #checkpoint > 0 then
-            local lastFrame = mergedFrames[#mergedFrames]
-            local firstFrame = checkpoint[1]
-            local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, Config.Playback.TransitionFrames)
-            for _, tFrame in ipairs(transitionFrames) do
-                tFrame.Timestamp = tFrame.Timestamp + totalTimeOffset
-                table.insert(mergedFrames, tFrame)
-            end
-            totalTimeOffset = totalTimeOffset + (Config.Playback.TransitionFrames * 0.016)
-        end
+        
         for frameIndex, frame in ipairs(checkpoint) do
             local newFrame = {
                 Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
@@ -1469,29 +1391,14 @@ local function CreateMergedReplay()
             }
             table.insert(mergedFrames, newFrame)
         end
+        
         if #checkpoint > 0 then
             totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
         end
     end
-    local optimizedFrames = {}
-    local lastSignificantFrame = nil
-    for i, frame in ipairs(mergedFrames) do
-        local shouldInclude = true
-        if lastSignificantFrame then
-            local pos1 = Vector3.new(lastSignificantFrame.Position[1], lastSignificantFrame.Position[2], lastSignificantFrame.Position[3])
-            local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-            local distance = (pos1 - pos2).Magnitude
-            if distance < 0.1 and frame.MoveState == lastSignificantFrame.MoveState then
-                shouldInclude = false
-            end
-        end
-        if shouldInclude then
-            table.insert(optimizedFrames, frame)
-            lastSignificantFrame = frame
-        end
-    end
+    
     local mergedName = "merged_" .. os.date("%H%M%S")
-    RecordedMovements[mergedName] = optimizedFrames
+    RecordedMovements[mergedName] = mergedFrames
     table.insert(RecordingOrder, mergedName)
     checkpointNames[mergedName] = "MERGED ALL"
     UpdateRecordList()
