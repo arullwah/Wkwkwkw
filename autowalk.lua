@@ -2003,6 +2003,7 @@ if hum then
                             end
                         end
                     end
+                 end
                 
                 if ShiftLockEnabled then
                     ApplyVisibleShiftLock()
@@ -2491,25 +2492,34 @@ function PausePlayback()
                                 local moveState = frame.MoveState
                                 local stateTime = tick()
                                 
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
+if moveState == "Jumping" then
+    if lastPlaybackState ~= "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        lastPlaybackState = "Jumping"
+        lastStateChangeTime = stateTime
+    end
+elseif moveState == "Falling" then
+    if lastPlaybackState ~= "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        lastPlaybackState = "Falling"
+        lastStateChangeTime = stateTime
+    end
+else
+    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+        lastPlaybackState = moveState
+        lastStateChangeTime = stateTime
+        
+        if moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
                             
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
