@@ -1992,7 +1992,6 @@ if hum then
                             end
                         end
                     end
-                end
                 
                 if ShiftLockEnabled then
                     ApplyVisibleShiftLock()
