@@ -8,9 +8,9 @@ local player = Players.LocalPlayer
 wait(1)
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
+local RECORDING_FPS = 120
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.015
+local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local REVERSE_SPEED_MULTIPLIER = 1.0
@@ -18,7 +18,7 @@ local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
 local TIMELINE_STEP_SECONDS = 0.1
-local STATE_CHANGE_COOLDOWN = 0.03
+local STATE_CHANGE_COOLDOWN = 0.01
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60 -- 60 FPS tetap untuk playback
@@ -572,11 +572,15 @@ local function EliminateTimeGaps(recording)
     return cleanedFrames
 end
 
-local function CreateContinuousTimeline()
-    local continuousFrames = {}
-    local lastTimestamp = 0
+-- ✅ PERBAIKAN: Fungsi CreateContinuousTimeline
+local function CreateContinuousTimeline(frames)
+    if not frames or #frames == 0 then return {} end
     
-    for i, frame in ipairs(StudioCurrentRecording.Frames) do
+    local continuousFrames = {}
+    local currentTimestamp = 0
+    local expectedInterval = 1 / RECORDING_FPS
+    
+    for i, frame in ipairs(frames) do
         local normalizedFrame = {
             Position = frame.Position,
             LookVector = frame.LookVector,
@@ -584,11 +588,11 @@ local function CreateContinuousTimeline()
             Velocity = frame.Velocity,
             MoveState = frame.MoveState,
             WalkSpeed = frame.WalkSpeed,
-            Timestamp = currentTimestamp + (1 / RECORDING_FPS)
+            Timestamp = currentTimestamp
         }
         
         table.insert(continuousFrames, normalizedFrame)
-        lastTimestamp = normalizedFrame.Timestamp
+        currentTimestamp = currentTimestamp + expectedInterval
     end
     
     return continuousFrames
@@ -1681,22 +1685,8 @@ local function ResumeStudioRecording()
         PlaySound("Success")
     end)
 end
-        -- ========= END BYPASS TIME =========
-        
-        IsTimelineMode = false
-        lastStudioRecordTime = tick()
-        lastStudioRecordPos = hrp.Position
-        
-        if hum then
-            hum.WalkSpeed = CurrentWalkSpeed
-            hum.AutoRotate = true
-        end
-        
-        UpdateStudioUI()
-        PlaySound("Success")
-    end)
-end
 
+-- ✅ PERBAIKAN: Fungsi SaveStudioRecording
 local function SaveStudioRecording()
     task.spawn(function()
         if #StudioCurrentRecording.Frames == 0 then
@@ -1708,7 +1698,6 @@ local function SaveStudioRecording()
             StopStudioRecording()
         end
         
-        -- ✅ APLIKASI FIXES
         print("=== BEFORE PROCESSING ===")
         print("Total frames:", #StudioCurrentRecording.Frames)
         if #StudioCurrentRecording.Frames > 0 then
@@ -1716,8 +1705,9 @@ local function SaveStudioRecording()
             print("Last timestamp:", StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp)
         end
         
+        -- ✅ APLIKASI FIXES dengan parameter yang benar
         local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
-        processedFrames = CreateContinuousTimeline() -- ✅ Use the fixed function
+        processedFrames = CreateContinuousTimeline(processedFrames) -- ✅ Tambahkan parameter
         
         print("=== AFTER PROCESSING ===")
         print("Total frames:", #processedFrames)
@@ -1725,30 +1715,6 @@ local function SaveStudioRecording()
             print("First timestamp:", processedFrames[1].Timestamp)
             print("Last timestamp:", processedFrames[#processedFrames].Timestamp)
         end
-        
-        RecordedMovements[StudioCurrentRecording.Name] = processedFrames
-        table.insert(RecordingOrder, StudioCurrentRecording.Name)
-        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
-        UpdateRecordList()
-        
-        PlaySound("Success")
-        
-        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-        IsTimelineMode = false
-        CurrentTimelineFrame = 0
-        TimelinePosition = 0
-        UpdateStudioUI()
-        
-        wait(1)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end
-        
-        -- ========= APLIKASI TIME BYPASS =========
-        local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
-        processedFrames = CreateContinuousTimeline()
-        -- ========= END TIME BYPASS =========
         
         RecordedMovements[StudioCurrentRecording.Name] = processedFrames
         table.insert(RecordingOrder, StudioCurrentRecording.Name)
@@ -1989,29 +1955,41 @@ function PlayRecording(name)
                 hrp.CFrame = GetFrameCFrame(frame)
                 hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                 
-                if hum then
+if hum then
                     hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
                     local stateTime = tick()
                     
-                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                        lastPlaybackState = moveState
-                        lastStateChangeTime = stateTime
-                        
-                        if moveState == "Climbing" then
-                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            hum.PlatformStand = false
-                            hum.AutoRotate = false
-                        elseif moveState == "Jumping" then
+                    -- ✅ KODE BARU: Jump dan Fall tanpa cooldown
+                    if moveState == "Jumping" then
+                        if lastPlaybackState ~= "Jumping" then
                             hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        elseif moveState == "Falling" then
+                            lastPlaybackState = "Jumping"
+                            lastStateChangeTime = stateTime
+                        end
+                    elseif moveState == "Falling" then
+                        if lastPlaybackState ~= "Falling" then
                             hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        elseif moveState == "Swimming" then
-                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                        else
-                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                            lastPlaybackState = "Falling"
+                            lastStateChangeTime = stateTime
+                        end
+                    else
+                        -- State lain pakai cooldown
+                        if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            lastPlaybackState = moveState
+                            lastStateChangeTime = stateTime
+                            
+                            if moveState == "Climbing" then
+                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                hum.PlatformStand = false
+                                hum.AutoRotate = false
+                            elseif moveState == "Swimming" then
+                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            else
+                                hum:ChangeState(Enum.HumanoidStateType.Running)
+                            end
                         end
                     end
                 end
@@ -3092,8 +3070,13 @@ UpdateRecordList()
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
-    if isfile and readfile and isfile(filename) then
-        LoadFromObfuscatedJSON()
+    -- ✅ Periksa apakah fungsi tersedia
+    if isfile and readfile then
+        if isfile(filename) then
+            LoadFromObfuscatedJSON()
+        end
+    else
+        warn("File functions not available (isfile/readfile)")
     end
 end)
 
