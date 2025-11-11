@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.1
+local TIMELINE_STEP_SECONDS = 0.5
 local STATE_CHANGE_COOLDOWN = 0.03
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -1685,21 +1685,6 @@ local function ResumeStudioRecording()
         PlaySound("Success")
     end)
 end
-        -- ========= END BYPASS TIME =========
-        
-        IsTimelineMode = false
-        lastStudioRecordTime = tick()
-        lastStudioRecordPos = hrp.Position
-        
-        if hum then
-            hum.WalkSpeed = CurrentWalkSpeed
-            hum.AutoRotate = true
-        end
-        
-        UpdateStudioUI()
-        PlaySound("Success")
-    end)
-end
 
 -- ✅ PERBAIKAN: Fungsi SaveStudioRecording
 local function SaveStudioRecording()
@@ -1730,30 +1715,6 @@ local function SaveStudioRecording()
             print("First timestamp:", processedFrames[1].Timestamp)
             print("Last timestamp:", processedFrames[#processedFrames].Timestamp)
         end
-        
-        RecordedMovements[StudioCurrentRecording.Name] = processedFrames
-        table.insert(RecordingOrder, StudioCurrentRecording.Name)
-        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
-        UpdateRecordList()
-        
-        PlaySound("Success")
-        
-        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-        IsTimelineMode = false
-        CurrentTimelineFrame = 0
-        TimelinePosition = 0
-        UpdateStudioUI()
-        
-        wait(1)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end
-        
-        -- ========= APLIKASI TIME BYPASS =========
-        local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
-        processedFrames = CreateContinuousTimeline()
-        -- ========= END TIME BYPASS =========
         
         RecordedMovements[StudioCurrentRecording.Name] = processedFrames
         table.insert(RecordingOrder, StudioCurrentRecording.Name)
