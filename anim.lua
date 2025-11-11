@@ -492,7 +492,7 @@ local function openGUI()
     header.Parent = main
     Instance.new("UICorner", header).CornerRadius = UDim.new(0,12)
 
-    local search = Instance.new("TextBox")
+    local search = Instance.new("")
     search.PlaceholderText = "Cari animasi..."
     search.ClearTextOnFocus = false
     search.Size = UDim2.new(1,-70,1,-10)
