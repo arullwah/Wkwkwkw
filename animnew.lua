@@ -1508,49 +1508,51 @@ local function StartStudioRecording()
         PlaySound("RecordStart")
         
         recordConnection = RunService.Heartbeat:Connect(function()
-    task.spawn(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-            return
-        end
-        
-        local hrp = char.HumanoidRootPart
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        
-        if IsTimelineMode then
-            return
-        end
-        
-        local now = tick()
-        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-        
-        local currentPos = hrp.Position
-        local currentVelocity = hrp.AssemblyLinearVelocity
-        
-        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-            lastStudioRecordTime = now
-            return
-        end
-        
-        local cf = hrp.CFrame
-        table.insert(StudioCurrentRecording.Frames, {
-            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-            MoveState = GetCurrentMoveState(hum, currentVelocity), -- ✅ Tambahkan velocity
-            WalkSpeed = hum and hum.WalkSpeed or 16,
-            Timestamp = now - StudioCurrentRecording.StartTime
-        })
-        
-        lastStudioRecordTime = now
-        lastStudioRecordPos = currentPos
-        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-        TimelinePosition = CurrentTimelineFrame
-        
-        UpdateStudioUI()
+            task.spawn(function()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                    return
+                end
+                
+                local hrp = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                
+                if IsTimelineMode then
+                    return
+                end
+                
+                local now = tick()
+                if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                
+                local currentPos = hrp.Position
+                local currentVelocity = hrp.AssemblyLinearVelocity
+                
+                if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                    lastStudioRecordTime = now
+                    return
+                end
+                
+                local cf = hrp.CFrame
+                table.insert(StudioCurrentRecording.Frames, {
+                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                    MoveState = GetCurrentMoveState(hum, currentVelocity),
+                    WalkSpeed = hum and hum.WalkSpeed or 16,
+                    Timestamp = now - StudioCurrentRecording.StartTime
+                })
+                
+                lastStudioRecordTime = now
+                lastStudioRecordPos = currentPos
+                CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                TimelinePosition = CurrentTimelineFrame
+                
+                UpdateStudioUI()
+            end)
+        end)
     end)
-end)
+end
 
 local function StopStudioRecording()
     StudioIsRecording = false
@@ -2229,25 +2231,34 @@ function StartAutoLoopAll()
                                     local moveState = frame.MoveState
                                     local stateTime = tick()
                                     
-                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                        lastPlaybackState = moveState
-                                        lastStateChangeTime = stateTime
-                                        
-                                        if moveState == "Climbing" then
-                                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                            hum.PlatformStand = false
-                                            hum.AutoRotate = false
-                                        elseif moveState == "Jumping" then
-                                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                        elseif moveState == "Falling" then
-                                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                        elseif moveState == "Swimming" then
-                                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                        else
-                                            hum:ChangeState(Enum.HumanoidStateType.Running)
-                                        end
-                                    end
-                                end
+if moveState == "Jumping" then
+    if lastPlaybackState ~= "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        lastPlaybackState = "Jumping"
+        lastStateChangeTime = stateTime
+    end
+elseif moveState == "Falling" then
+    if lastPlaybackState ~= "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        lastPlaybackState = "Falling"
+        lastStateChangeTime = stateTime
+    end
+else
+    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+        lastPlaybackState = moveState
+        lastStateChangeTime = stateTime
+        
+        if moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
             
                                 if ShiftLockEnabled then
                                     ApplyVisibleShiftLock()
@@ -2489,25 +2500,34 @@ function PausePlayback()
                                 local moveState = frame.MoveState
                                 local stateTime = tick()
                                 
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
+if moveState == "Jumping" then
+    if lastPlaybackState ~= "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        lastPlaybackState = "Jumping"
+        lastStateChangeTime = stateTime
+    end
+elseif moveState == "Falling" then
+    if lastPlaybackState ~= "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        lastPlaybackState = "Falling"
+        lastStateChangeTime = stateTime
+    end
+else
+    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+        lastPlaybackState = moveState
+        lastStateChangeTime = stateTime
+        
+        if moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
                             
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
@@ -2648,25 +2668,34 @@ function PausePlayback()
                                 local moveState = frame.MoveState
                                 local stateTime = tick()
                                 
-                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                    lastPlaybackState = moveState
-                                    lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Climbing" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    elseif moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
+                                if moveState == "Jumping" then
+    if lastPlaybackState ~= "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        lastPlaybackState = "Jumping"
+        lastStateChangeTime = stateTime
+    end
+elseif moveState == "Falling" then
+    if lastPlaybackState ~= "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        lastPlaybackState = "Falling"
+        lastStateChangeTime = stateTime
+    end
+else
+    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+        lastPlaybackState = moveState
+        lastStateChangeTime = stateTime
+        
+        if moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+            hum.PlatformStand = false
+            hum.AutoRotate = false
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
                             
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
