@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.1
+local TIMELINE_STEP_SECONDS = 0.5
 local STATE_CHANGE_COOLDOWN = 0.03
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -1556,6 +1556,29 @@ local function StopStudioRecording()
     end)
 end
 
+local function GoBackTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        IsTimelineMode = true
+        
+        local targetFrame = math.max(1, TimelinePosition - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+        
+        TimelinePosition = targetFrame
+        CurrentTimelineFrame = targetFrame
+        
+        local frame = StudioCurrentRecording.Frames[targetFrame]
+        if frame then
+            ApplyFrameToCharacter(frame)
+            UpdateStudioUI()
+            PlaySound("Click")
+        end
+    end)
+end
+
 local function GoNextTimeline()
     if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
         PlaySound("Error")
@@ -1602,6 +1625,7 @@ local function ResumeStudioRecording()
         
         -- ✅ BYPASS TIME YANG BENAR
         if TimelinePosition < #StudioCurrentRecording.Frames then
+            -- Potong frame setelah TimelinePosition
             local newFrames = {}
             for i = 1, TimelinePosition do
                 table.insert(newFrames, StudioCurrentRecording.Frames[i])
@@ -1614,12 +1638,15 @@ local function ResumeStudioRecording()
             local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
             local lastTimestamp = lastFrame.Timestamp
             
+            -- Reset StartTime to continue seamlessly
             StudioCurrentRecording.StartTime = tick() - lastTimestamp
             
+            -- Add smooth transition frame if position changed
             local currentCFrame = hrp.CFrame
             local lastCFrame = GetFrameCFrame(lastFrame)
             
             if (currentCFrame.Position - lastCFrame.Position).Magnitude > 2 then
+                -- Create interpolation frame with CORRECT timestamp
                 local transitionFrame = {
                     Position = {
                         (lastCFrame.Position.X + currentCFrame.Position.X) / 2,
@@ -1635,7 +1662,7 @@ local function ResumeStudioRecording()
                     Velocity = {0, 0, 0},
                     MoveState = "Grounded",
                     WalkSpeed = CurrentWalkSpeed,
-                    Timestamp = lastTimestamp + (1 / RECORDING_FPS)
+                    Timestamp = lastTimestamp + (1 / RECORDING_FPS) -- ✅ Sequential timestamp
                 }
                 table.insert(StudioCurrentRecording.Frames, transitionFrame)
             end
@@ -1654,71 +1681,6 @@ local function ResumeStudioRecording()
         PlaySound("Success")
     end)
 end
-
-local function SaveStudioRecording()
-    task.spawn(function()
-        if #StudioCurrentRecording.Frames == 0 then
-            PlaySound("Error")
-            return
-        end
-        
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
-        
-        -- ✅ APLIKASI FIXES
-        print("=== BEFORE PROCESSING ===")
-        print("Total frames:", #StudioCurrentRecording.Frames)
-        if #StudioCurrentRecording.Frames > 0 then
-            print("First timestamp:", StudioCurrentRecording.Frames[1].Timestamp)
-            print("Last timestamp:", StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp)
-        end
-        
-        local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
-        processedFrames = CreateContinuousTimeline()
-        
-        print("=== AFTER PROCESSING ===")
-        print("Total frames:", #processedFrames)
-        if #processedFrames > 0 then
-            print("First timestamp:", processedFrames[1].Timestamp)
-            print("Last timestamp:", processedFrames[#processedFrames].Timestamp)
-        end
-        
-        RecordedMovements[StudioCurrentRecording.Name] = processedFrames
-        table.insert(RecordingOrder, StudioCurrentRecording.Name)
-        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
-        UpdateRecordList()
-        
-        PlaySound("Success")
-        
-        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-        IsTimelineMode = false
-        CurrentTimelineFrame = 0
-        TimelinePosition = 0
-        UpdateStudioUI()
-        
-        wait(1)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end
-
-local function ClearStudioRecording()
-    task.spawn(function()
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
-        
-        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-        IsTimelineMode = false
-        CurrentTimelineFrame = 0
-        TimelinePosition = 0
-        
-        UpdateStudioUI()
-        PlaySound("Success")
-    end)
-  end
-    
         -- ========= END BYPASS TIME =========
         
         IsTimelineMode = false
