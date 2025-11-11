@@ -353,15 +353,26 @@ local function RestoreFullUserControl()
     end
 end
 
-local function GetCurrentMoveState(hum)
+local function GetCurrentMoveState(hum, velocity)
     if not hum then return "Grounded" end
+    
     local state = hum:GetState()
-    if state == Enum.HumanoidStateType.Climbing then return "Climbing"
-    elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
-    elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
-    elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
-    else return "Grounded" end
+    local velocityY = velocity and velocity.Y or 0
+    
+    -- ✅ Deteksi berdasarkan velocity juga
+    if state == Enum.HumanoidStateType.Jumping or velocityY > 5 then 
+        return "Jumping"
+    elseif state == Enum.HumanoidStateType.Freefall or state == Enum.HumanoidStateType.FallingDown or velocityY < -5 then 
+        return "Falling"
+    elseif state == Enum.HumanoidStateType.Climbing then 
+        return "Climbing"
+    elseif state == Enum.HumanoidStateType.Swimming then 
+        return "Swimming"
+    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then 
+        return "Grounded"
+    else 
+        return "Grounded" 
+    end
 end
 
 local function ClearPathVisualization()
@@ -1497,51 +1508,49 @@ local function StartStudioRecording()
         PlaySound("RecordStart")
         
         recordConnection = RunService.Heartbeat:Connect(function()
-            task.spawn(function()
-                local char = player.Character
-                if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                    return
-                end
-                
-                local hrp = char.HumanoidRootPart
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                
-                if IsTimelineMode then
-                    return
-                end
-                
-                local now = tick()
-                if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-                
-                local currentPos = hrp.Position
-                local currentVelocity = hrp.AssemblyLinearVelocity
-                
-                if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                    lastStudioRecordTime = now
-                    return
-                end
-                
-                local cf = hrp.CFrame
-                table.insert(StudioCurrentRecording.Frames, {
-                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                    MoveState = GetCurrentMoveState(hum),
-                    WalkSpeed = hum and hum.WalkSpeed or 16,
-                    Timestamp = now - StudioCurrentRecording.StartTime
-                })
-                
-                lastStudioRecordTime = now
-                lastStudioRecordPos = currentPos
-                CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                TimelinePosition = CurrentTimelineFrame
-                
-                UpdateStudioUI()
-            end)
-        end)
+    task.spawn(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+            return
+        end
+        
+        local hrp = char.HumanoidRootPart
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if IsTimelineMode then
+            return
+        end
+        
+        local now = tick()
+        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+        
+        local currentPos = hrp.Position
+        local currentVelocity = hrp.AssemblyLinearVelocity
+        
+        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+            lastStudioRecordTime = now
+            return
+        end
+        
+        local cf = hrp.CFrame
+        table.insert(StudioCurrentRecording.Frames, {
+            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+            MoveState = GetCurrentMoveState(hum, currentVelocity), -- ✅ Tambahkan velocity
+            WalkSpeed = hum and hum.WalkSpeed or 16,
+            Timestamp = now - StudioCurrentRecording.StartTime
+        })
+        
+        lastStudioRecordTime = now
+        lastStudioRecordPos = currentPos
+        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+        TimelinePosition = CurrentTimelineFrame
+        
+        UpdateStudioUI()
     end)
-end
+end)
 
 local function StopStudioRecording()
     StudioIsRecording = false
