@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.1
+local TIMELINE_STEP_SECONDS = 0.5
 local STATE_CHANGE_COOLDOWN = 0.03
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -572,11 +572,15 @@ local function EliminateTimeGaps(recording)
     return cleanedFrames
 end
 
-local function CreateContinuousTimeline()
-    local continuousFrames = {}
-    local lastTimestamp = 0
+-- ✅ PERBAIKAN: Fungsi CreateContinuousTimeline
+local function CreateContinuousTimeline(frames)
+    if not frames or #frames == 0 then return {} end
     
-    for i, frame in ipairs(StudioCurrentRecording.Frames) do
+    local continuousFrames = {}
+    local currentTimestamp = 0
+    local expectedInterval = 1 / RECORDING_FPS
+    
+    for i, frame in ipairs(frames) do
         local normalizedFrame = {
             Position = frame.Position,
             LookVector = frame.LookVector,
@@ -584,11 +588,11 @@ local function CreateContinuousTimeline()
             Velocity = frame.Velocity,
             MoveState = frame.MoveState,
             WalkSpeed = frame.WalkSpeed,
-            Timestamp = currentTimestamp + (1 / RECORDING_FPS)
+            Timestamp = currentTimestamp
         }
         
         table.insert(continuousFrames, normalizedFrame)
-        lastTimestamp = normalizedFrame.Timestamp
+        currentTimestamp = currentTimestamp + expectedInterval
     end
     
     return continuousFrames
@@ -1697,6 +1701,7 @@ end
     end)
 end
 
+-- ✅ PERBAIKAN: Fungsi SaveStudioRecording
 local function SaveStudioRecording()
     task.spawn(function()
         if #StudioCurrentRecording.Frames == 0 then
@@ -1708,7 +1713,6 @@ local function SaveStudioRecording()
             StopStudioRecording()
         end
         
-        -- ✅ APLIKASI FIXES
         print("=== BEFORE PROCESSING ===")
         print("Total frames:", #StudioCurrentRecording.Frames)
         if #StudioCurrentRecording.Frames > 0 then
@@ -1716,8 +1720,9 @@ local function SaveStudioRecording()
             print("Last timestamp:", StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp)
         end
         
+        -- ✅ APLIKASI FIXES dengan parameter yang benar
         local processedFrames = EliminateTimeGaps(StudioCurrentRecording.Frames)
-        processedFrames = CreateContinuousTimeline() -- ✅ Use the fixed function
+        processedFrames = CreateContinuousTimeline(processedFrames) -- ✅ Tambahkan parameter
         
         print("=== AFTER PROCESSING ===")
         print("Total frames:", #processedFrames)
@@ -3092,8 +3097,13 @@ UpdateRecordList()
 task.spawn(function()
     task.wait(2)
     local filename = "MyReplays.json"
-    if isfile and readfile and isfile(filename) then
-        LoadFromObfuscatedJSON()
+    -- ✅ Periksa apakah fungsi tersedia
+    if isfile and readfile then
+        if isfile(filename) then
+            LoadFromObfuscatedJSON()
+        end
+    else
+        warn("File functions not available (isfile/readfile)")
     end
 end)
 
