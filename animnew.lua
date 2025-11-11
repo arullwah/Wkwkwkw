@@ -2850,6 +2850,68 @@ local function CreateMergedReplay()
     PlaySound("Success")
 end
 
+-- ========= ANIMATION FUNCTIONS =========
+local function AnimateLoop(isOn)
+    PlaySound("Toggle")
+    local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    -- Get the toggle frame inside LoopToggle
+    local toggle = LoopToggle:FindFirstChild("Frame")
+    local knob = toggle and toggle:FindFirstChild("Frame")
+    
+    if toggle and knob then
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
+    end
+end
+
+local function AnimateShiftLock(isOn)
+    PlaySound("Toggle")
+    local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    local toggle = ShiftLockToggle:FindFirstChild("Frame")
+    local knob = toggle and toggle:FindFirstChild("Frame")
+    
+    if toggle and knob then
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
+    end
+end
+
+local function AnimateRespawn(isOn)
+    PlaySound("Toggle")
+    local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    local toggle = RespawnToggle:FindFirstChild("Frame")
+    local knob = toggle and toggle:FindFirstChild("Frame")
+    
+    if toggle and knob then
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
+    end
+end
+
+local function AnimateJump(isOn)
+    PlaySound("Toggle")
+    local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    local toggle = JumpToggle:FindFirstChild("Frame")
+    local knob = toggle and toggle:FindFirstChild("Frame")
+    
+    if toggle and knob then
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
+    end
+end
+
 -- ========= CONNECTIONS =========
 MenuBtn.MouseButton1Click:Connect(function()
     SimpleButtonClick(MenuBtn)
