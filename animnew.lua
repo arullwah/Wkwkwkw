@@ -106,6 +106,10 @@ local playbackAccumulator = 0
 local LastPausePosition = nil
 local LastPauseRecording = nil
 
+-- ========= FLOATING RECORDER VARIABLES =========
+local FloatingRecorder = nil
+local IsFloatingVisible = false
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -631,6 +635,221 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
+-- ========= FLOATING RECORDER FUNCTIONS =========
+local function CreateFloatingRecorder()
+    if FloatingRecorder then
+        FloatingRecorder:Destroy()
+        FloatingRecorder = nil
+    end
+
+    -- Safe parent for executors
+    local CoreGui = game:GetService("CoreGui")
+    local parent = (pcall(function() return gethui and gethui() end) and gethui()) or CoreGui
+    local function protect(g)
+        pcall(function()
+            if syn and syn.protect_gui then syn.protect_gui(g) end
+            if protect_gui then protect_gui(g) end
+        end)
+    end
+
+    -- Root ScreenGui
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "FloatingRecorder"
+    gui.IgnoreGuiInset = true
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    protect(gui)
+    
+    -- Helpers
+    local UIS = game:GetService("UserInputService")
+    local Camera = workspace.CurrentCamera
+
+    local function clampToViewport(pos, size)
+        local vs = Camera and Camera.ViewportSize or Vector2.new(1920,1080)
+        local x = math.clamp(pos.X.Offset, 0, vs.X - size.X)
+        local y = math.clamp(pos.Y.Offset, 0, vs.Y - size.Y)
+        return UDim2.fromOffset(math.floor(x+0.5), math.floor(y+0.5))
+    end
+
+    local function setIcon(btn, emoji, fallback)
+        btn.Text = emoji
+        btn.Font = Enum.Font.GothamBold
+        btn.TextScaled = true
+        btn.TextWrapped = true
+        btn.TextXAlignment = Enum.TextXAlignment.Center
+        btn.TextYAlignment = Enum.TextYAlignment.Center
+        btn.TextColor3 = Color3.fromRGB(255,255,255)
+        task.defer(function()
+            local b = btn.TextBounds
+            if (b.X < 4 or b.Y < 4) then
+                btn.Text = fallback
+            end
+        end)
+    end
+
+    -- Tombol "emoji only" (tanpa kotak apapun)
+    local function makeButton(name, order)
+        local b = Instance.new("TextButton")
+        b.Name = name
+        b.Size = UDim2.fromOffset(34,34) -- pas untuk panel 160x80
+        b.BackgroundTransparency = 1     -- HILANGKAN kotak/warna belakang
+        b.AutoButtonColor = false        -- HILANGKAN overlay gelap saat ditekan
+        b.Text = ""
+        b.LayoutOrder = order or 1
+        b.BorderSizePixel = 0
+        b.TextStrokeTransparency = 1
+        b.SelectionImageObject = nil     -- hindari highlight hitam default
+        return b
+    end
+
+    -- Panel (fixed 160x80, lebih transparan)
+    local panel = Instance.new("Frame")
+    panel.Name = "RecorderPanel"
+    panel.Size = UDim2.fromOffset(160,80)
+    panel.Position = UDim2.fromOffset(80, 220)
+    panel.BackgroundColor3 = Color3.fromRGB(10,10,14)
+    panel.BackgroundTransparency = 0.45 -- lebih transparan & bersih
+    panel.Active = true
+    panel.BorderSizePixel = 0
+    panel.Parent = gui
+    local pc = Instance.new("UICorner", panel); pc.CornerRadius = UDim.new(0,12)
+
+    local wrap = Instance.new("Frame", panel)
+    wrap.BackgroundTransparency = 1
+    wrap.Size = UDim2.fromScale(1,1)
+    local pad = Instance.new("UIPadding", wrap)
+    pad.PaddingTop = UDim.new(0,4)
+    pad.PaddingBottom = UDim.new(0,4)
+    pad.PaddingLeft = UDim.new(0,8)
+    pad.PaddingRight = UDim.new(0,8)
+
+    local vlist = Instance.new("UIListLayout", wrap)
+    vlist.FillDirection = Enum.FillDirection.Vertical
+    vlist.Padding = UDim.new(0,4) -- 4 + 34 + 4 + 34 + 4 = 80
+    vlist.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    vlist.VerticalAlignment = Enum.VerticalAlignment.Center
+
+    local function row()
+        local r = Instance.new("Frame")
+        r.BackgroundTransparency = 1
+        r.Size = UDim2.new(1,0,0,34)
+        r.Parent = wrap
+        local h = Instance.new("UIListLayout", r)
+        h.FillDirection = Enum.FillDirection.Horizontal
+        h.Padding = UDim.new(0,8)
+        h.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        h.VerticalAlignment = Enum.VerticalAlignment.Center
+        return r
+    end
+
+    local rowTop    = row()   -- 🟢startrecord 🔴stop record 💾Save Record
+    local rowBottom = row()   -- ⬅️ back/prev lalu ⏸️ Resume recording ➡️ next/soon
+
+    -- Buttons (urut pakai LayoutOrder)
+    local btnStartRec  = makeButton("StartRec", 1);   btnStartRec.Parent    = rowTop
+    local btnStopRec   = makeButton("StopRec",  2);   btnStopRec.Parent     = rowTop
+    local btnSave      = makeButton("Save",     3);   btnSave.Parent        = rowTop
+
+    local btnBack      = makeButton("Back",     1);   btnBack.Parent        = rowBottom
+    local btnResume    = makeButton("Resume",   2);   btnResume.Parent      = rowBottom
+    local btnNext      = makeButton("Next",     3);   btnNext.Parent        = rowBottom
+
+    -- Icons + fallback
+    setIcon(btnStartRec, "🟢", "O")  -- Start Record
+    setIcon(btnStopRec,  "🔴", "■")  -- Stop Record  
+    setIcon(btnSave,     "💾", "S")  -- Save Record
+    setIcon(btnBack,     "⬅️", "<-") -- Back/Previous
+    setIcon(btnResume,   "⏸️", "||") -- Resume Recording
+    setIcon(btnNext,     "➡️", "->") -- Next/Soon
+
+    -- Dragging
+    do
+        local dragging = false
+        local dragStart, startPos
+        local function IBegan(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = i.Position
+                startPos = panel.Position
+                i.Changed:Connect(function()
+                    if i.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                        panel.Position = clampToViewport(panel.Position, panel.AbsoluteSize)
+                    end
+                end)
+            end
+        end
+        local function IChanged(i)
+            if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+                local d = i.Position - dragStart
+                panel.Position = clampToViewport(UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y), panel.AbsoluteSize)
+            end
+        end
+        panel.InputBegan:Connect(IBegan)
+        panel.InputChanged:Connect(IChanged)
+        UIS.InputChanged:Connect(IChanged)
+    end
+
+    -- Button functionality
+    btnStartRec.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnStartRec)
+        StartStudioRecording()
+    end)
+
+    btnStopRec.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnStopRec)
+        StopStudioRecording()
+    end)
+
+    btnSave.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnSave)
+        SaveStudioRecording()
+        -- Hide floating recorder setelah save
+        gui.Enabled = false
+        IsFloatingVisible = false
+    end)
+
+    btnBack.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnBack)
+        GoBackTimeline()
+    end)
+
+    btnResume.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnResume)
+        ResumeStudioRecording()
+    end)
+
+    btnNext.MouseButton1Click:Connect(function()
+        AnimateButtonClick(btnNext)
+        GoNextTimeline()
+    end)
+
+    -- Clamp awal
+    panel.Position = clampToViewport(panel.Position, panel.AbsoluteSize)
+    
+    gui.Parent = parent
+    FloatingRecorder = gui
+    IsFloatingVisible = true
+    
+    return gui
+end
+
+local function ShowFloatingRecorder()
+    if not FloatingRecorder then
+        CreateFloatingRecorder()
+    else
+        FloatingRecorder.Enabled = true
+        IsFloatingVisible = true
+    end
+end
+
+local function HideFloatingRecorder()
+    if FloatingRecorder then
+        FloatingRecorder.Enabled = false
+        IsFloatingVisible = false
+    end
+end
+
 -- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
@@ -641,289 +860,6 @@ else
     wait(2)
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
-
--- ========= RECORDING STUDIO GUI (170x170) =========
-local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(170, 170)
-RecordingStudio.Position = UDim2.new(0.5, -85, 0.5, -85)
-RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BorderSizePixel = 0
-RecordingStudio.Active = true
-RecordingStudio.Draggable = true
-RecordingStudio.Visible = false
-RecordingStudio.Parent = ScreenGui
-
-local StudioCorner = Instance.new("UICorner")
-StudioCorner.CornerRadius = UDim.new(0, 10)
-StudioCorner.Parent = RecordingStudio
-
-local StudioStroke = Instance.new("UIStroke")
-StudioStroke.Color = Color3.fromRGB(255, 255, 255)
-StudioStroke.Thickness = 2
-StudioStroke.Parent = RecordingStudio
-
-local StudioHeader = Instance.new("Frame")
-StudioHeader.Size = UDim2.new(1, 0, 0, 25)
-StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-StudioHeader.BorderSizePixel = 0
-StudioHeader.Parent = RecordingStudio
-
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 10)
-HeaderCorner.Parent = StudioHeader
-
-local StudioTitle = Instance.new("TextLabel")
-StudioTitle.Size = UDim2.new(1, -30, 1, 0)
-StudioTitle.BackgroundTransparency = 1
-StudioTitle.Text = ""
-StudioTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-StudioTitle.Font = Enum.Font.GothamBold
-StudioTitle.TextSize = 10
-StudioTitle.Parent = StudioHeader
-
-local CloseStudioBtn = Instance.new("TextButton")
-CloseStudioBtn.Size = UDim2.fromOffset(20, 20)
-CloseStudioBtn.Position = UDim2.new(1, -22, 0.5, -10)
-CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-CloseStudioBtn.Text = "×"
-CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
-CloseStudioBtn.Font = Enum.Font.GothamBold
-CloseStudioBtn.TextSize = 18
-CloseStudioBtn.Parent = StudioHeader
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 5)
-CloseCorner.Parent = CloseStudioBtn
-
-local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -16, 1, -33)
-StudioContent.Position = UDim2.new(0, 8, 0, 28)
-StudioContent.BackgroundTransparency = 1
-StudioContent.Parent = RecordingStudio
-
-local function CreateStudioBtn(text, x, y, w, h, color)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(w, h)
-    btn.Position = UDim2.fromOffset(x, y)
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.AutoButtonColor = false
-    btn.Parent = StudioContent
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
-    corner.Parent = btn
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
-    
-    btn.MouseEnter:Connect(function()
-        task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(
-                    math.min(color.R * 255 + 30, 255),
-                    math.min(color.G * 255 + 30, 255),
-                    math.min(color.B * 255 + 30, 255)
-                )
-            }):Play()
-        end)
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-        end)
-    end)
-    
-    return btn
-end
-
--- Studio Buttons Layout (170x170)
-local SaveBtn = CreateStudioBtn("SAVE", 5, 5, 70, 28, Color3.fromRGB(59, 15, 116))
-local ClearBtn = CreateStudioBtn("CLEAR", 79, 5, 70, 28, Color3.fromRGB(150, 50, 60))
-
-local RecordBtn = CreateStudioBtn("RECORD", 5, 38, 144, 32, Color3.fromRGB(200, 50, 60))
-local ResumeBtn = CreateStudioBtn("RESUME", 5, 75, 144, 32, Color3.fromRGB(59, 15, 116))
-
-local BackBtn = CreateStudioBtn("BACK", 5, 112, 70, 32, Color3.fromRGB(59, 15, 116))
-local NextBtn = CreateStudioBtn("NEXT", 79, 112, 70, 32, Color3.fromRGB(59, 15, 116))
-
--- ========= NEW PLAYBACK CONTROL GUI (200x170) =========
-local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(200, 170)
-PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -100)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-PlaybackControl.BorderSizePixel = 0
-PlaybackControl.Active = true
-PlaybackControl.Draggable = true
-PlaybackControl.Visible = false
-PlaybackControl.Parent = ScreenGui
-
-local PlaybackCorner = Instance.new("UICorner")
-PlaybackCorner.CornerRadius = UDim.new(0, 10)
-PlaybackCorner.Parent = PlaybackControl
-
-local PlaybackStroke = Instance.new("UIStroke")
-PlaybackStroke.Color = Color3.fromRGB(255, 255, 255)
-PlaybackStroke.Thickness = 2
-PlaybackStroke.Parent = PlaybackControl
-
-local PlaybackHeader = Instance.new("Frame")
-PlaybackHeader.Size = UDim2.new(1, 0, 0, 25)
-PlaybackHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-PlaybackHeader.BorderSizePixel = 0
-PlaybackHeader.Parent = PlaybackControl
-
-local PlaybackHeaderCorner = Instance.new("UICorner")
-PlaybackHeaderCorner.CornerRadius = UDim.new(0, 10)
-PlaybackHeaderCorner.Parent = PlaybackHeader
-
-local PlaybackTitle = Instance.new("TextLabel")
-PlaybackTitle.Size = UDim2.new(1, -30, 1, 0)
-PlaybackTitle.BackgroundTransparency = 1
-PlaybackTitle.Text = ""
-PlaybackTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-PlaybackTitle.Font = Enum.Font.GothamBold
-PlaybackTitle.TextSize = 10
-PlaybackTitle.Parent = PlaybackHeader
-
-local ClosePlaybackBtn = Instance.new("TextButton")
-ClosePlaybackBtn.Size = UDim2.fromOffset(20, 20)
-ClosePlaybackBtn.Position = UDim2.new(1, -22, 0.5, -10)
-ClosePlaybackBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-ClosePlaybackBtn.Text = "×"
-ClosePlaybackBtn.TextColor3 = Color3.new(1, 1, 1)
-ClosePlaybackBtn.Font = Enum.Font.GothamBold
-ClosePlaybackBtn.TextSize = 18
-ClosePlaybackBtn.Parent = PlaybackHeader
-
-local ClosePlaybackCorner = Instance.new("UICorner")
-ClosePlaybackCorner.CornerRadius = UDim.new(0, 5)
-ClosePlaybackCorner.Parent = ClosePlaybackBtn
-
-local PlaybackContent = Instance.new("Frame")
-PlaybackContent.Size = UDim2.new(1, -16, 1, -33)
-PlaybackContent.Position = UDim2.new(0, 8, 0, 28)
-PlaybackContent.BackgroundTransparency = 1
-PlaybackContent.Parent = PlaybackControl
-
-local function CreatePlaybackBtn(text, x, y, w, h, color)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(w, h)
-    btn.Position = UDim2.fromOffset(x, y)
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 13
-    btn.AutoButtonColor = false
-    btn.Parent = PlaybackContent
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
-    corner.Parent = btn
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
-    
-    btn.MouseEnter:Connect(function()
-        task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(
-                    math.min(color.R * 255 + 30, 255),
-                    math.min(color.G * 255 + 30, 255),
-                    math.min(color.B * 255 + 30, 255)
-                )
-            }):Play()
-        end)
-    end)
-    
-    btn.MouseLeave:Connect(function()
-        task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-        end)
-    end)
-    
-    return btn
-end
-
-local function CreatePlaybackToggle(text, x, y, w, h, default)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(w, h)
-    btn.Position = UDim2.fromOffset(x, y)
-    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    btn.Text = ""
-    btn.Parent = PlaybackContent
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
-    corner.Parent = btn
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0, w - 28, 1, 0)
-    label.Position = UDim2.new(0, 4, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = Color3.fromRGB(200, 200, 220)
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 11
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = btn
-    
-    local toggle = Instance.new("Frame")
-    toggle.Size = UDim2.fromOffset(20, 11)
-    toggle.Position = UDim2.new(1, -23, 0.5, -5)
-    toggle.BackgroundColor3 = default and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
-    toggle.BorderSizePixel = 0
-    toggle.Parent = btn
-    
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(1, 0)
-    toggleCorner.Parent = toggle
-    
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.fromOffset(7, 7)
-    knob.Position = default and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
-    knob.BackgroundColor3 = Color3.fromRGB(220, 220, 230)
-    knob.BorderSizePixel = 0
-    knob.Parent = toggle
-    
-    local knobCorner = Instance.new("UICorner")
-    knobCorner.CornerRadius = UDim.new(1, 0)
-    knobCorner.Parent = knob
-    
-    local function Animate(isOn)
-        PlaySound("Toggle")
-        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
-        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
-        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
-        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
-    end
-    
-    return btn, Animate
-end
-
--- Playback Control Layout (200x170)
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 84, 32, Color3.fromRGB(59, 15, 116))
-local PauseBtnControl = CreatePlaybackBtn("PAUSE", 93, 5, 84, 32, Color3.fromRGB(59, 15, 116))
-
-local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 84, 22, false)
-local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 93, 42, 84, 22, false)
-
-local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 84, 22, false)
-local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 93, 69, 84, 22, false)
-
-local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 172, 22, false)
 
 -- ========= MAIN GUI (250x340) =========
 local MainFrame = Instance.new("Frame")
@@ -1026,12 +962,7 @@ local function CreateButton(text, x, y, w, h, color)
     corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = btn
     
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
-    
+    -- Hapus UIStroke
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = Color3.new(
@@ -1040,17 +971,11 @@ local function CreateButton(text, x, y, w, h, color)
                 math.min(color.B * 1.2, 1)
             )
         }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {
-            Transparency = 0.3
-        }):Play()
     end)
     
     btn.MouseLeave:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = color
-        }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {
-            Transparency = 0.7
         }):Play()
     end)
     
@@ -1217,7 +1142,7 @@ function UpdateRecordList()
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -4, 0, 60) -- Diubah menjadi 60 untuk menampung 2 baris
+        item.Size = UDim2.new(1, -4, 0, 45) -- Diubah menjadi 45 (lebih kecil)
         item.Position = UDim2.new(0, 2, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
         item.Parent = RecordList
@@ -1317,8 +1242,8 @@ function UpdateRecordList()
         
         -- Baris 2: Info label (durasi dan frame count) - di bawah textbox
         local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(0, 180, 0, 16)
-        infoLabel.Position = UDim2.fromOffset(80, 22) -- Posisi di bawah textbox
+        infoLabel.Size = UDim2.new(0, 90, 0, 16)
+        infoLabel.Position = UDim2.fromOffset(80, 22) -- Posisi tepat di bawah textbox
         infoLabel.BackgroundTransparency = 1
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
@@ -1329,7 +1254,7 @@ function UpdateRecordList()
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
         infoLabel.Font = Enum.Font.GothamBold
         infoLabel.TextSize = 7
-        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Center -- Center agar tepat di bawah textbox
         infoLabel.Parent = item
         
         nameBox.FocusLost:Connect(function()
@@ -1377,16 +1302,14 @@ function UpdateRecordList()
             UpdateRecordList()
         end)
         
-        yPos = yPos + 63
+        yPos = yPos + 48
     end
     
     RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
 local function UpdateStudioUI()
-    task.spawn(function()
-        StudioTitle.Text = "Recording Studio"
-    end)
+    -- Tidak diperlukan lagi karena menggunakan floating recorder
 end
 
 local function ApplyFrameToCharacter(frame)
@@ -1443,9 +1366,6 @@ local function StartStudioRecording()
         CurrentTimelineFrame = 0
         TimelinePosition = 0
         
-        RecordBtn.Text = "⏹ STOP"
-        RecordBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
-        
         PlaySound("RecordStart")
         
         recordConnection = RunService.Heartbeat:Connect(function()
@@ -1488,8 +1408,6 @@ local function StartStudioRecording()
                 lastStudioRecordPos = currentPos
                 CurrentTimelineFrame = #StudioCurrentRecording.Frames
                 TimelinePosition = CurrentTimelineFrame
-                
-                UpdateStudioUI()
             end)
         end)
     end)
@@ -1504,9 +1422,6 @@ local function StopStudioRecording()
             recordConnection:Disconnect()
             recordConnection = nil
         end
-        
-        RecordBtn.Text = "RECORD"
-        RecordBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
         
         PlaySound("RecordStop")
     end)
@@ -1529,7 +1444,6 @@ local function GoBackTimeline()
         local frame = StudioCurrentRecording.Frames[targetFrame]
         if frame then
             ApplyFrameToCharacter(frame)
-            UpdateStudioUI()
             PlaySound("Click")
         end
     end)
@@ -1552,7 +1466,6 @@ local function GoNextTimeline()
         local frame = StudioCurrentRecording.Frames[targetFrame]
         if frame then
             ApplyFrameToCharacter(frame)
-            UpdateStudioUI()
             PlaySound("Click")
         end
     end)
@@ -1601,7 +1514,6 @@ local function ResumeStudioRecording()
             hum.AutoRotate = true
         end
         
-        UpdateStudioUI()
         PlaySound("Success")
     end)
 end
@@ -1628,86 +1540,171 @@ local function SaveStudioRecording()
         IsTimelineMode = false
         CurrentTimelineFrame = 0
         TimelinePosition = 0
-        UpdateStudioUI()
         
-        wait(1)
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
+        -- Hide floating recorder setelah save
+        HideFloatingRecorder()
     end)
 end
 
-local function ClearStudioRecording()
-    task.spawn(function()
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
-        
-        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
-        IsTimelineMode = false
-        CurrentTimelineFrame = 0
-        TimelinePosition = 0
-        
-        UpdateStudioUI()
-        PlaySound("Success")
+-- ========= PLAYBACK CONTROL GUI (200x170) =========
+local PlaybackControl = Instance.new("Frame")
+PlaybackControl.Size = UDim2.fromOffset(200, 170)
+PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -100)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.BorderSizePixel = 0
+PlaybackControl.Active = true
+PlaybackControl.Draggable = true
+PlaybackControl.Visible = false
+PlaybackControl.Parent = ScreenGui
+
+local PlaybackCorner = Instance.new("UICorner")
+PlaybackCorner.CornerRadius = UDim.new(0, 10)
+PlaybackCorner.Parent = PlaybackControl
+
+local PlaybackHeader = Instance.new("Frame")
+PlaybackHeader.Size = UDim2.new(1, 0, 0, 25)
+PlaybackHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+PlaybackHeader.BorderSizePixel = 0
+PlaybackHeader.Parent = PlaybackControl
+
+local PlaybackHeaderCorner = Instance.new("UICorner")
+PlaybackHeaderCorner.CornerRadius = UDim.new(0, 10)
+PlaybackHeaderCorner.Parent = PlaybackHeader
+
+local PlaybackTitle = Instance.new("TextLabel")
+PlaybackTitle.Size = UDim2.new(1, -30, 1, 0)
+PlaybackTitle.BackgroundTransparency = 1
+PlaybackTitle.Text = ""
+PlaybackTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlaybackTitle.Font = Enum.Font.GothamBold
+PlaybackTitle.TextSize = 10
+PlaybackTitle.Parent = PlaybackHeader
+
+local ClosePlaybackBtn = Instance.new("TextButton")
+ClosePlaybackBtn.Size = UDim2.fromOffset(20, 20)
+ClosePlaybackBtn.Position = UDim2.new(1, -22, 0.5, -10)
+ClosePlaybackBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+ClosePlaybackBtn.Text = "×"
+ClosePlaybackBtn.TextColor3 = Color3.new(1, 1, 1)
+ClosePlaybackBtn.Font = Enum.Font.GothamBold
+ClosePlaybackBtn.TextSize = 18
+ClosePlaybackBtn.Parent = PlaybackHeader
+
+local ClosePlaybackCorner = Instance.new("UICorner")
+ClosePlaybackCorner.CornerRadius = UDim.new(0, 5)
+ClosePlaybackCorner.Parent = ClosePlaybackBtn
+
+local PlaybackContent = Instance.new("Frame")
+PlaybackContent.Size = UDim2.new(1, -16, 1, -33)
+PlaybackContent.Position = UDim2.new(0, 8, 0, 28)
+PlaybackContent.BackgroundTransparency = 1
+PlaybackContent.Parent = PlaybackControl
+
+local function CreatePlaybackBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.AutoButtonColor = false
+    btn.Parent = PlaybackContent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = btn
+    
+    btn.MouseEnter:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(
+                    math.min(color.R * 255 + 30, 255),
+                    math.min(color.G * 255 + 30, 255),
+                    math.min(color.B * 255 + 30, 255)
+                )
+            }):Play()
+        end)
     end)
+    
+    btn.MouseLeave:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+        end)
+    end)
+    
+    return btn
 end
 
-RecordBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(RecordBtn)
-        if StudioIsRecording then
-            StopStudioRecording()
-        else
-            StartStudioRecording()
-        end
-    end)
-end)
+local function CreatePlaybackToggle(text, x, y, w, h, default)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    btn.Text = ""
+    btn.Parent = PlaybackContent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, w - 28, 1, 0)
+    label.Position = UDim2.new(0, 4, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(200, 200, 220)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = btn
+    
+    local toggle = Instance.new("Frame")
+    toggle.Size = UDim2.fromOffset(20, 11)
+    toggle.Position = UDim2.new(1, -23, 0.5, -5)
+    toggle.BackgroundColor3 = default and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+    toggle.BorderSizePixel = 0
+    toggle.Parent = btn
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggle
+    
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.fromOffset(7, 7)
+    knob.Position = default and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+    knob.BackgroundColor3 = Color3.fromRGB(220, 220, 230)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggle
+    
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
+    
+    local function Animate(isOn)
+        PlaySound("Toggle")
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
+    end
+    
+    return btn, Animate
+end
 
-BackBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(BackBtn)
-        GoBackTimeline()
-    end)
-end)
+-- Playback Control Layout (200x170)
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 84, 32, Color3.fromRGB(59, 15, 116))
+local PauseBtnControl = CreatePlaybackBtn("PAUSE", 93, 5, 84, 32, Color3.fromRGB(59, 15, 116))
 
-NextBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(NextBtn)
-        GoNextTimeline()
-    end)
-end)
+local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 84, 22, false)
+local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 93, 42, 84, 22, false)
 
-ResumeBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(ResumeBtn)
-        ResumeStudioRecording()
-    end)
-end)
+local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 84, 22, false)
+local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 93, 69, 84, 22, false)
 
-SaveBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(SaveBtn)
-        SaveStudioRecording()
-    end)
-end)
-
-ClearBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(ClearBtn)
-        ClearStudioRecording()
-    end)
-end)
-
-CloseStudioBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(CloseStudioBtn)
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
-    end)
-end)
+local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 172, 22, false)
 
 -- ========= IMPROVED PLAYBACK WITH FIXED TIMESTEP & RESUME FROM ANYWHERE =========
 function PlayRecording(name)
@@ -2825,9 +2822,7 @@ end)
 -- ========= MAIN FRAME CONNECTIONS =========
 OpenStudioBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(OpenStudioBtn)
-    MainFrame.Visible = false
-    RecordingStudio.Visible = true
-    UpdateStudioUI()
+    ShowFloatingRecorder()
 end)
 
 PlaybackBtn.MouseButton1Click:Connect(function()
@@ -2898,13 +2893,16 @@ CloseButton.MouseButton1Click:Connect(function()
     if InfiniteJump then DisableInfiniteJump() end
     CleanupConnections()
     ClearPathVisualization()
+    if FloatingRecorder then
+        FloatingRecorder:Destroy()
+    end
     ScreenGui:Destroy()
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.F9 then
-        if RecordingStudio.Visible then
+        if IsFloatingVisible then
             if StudioIsRecording then StopStudioRecording() else StartStudioRecording() end
         end
     elseif input.KeyCode == Enum.KeyCode.F10 then
@@ -2913,12 +2911,10 @@ UserInputService.InputBegan:Connect(function(input, processed)
         MainFrame.Visible = not MainFrame.Visible
         MiniButton.Visible = not MainFrame.Visible
     elseif input.KeyCode == Enum.KeyCode.F8 then
-        if RecordingStudio.Visible then
-            RecordingStudio.Visible = false
-            MainFrame.Visible = true
+        if IsFloatingVisible then
+            HideFloatingRecorder()
         else
-            MainFrame.Visible = false
-            RecordingStudio.Visible = true
+            ShowFloatingRecorder()
         end
     elseif input.KeyCode == Enum.KeyCode.F7 then
         AutoLoop = not AutoLoop
@@ -2943,11 +2939,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
         ToggleInfiniteJump()
         AnimateJumpControl(InfiniteJump)
     elseif input.KeyCode == Enum.KeyCode.LeftBracket then
-        if RecordingStudio.Visible then
+        if IsFloatingVisible then
             GoBackTimeline()
         end
     elseif input.KeyCode == Enum.KeyCode.RightBracket then
-        if RecordingStudio.Visible then
+        if IsFloatingVisible then
             GoNextTimeline()
         end
     end
@@ -2976,5 +2972,8 @@ game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
         CleanupConnections()
         ClearPathVisualization()
+        if FloatingRecorder then
+            FloatingRecorder:Destroy()
+        end
     end
 end)
