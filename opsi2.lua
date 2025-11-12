@@ -889,11 +889,6 @@ local PlaybackCorner = Instance.new("UICorner")
 PlaybackCorner.CornerRadius = UDim.new(0, 10)
 PlaybackCorner.Parent = PlaybackControl
 
-local PlaybackStroke = Instance.new("UIStroke")
-PlaybackStroke.Color = Color3.fromRGB(255, 255, 255)
-PlaybackStroke.Thickness = 2
-PlaybackStroke.Parent = PlaybackControl
-
 local PlaybackHeader = Instance.new("Frame")
 PlaybackHeader.Size = UDim2.new(1, 0, 0, 25)
 PlaybackHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
@@ -948,12 +943,6 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 5)
     corner.Parent = btn
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
     
     btn.MouseEnter:Connect(function()
         task.spawn(function()
@@ -1144,12 +1133,6 @@ local function CreateButton(text, x, y, w, h, color)
     corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = btn
     
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(255, 255, 255)
-    stroke.Thickness = 1
-    stroke.Transparency = 0.7
-    stroke.Parent = btn
-    
     btn.MouseEnter:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = Color3.new(
@@ -1158,17 +1141,11 @@ local function CreateButton(text, x, y, w, h, color)
                 math.min(color.B * 1.2, 1)
             )
         }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {
-            Transparency = 0.3
-        }):Play()
     end)
     
     btn.MouseLeave:Connect(function()
         TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = color
-        }):Play()
-        TweenService:Create(stroke, TweenInfo.new(0.2), {
-            Transparency = 0.7
         }):Play()
     end)
     
@@ -1802,6 +1779,164 @@ CloseStudioBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
+-- ========= FIXED SAVE/LOAD SYSTEM =========
+local function SaveToObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local hasCheckedRecordings = false
+    for name, checked in pairs(CheckedRecordings) do
+        if checked then
+            hasCheckedRecordings = true
+            break
+        end
+    end
+    
+    if not hasCheckedRecordings then
+        PlaySound("Error")
+        return
+    end
+    
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "2.1",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
+        
+        for _, name in ipairs(RecordingOrder) do
+            if CheckedRecordings[name] then
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
+            end
+        end
+        
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
+        
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        
+        -- FIX: Gunakan writefile dengan aman
+        if writefile then
+            writefile(filename, jsonString)
+            PlaySound("Success")
+        else
+            PlaySound("Error")
+        end
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+local function LoadFromObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        -- FIX: Cek apakah file exists dengan aman
+        if not isfile or not readfile then
+            PlaySound("Error")
+            return
+        end
+        
+        if not isfile(filename) then
+            PlaySound("Error")
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        CheckedRecordings = {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        else
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+-- ========= FIXED PATH VISUALIZATION =========
+local function VisualizeAllPaths()
+    ClearPathVisualization()
+    
+    if not ShowPaths then return end
+    
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
+        
+        local previousPos = Vector3.new(
+            recording[1].Position[1],
+            recording[1].Position[2], 
+            recording[1].Position[3]
+        )
+        
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
+            end
+        end
+    end
+end
+
 -- ========= IMPROVED SMART PLAYBACK SYSTEM =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying then return end
@@ -2239,7 +2374,7 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- Pindah ke recording berikutnya, kembali ke #1 jika sudah akhir
+                -- FIX: Selalu kembali ke urutan #1 setelah selesai semua recording
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2462,150 +2597,6 @@ CloseButton.MouseButton1Click:Connect(function()
     ClearPathVisualization()
     ScreenGui:Destroy()
 end)
-
-local function SaveToObfuscatedJSON()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    local hasCheckedRecordings = false
-    for name, checked in pairs(CheckedRecordings) do
-        if checked then
-            hasCheckedRecordings = true
-            break
-        end
-    end
-    
-    if not hasCheckedRecordings then
-        PlaySound("Error")
-        return
-    end
-    
-    local success, err = pcall(function()
-        local saveData = {
-            Version = "2.1",
-            Obfuscated = true,
-            Checkpoints = {},
-            RecordingOrder = {},
-            CheckpointNames = {}
-        }
-        
-        for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] then
-                local frames = RecordedMovements[name]
-                if frames then
-                    local checkpointData = {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
-                    }
-                    table.insert(saveData.Checkpoints, checkpointData)
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                end
-            end
-        end
-        
-        local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
-        end
-        
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
-        saveData.ObfuscatedFrames = obfuscatedData
-        
-        local jsonString = HttpService:JSONEncode(saveData)
-        writefile(filename, jsonString)
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
-
-local function LoadFromObfuscatedJSON()
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    local success, err = pcall(function()
-        if not isfile(filename) then
-            PlaySound("Error")
-            return
-        end
-        
-        local jsonString = readfile(filename)
-        local saveData = HttpService:JSONDecode(jsonString)
-        
-        RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
-        CheckedRecordings = {}
-        
-        if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
-            
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                local name = checkpointData.Name
-                local frames = deobfuscatedData[name]
-                
-                if frames then
-                    RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-        else
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                local name = checkpointData.Name
-                local frames = checkpointData.Frames
-                
-                if frames then
-                    RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-        end
-        
-        UpdateRecordList()
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
-
-local function VisualizeAllPaths()
-    ClearPathVisualization()
-    
-    if not ShowPaths then return end
-    
-    for _, name in ipairs(RecordingOrder) do
-        local recording = RecordedMovements[name]
-        if not recording or #recording < 2 then continue end
-        
-        local previousPos = Vector3.new(
-            recording[1].Position[1],
-            recording[1].Position[2], 
-            recording[1].Position[3]
-        )
-        
-        for i = 2, #recording, 3 do
-            local frame = recording[i]
-            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-            
-            if (currentPos - previousPos).Magnitude > 0.5 then
-                CreatePathSegment(previousPos, currentPos)
-                previousPos = currentPos
-            end
-        end
-    end
-end
 
 -- ========= INITIALIZATION =========
 UpdateRecordList()
