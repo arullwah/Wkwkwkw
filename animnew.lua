@@ -17,7 +17,7 @@ local REVERSE_SPEED_MULTIPLIER = 1.0
 local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
-local TIMELINE_STEP_SECONDS = 0.1
+local TIMELINE_STEP_SECONDS = 0.5
 local STATE_CHANGE_COOLDOWN = 0.0 -- Diubah menjadi 0 untuk menghilangkan cooldown
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 15
@@ -1541,8 +1541,6 @@ local function SaveStudioRecording()
         CurrentTimelineFrame = 0
         TimelinePosition = 0
         
-        -- Hide floating recorder setelah save
-        HideFloatingRecorder()
     end)
 end
 
