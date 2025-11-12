@@ -666,7 +666,7 @@ local function UpdatePlayButtonStatus()
     
     if PlayBtnControl then
         if nearestRecording and distance <= 40 then
-            PlayBtnControl.Text = "STOP"
+            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
             PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
         else
             PlayBtnControl.Text = "PLAY"
@@ -817,7 +817,6 @@ StudioContent.Position = UDim2.new(0, 5, 0, 22)
 StudioContent.BackgroundTransparency = 1
 StudioContent.Parent = RecordingStudio
 
--- Recording LED Indicator
 local RecordingLED = Instance.new("Frame")
 RecordingLED.Size = UDim2.fromOffset(8, 8)
 RecordingLED.Position = UDim2.new(0, 5, 0, 5)
@@ -867,16 +866,15 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Studio Buttons Layout (160x100)
-local SaveBtn = CreateStudioBtn("💾 Save", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
-local StartBtn = CreateStudioBtn("🟢 Start", 79, 5, 70, 20, Color3.fromRGB(59, 15, 116))
+local SaveBtn = CreateStudioBtn("Save", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
+local StartBtn = CreateStudioBtn("Start", 79, 5, 70, 20, Color3.fromRGB(59, 15, 116))
 
 local ResumeBtn = CreateStudioBtn("RESUME", 5, 30, 144, 22, Color3.fromRGB(59, 15, 116))
 
-local PrevBtn = CreateStudioBtn("⬅️ Prev", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
-local NextBtn = CreateStudioBtn("➡️ Next", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
+local PrevBtn = CreateStudioBtn("Prev", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
+local NextBtn = CreateStudioBtn("Next", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
 
--- ========= PLAYBACK CONTROL GUI (200x170) =========
+-- ========= NEW PLAYBACK CONTROL GUI (200x170) =========
 local PlaybackControl = Instance.new("Frame")
 PlaybackControl.Size = UDim2.fromOffset(200, 170)
 PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -100)
@@ -1035,17 +1033,15 @@ local function CreatePlaybackToggle(text, x, y, w, h, default)
     return btn, Animate
 end
 
--- Playback Control Layout (200x170)
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 84, 32, Color3.fromRGB(59, 15, 116))
-local StopBtnControl = CreatePlaybackBtn("STOP", 93, 5, 84, 32, Color3.fromRGB(200, 50, 60))
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 190, 32, Color3.fromRGB(59, 15, 116))
 
-local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 84, 22, false)
-local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 93, 42, 84, 22, false)
+local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 92, 22, false)
+local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 103, 42, 92, 22, false)
 
-local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 84, 22, false)
-local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 93, 69, 84, 22, false)
+local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 92, 22, false)
+local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 103, 69, 92, 22, false)
 
-local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 172, 22, false)
+local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 190, 22, false)
 
 -- ========= MAIN GUI (250x340) =========
 local MainFrame = Instance.new("Frame")
@@ -1179,7 +1175,6 @@ local function CreateButton(text, x, y, w, h, color)
     return btn
 end
 
--- ========= MAIN GUI LAYOUT (250x340) =========
 local OpenStudioBtn = CreateButton("RECORD", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
 local MenuBtn = CreateButton("MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
 local PlaybackBtn = CreateButton("PLAY", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
@@ -1244,7 +1239,6 @@ local LoadFileBtn = CreateButton("LOAD FILE", 119, 62, 115, 30, Color3.fromRGB(5
 local PathToggleBtn = CreateButton("SHOW RUTE", 0, 96, 115, 30, Color3.fromRGB(59, 15, 116))
 local MergeBtn = CreateButton("MERGE", 119, 96, 115, 30, Color3.fromRGB(59, 15, 116))
 
--- Recording List (Scrollable)
 local RecordList = Instance.new("ScrollingFrame")
 RecordList.Size = UDim2.new(1, 0, 0, 170)
 RecordList.Position = UDim2.fromOffset(0, 130)
@@ -1302,7 +1296,7 @@ WalkSpeedBox.FocusLost:Connect(function()
         WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
         PlaySound("Error")
     end
-end
+end)
 
 local function MoveRecordingUp(name)
     local currentIndex = table.find(RecordingOrder, name)
@@ -1563,7 +1557,7 @@ local function StartStudioRecording()
         CurrentTimelineFrame = 0
         TimelinePosition = 0
         
-        StartBtn.Text = "🔴 Stop"
+        StartBtn.Text = "Stop"
         StartBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
         RecordingLED.Visible = true
         
@@ -1626,7 +1620,7 @@ local function StopStudioRecording()
             recordConnection = nil
         end
         
-        StartBtn.Text = "🟢 Start"
+        StartBtn.Text = "Start"
         StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         RecordingLED.Visible = false
         
@@ -1907,7 +1901,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
             UpdatePlayButtonStatus()
             return
         end
-
+        
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
             IsPlaying = false
@@ -2035,14 +2029,30 @@ function StartAutoLoopAll()
                 break
             end
             
-            local recordingNameToPlay = RecordingOrder[CurrentLoopIndex]
-            local recordingToPlay = RecordedMovements[recordingNameToPlay]
+            -- Cari recording berikutnya yang valid
+            local recordingToPlay = nil
+            local recordingNameToPlay = nil
+            local attempts = 0
+            
+            while attempts < #RecordingOrder do
+                recordingNameToPlay = RecordingOrder[CurrentLoopIndex]
+                recordingToPlay = RecordedMovements[recordingNameToPlay]
+                
+                if recordingToPlay and #recordingToPlay > 0 then
+                    break
+                else
+                    -- Skip recording kosong dan lanjut ke berikutnya
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
+                    end
+                    attempts = attempts + 1
+                end
+            end
             
             if not recordingToPlay or #recordingToPlay == 0 then
-                CurrentLoopIndex = CurrentLoopIndex + 1
-                if CurrentLoopIndex > #RecordingOrder then
-                    CurrentLoopIndex = 1
-                end
+                -- Semua recording kosong, reset ke #1
+                CurrentLoopIndex = 1
                 task.wait(1)
                 continue
             end
@@ -2083,8 +2093,6 @@ function StartAutoLoopAll()
             
             local playbackCompleted = false
             local playbackStart = tick()
-            local playbackPausedTime = 0
-            local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
             local maxDeathRetries = 999999
@@ -2095,6 +2103,7 @@ function StartAutoLoopAll()
             
             SaveHumanoidState()
             
+            -- Smart resume untuk auto loop
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local currentPos = char.HumanoidRootPart.Position
@@ -2118,16 +2127,14 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(1.5)
                             
+                            -- Tetap lanjut dari recording yang sama, tapi dari awal
                             currentFrame = 1
                             playbackStart = tick()
-                            playbackPausedTime = 0
-                            playbackPauseStart = 0
                             lastPlaybackState = nil
                             lastStateChangeTime = 0
                             loopAccumulator = 0
                             
                             SaveHumanoidState()
-                            
                             continue
                         else
                             task.wait(2)
@@ -2158,14 +2165,11 @@ function StartAutoLoopAll()
                         
                         currentFrame = 1
                         playbackStart = tick()
-                        playbackPausedTime = 0
-                        playbackPauseStart = 0
                         lastPlaybackState = nil
                         lastStateChangeTime = 0
                         loopAccumulator = 0
                         
                         SaveHumanoidState()
-                        
                         continue
                     end
                 end
@@ -2190,7 +2194,7 @@ function StartAutoLoopAll()
                     loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
                     
                     local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
+                    local effectiveTime = (currentTime - playbackStart) * CurrentSpeed
                     
                     while currentFrame < #recordingToPlay and GetFrameTimestamp(recordingToPlay[currentFrame + 1]) <= effectiveTime do
                         currentFrame = currentFrame + 1
@@ -2215,7 +2219,7 @@ function StartAutoLoopAll()
                                     hum, frame, lastPlaybackState, lastStateChangeTime
                                 )
                             end
-            
+        
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
                             end
@@ -2229,13 +2233,13 @@ function StartAutoLoopAll()
             end
             
             RestoreFullUserControl()
-            UpdatePauseMarker()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
             if playbackCompleted then
                 PlaySound("Success")
                 
+                -- Pindah ke recording berikutnya, kembali ke #1 jika sudah akhir
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2246,6 +2250,7 @@ function StartAutoLoopAll()
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
+                    -- Jika mati/error, tetap increment ke recording berikutnya
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2256,9 +2261,7 @@ function StartAutoLoopAll()
         end
         
         IsAutoLoopPlaying = false
-        IsPaused = false
         RestoreFullUserControl()
-        UpdatePauseMarker()
         lastPlaybackState = nil
         lastStateChangeTime = 0
         PlayBtnControl.Text = "PLAY"
@@ -2271,7 +2274,6 @@ function StopAutoLoopAll()
     AutoLoop = false
     IsAutoLoopPlaying = false
     IsPlaying = false
-    IsPaused = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
     
@@ -2281,7 +2283,6 @@ function StopAutoLoopAll()
     end
     
     RestoreFullUserControl()
-    UpdatePauseMarker()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -2300,13 +2301,11 @@ function StopPlayback()
     
     if not IsPlaying then return end
     IsPlaying = false
-    IsPaused = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
     LastPausePosition = nil
     LastPauseRecording = nil
     RestoreFullUserControl()
-    UpdatePauseMarker()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -2317,7 +2316,7 @@ function StopPlayback()
     UpdatePlayButtonStatus()
 end
 
--- ========= SIMPLIFIED PLAYBACK CONTROLS =========
+-- ========= SIMPLIFIED PLAYBACK CONTROL =========
 PlayBtnControl.MouseButton1Click:Connect(function()
     AnimateButtonClick(PlayBtnControl)
     if IsPlaying or IsAutoLoopPlaying then
@@ -2329,11 +2328,6 @@ PlayBtnControl.MouseButton1Click:Connect(function()
             SmartPlayRecording(40)
         end
     end
-end)
-
-StopBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(StopBtnControl)
-    StopPlayback()
 end)
 
 LoopBtnControl.MouseButton1Click:Connect(function()
@@ -2350,7 +2344,6 @@ LoopBtnControl.MouseButton1Click:Connect(function()
         
         if IsPlaying then
             IsPlaying = false
-            IsPaused = false
             RestoreFullUserControl()
         end
         
@@ -2468,43 +2461,6 @@ CloseButton.MouseButton1Click:Connect(function()
     CleanupConnections()
     ClearPathVisualization()
     ScreenGui:Destroy()
-end)
-
--- ========= SMART PLAY UPDATE LOOP =========
-task.spawn(function()
-    while true do
-        UpdatePlayButtonStatus()
-        task.wait(1)
-    end
-end)
-
--- ========= REMOVED ALL HOTKEYS =========
-
-UpdateRecordList()
-UpdatePlayButtonStatus()
-
-task.spawn(function()
-    task.wait(2)
-    local filename = "MyReplays.json"
-    if isfile and readfile and isfile(filename) then
-        LoadFromObfuscatedJSON()
-    end
-end)
-
-player.CharacterRemoving:Connect(function()
-    if StudioIsRecording then
-        StopStudioRecording()
-    end
-    if IsPlaying or AutoLoop then
-        StopPlayback()
-    end
-end)
-
-game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
-    if descendant == ScreenGui then
-        CleanupConnections()
-        ClearPathVisualization()
-    end
 end)
 
 local function SaveToObfuscatedJSON()
@@ -2650,3 +2606,31 @@ local function VisualizeAllPaths()
         end
     end
 end
+
+-- ========= INITIALIZATION =========
+UpdateRecordList()
+UpdatePlayButtonStatus()
+
+task.spawn(function()
+    task.wait(2)
+    local filename = "MyReplays.json"
+    if isfile and readfile and isfile(filename) then
+        LoadFromObfuscatedJSON()
+    end
+end)
+
+player.CharacterRemoving:Connect(function()
+    if StudioIsRecording then
+        StopStudioRecording()
+    end
+    if IsPlaying or AutoLoop then
+        StopPlayback()
+    end
+end)
+
+game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
+    if descendant == ScreenGui then
+        CleanupConnections()
+        ClearPathVisualization()
+    end
+end)
