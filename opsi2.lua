@@ -796,42 +796,9 @@ local StudioCorner = Instance.new("UICorner")
 StudioCorner.CornerRadius = UDim.new(0, 8)
 StudioCorner.Parent = RecordingStudio
 
-local StudioHeader = Instance.new("Frame")
-StudioHeader.Size = UDim2.new(1, 0, 0, 20)
-StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-StudioHeader.BorderSizePixel = 0
-StudioHeader.Parent = RecordingStudio
-
-local HeaderCorner = Instance.new("UICorner")
-HeaderCorner.CornerRadius = UDim.new(0, 8)
-HeaderCorner.Parent = StudioHeader
-
-local StudioTitle = Instance.new("TextLabel")
-StudioTitle.Size = UDim2.new(1, -30, 1, 0)
-StudioTitle.BackgroundTransparency = 1
-StudioTitle.Text = ""
-StudioTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-StudioTitle.Font = Enum.Font.GothamBold
-StudioTitle.TextSize = 10
-StudioTitle.Parent = StudioHeader
-
-local CloseStudioBtn = Instance.new("TextButton")
-CloseStudioBtn.Size = UDim2.fromOffset(18, 18)
-CloseStudioBtn.Position = UDim2.new(1, -20, 0.5, -9)
-CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-CloseStudioBtn.Text = "×"
-CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
-CloseStudioBtn.Font = Enum.Font.GothamBold
-CloseStudioBtn.TextSize = 14
-CloseStudioBtn.Parent = StudioHeader
-
-local CloseCorner = Instance.new("UICorner")
-CloseCorner.CornerRadius = UDim.new(0, 4)
-CloseCorner.Parent = CloseStudioBtn
-
 local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -10, 1, -25)
-StudioContent.Position = UDim2.new(0, 5, 0, 22)
+StudioContent.Size = UDim2.new(1, -10, 1, -10)
+StudioContent.Position = UDim2.new(0, 5, 0, 5)
 StudioContent.BackgroundTransparency = 1
 StudioContent.Parent = RecordingStudio
 
@@ -841,7 +808,7 @@ RecordingLED.Position = UDim2.new(0, 5, 0, 5)
 RecordingLED.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
 RecordingLED.BorderSizePixel = 0
 RecordingLED.Visible = false
-RecordingLED.Parent = StudioHeader
+RecordingLED.Parent = RecordingStudio
 
 local LEDCorner = Instance.new("UICorner")
 LEDCorner.CornerRadius = UDim.new(1, 0)
@@ -892,10 +859,10 @@ local ResumeBtn = CreateStudioBtn("RESUME", 5, 30, 144, 22, Color3.fromRGB(59, 1
 local PrevBtn = CreateStudioBtn("Prev", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
 local NextBtn = CreateStudioBtn("Next", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
 
--- ========= NEW PLAYBACK CONTROL GUI (200x180) =========
+-- ========= NEW PLAYBACK CONTROL GUI (180x170) =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(200, 180)
-PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -90)
+PlaybackControl.Size = UDim2.fromOffset(180, 170)
+PlaybackControl.Position = UDim2.new(0.5, -90, 0.5, -85)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
@@ -904,45 +871,36 @@ PlaybackControl.Visible = false
 PlaybackControl.Parent = ScreenGui
 
 local PlaybackCorner = Instance.new("UICorner")
-PlaybackCorner.CornerRadius = UDim.new(0, 10)
+PlaybackCorner.CornerRadius = UDim.new(0, 8)
 PlaybackCorner.Parent = PlaybackControl
 
 local PlaybackHeader = Instance.new("Frame")
-PlaybackHeader.Size = UDim2.new(1, 0, 0, 25)
+PlaybackHeader.Size = UDim2.new(1, 0, 0, 20)
 PlaybackHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 PlaybackHeader.BorderSizePixel = 0
 PlaybackHeader.Parent = PlaybackControl
 
 local PlaybackHeaderCorner = Instance.new("UICorner")
-PlaybackHeaderCorner.CornerRadius = UDim.new(0, 10)
+PlaybackHeaderCorner.CornerRadius = UDim.new(0, 8)
 PlaybackHeaderCorner.Parent = PlaybackHeader
 
-local PlaybackTitle = Instance.new("TextLabel")
-PlaybackTitle.Size = UDim2.new(1, -30, 1, 0)
-PlaybackTitle.BackgroundTransparency = 1
-PlaybackTitle.Text = "Playback Control"
-PlaybackTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
-PlaybackTitle.Font = Enum.Font.GothamBold
-PlaybackTitle.TextSize = 10
-PlaybackTitle.Parent = PlaybackHeader
-
 local ClosePlaybackBtn = Instance.new("TextButton")
-ClosePlaybackBtn.Size = UDim2.fromOffset(20, 20)
-ClosePlaybackBtn.Position = UDim2.new(1, -22, 0.5, -10)
+ClosePlaybackBtn.Size = UDim2.fromOffset(16, 16)
+ClosePlaybackBtn.Position = UDim2.new(1, -18, 0.5, -8)
 ClosePlaybackBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 ClosePlaybackBtn.Text = "×"
 ClosePlaybackBtn.TextColor3 = Color3.new(1, 1, 1)
 ClosePlaybackBtn.Font = Enum.Font.GothamBold
-ClosePlaybackBtn.TextSize = 18
+ClosePlaybackBtn.TextSize = 14
 ClosePlaybackBtn.Parent = PlaybackHeader
 
 local ClosePlaybackCorner = Instance.new("UICorner")
-ClosePlaybackCorner.CornerRadius = UDim.new(0, 5)
+ClosePlaybackCorner.CornerRadius = UDim.new(0, 4)
 ClosePlaybackCorner.Parent = ClosePlaybackBtn
 
 local PlaybackContent = Instance.new("Frame")
-PlaybackContent.Size = UDim2.new(1, -16, 1, -33)
-PlaybackContent.Position = UDim2.new(0, 8, 0, 28)
+PlaybackContent.Size = UDim2.new(1, -10, 1, -25)
+PlaybackContent.Position = UDim2.new(0, 5, 0, 22)
 PlaybackContent.BackgroundTransparency = 1
 PlaybackContent.Parent = PlaybackControl
 
@@ -1002,37 +960,27 @@ local function CreateToggleBtn(text, x, y, w, h, default)
     return btn
 end
 
--- Main Play/Pause Button
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 35, 5, 130, 40, Color3.fromRGB(59, 15, 116))
+-- Main Play/Pause Button (centered with space)
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 170, 35, Color3.fromRGB(59, 15, 116))
 
--- Toggle Buttons
-local LoopBtnControl = CreateToggleBtn("Auto Loop", 5, 50, 92, 25, false)
-local JumpBtnControl = CreateToggleBtn("Infinite Jump", 103, 50, 92, 25, false)
+-- Toggle Buttons with proper spacing
+local LoopBtnControl = CreateToggleBtn("AutoLoop", 5, 45, 82, 22, false)
+local JumpBtnControl = CreateToggleBtn("InfiniteJump", 93, 45, 82, 22, false)
 
-local RespawnBtnControl = CreateToggleBtn("Respawn", 5, 80, 92, 25, false)
-local ShiftLockBtnControl = CreateToggleBtn("ShiftLock", 103, 80, 92, 25, false)
+local RespawnBtnControl = CreateToggleBtn("Respawn", 5, 72, 82, 22, false)
+local ShiftLockBtnControl = CreateToggleBtn("ShiftLock", 93, 72, 82, 22, false)
 
-local ResetBtnControl = CreateToggleBtn("Reset", 5, 110, 92, 25, false)
-local ShowRuteBtnControl = CreateToggleBtn("Show Rute", 103, 110, 92, 25, false)
+local ResetBtnControl = CreateToggleBtn("ResetChar", 5, 99, 82, 22, false)
+local ShowRuteBtnControl = CreateToggleBtn("ShowRute", 93, 99, 82, 22, false)
 
 -- Speed and WalkSpeed Controls
-local SpeedLabel = Instance.new("TextLabel")
-SpeedLabel.Size = UDim2.fromOffset(50, 18)
-SpeedLabel.Position = UDim2.fromOffset(5, 140)
-SpeedLabel.BackgroundTransparency = 1
-SpeedLabel.Text = "Speed:"
-SpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-SpeedLabel.Font = Enum.Font.GothamBold
-SpeedLabel.TextSize = 10
-SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-SpeedLabel.Parent = PlaybackContent
-
 local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.fromOffset(50, 20)
-SpeedBox.Position = UDim2.fromOffset(55, 140)
+SpeedBox.Size = UDim2.fromOffset(82, 22)
+SpeedBox.Position = UDim2.fromOffset(5, 126)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
+SpeedBox.PlaceholderText = "Speed"
 SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 SpeedBox.Font = Enum.Font.GothamBold
 SpeedBox.TextSize = 10
@@ -1041,26 +989,16 @@ SpeedBox.ClearTextOnFocus = false
 SpeedBox.Parent = PlaybackContent
 
 local SpeedCorner = Instance.new("UICorner")
-SpeedCorner.CornerRadius = UDim.new(0, 3)
+SpeedCorner.CornerRadius = UDim.new(0, 4)
 SpeedCorner.Parent = SpeedBox
 
-local WalkSpeedLabel = Instance.new("TextLabel")
-WalkSpeedLabel.Size = UDim2.fromOffset(60, 18)
-WalkSpeedLabel.Position = UDim2.fromOffset(115, 140)
-WalkSpeedLabel.BackgroundTransparency = 1
-WalkSpeedLabel.Text = "WalkSpd:"
-WalkSpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-WalkSpeedLabel.Font = Enum.Font.GothamBold
-WalkSpeedLabel.TextSize = 10
-WalkSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
-WalkSpeedLabel.Parent = PlaybackContent
-
 local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(50, 20)
-WalkSpeedBox.Position = UDim2.fromOffset(145, 140)
+WalkSpeedBox.Size = UDim2.fromOffset(82, 22)
+WalkSpeedBox.Position = UDim2.fromOffset(93, 126)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
+WalkSpeedBox.PlaceholderText = "WalkSpeed"
 WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 WalkSpeedBox.Font = Enum.Font.GothamBold
 WalkSpeedBox.TextSize = 10
@@ -1069,7 +1007,7 @@ WalkSpeedBox.ClearTextOnFocus = false
 WalkSpeedBox.Parent = PlaybackContent
 
 local WalkSpeedCorner = Instance.new("UICorner")
-WalkSpeedCorner.CornerRadius = UDim.new(0, 3)
+WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
 -- ========= MAIN GUI (250x340) =========
@@ -1135,8 +1073,8 @@ CloseCorner2.CornerRadius = UDim.new(0, 6)
 CloseCorner2.Parent = CloseButton
 
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -16, 1, -36)
-Content.Position = UDim2.new(0, 8, 0, 32)
+Content.Size = UDim2.new(1, -10, 1, -36)
+Content.Position = UDim2.new(0, 5, 0, 32)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
@@ -1194,11 +1132,11 @@ end
 
 local OpenStudioBtn = CreateButton("RECORD", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
 local MenuBtn = CreateButton("MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
-local PlaybackBtn = CreateButton("PLAY", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
+local PlaybackBtn = CreateButton("PLAY", 158, 2, 77, 30, Color3.fromRGB(59, 15, 116))
 
 -- Custom filename box
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.fromOffset(234, 22)
+FilenameBox.Size = UDim2.fromOffset(240, 22)
 FilenameBox.Position = UDim2.fromOffset(0, 36)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
@@ -1217,8 +1155,8 @@ FilenameCorner.Parent = FilenameBox
 
 -- Save, Merge, Load buttons
 local SaveFileBtn = CreateButton("SAVE", 0, 62, 75, 30, Color3.fromRGB(59, 15, 116))
-local MergeBtn = CreateButton("MERGE", 80, 62, 75, 30, Color3.fromRGB(59, 15, 116))
-local LoadFileBtn = CreateButton("LOAD", 159, 62, 75, 30, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 82, 62, 76, 30, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD", 160, 62, 75, 30, Color3.fromRGB(59, 15, 116))
 
 local RecordList = Instance.new("ScrollingFrame")
 RecordList.Size = UDim2.new(1, 0, 0, 220)
@@ -1482,9 +1420,7 @@ end
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 local function UpdateStudioUI()
-    task.spawn(function()
-        StudioTitle.Text = ""
-    end)
+    -- No UI updates needed for headerless studio
 end
 
 local function ApplyFrameToCharacter(frame)
@@ -1774,17 +1710,6 @@ SaveBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
         AnimateButtonClick(SaveBtn)
         SaveStudioRecording()
-    end)
-end)
-
-CloseStudioBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(CloseStudioBtn)
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
-        RecordingStudio.Visible = false
-        MainFrame.Visible = true
     end)
 end)
 
@@ -2149,7 +2074,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2368,8 +2293,25 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- Tetap di recording yang sama untuk loop abadi
+                -- FIX: Kembali ke frame 1 untuk loop yang benar
                 task.wait(0.5)
+                
+                -- Reset untuk loop berikutnya
+                currentFrame = 1
+                playbackStart = tick()
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                loopAccumulator = 0
+                
+                -- Jika hanya ada 1 recording, tetap di recording yang sama
+                if #RecordingOrder == 1 then
+                    -- Tetap di recording yang sama, loop abadi
+                else
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
+                    end
+                end
             else
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
