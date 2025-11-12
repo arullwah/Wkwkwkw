@@ -7,212 +7,212 @@ local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
 wait(1)
 
--- ========= KONFIGURASI =========
-local FPS_REKAMAN = 90
-local FRAME_MAKSIMAL = 30000
-local BATAS_JARAK_MINIMAL = 0.01
-local SKALA_KECEPATAN = 1
-local SKALA_KECEPATAN_Y = 1
-local PENGGANDA_KECEPATAN_MUNDUR = 1.0
-local PENGGANDA_KECEPATAN_MAJU = 1.0
-local LANGKAH_FRAME_MUNDUR = 1
-local LANGKAH_FRAME_MAJU = 1
-local LANGKAH_DETIK_TIMELINE = 0.1
-local COOLDOWN_GANTI_STATE = 0.1
-local FRAME_TRANSISI = 5
-local BATAS_JARAK_LANJUT = 40
-local INTERVAL_WAKTU_TETAP = 1 / 90
-local BATAS_KECEPATAN_LOMPAT = 10
-local DURASI_TRANSISI_HALUS = 0.3
+-- ========= CONFIGURATION =========
+local RECORDING_FPS = 90
+local MAX_FRAMES = 30000
+local MIN_DISTANCE_THRESHOLD = 0.01
+local VELOCITY_SCALE = 1
+local VELOCITY_Y_SCALE = 1
+local REVERSE_SPEED_MULTIPLIER = 1.0
+local FORWARD_SPEED_MULTIPLIER = 1.0
+local REVERSE_FRAME_STEP = 1
+local FORWARD_FRAME_STEP = 1
+local TIMELINE_STEP_SECONDS = 0.1
+local STATE_CHANGE_COOLDOWN = 0.1
+local TRANSITION_FRAMES = 5
+local RESUME_DISTANCE_THRESHOLD = 40
+local PLAYBACK_FIXED_TIMESTEP = 1 / 90
+local JUMP_VELOCITY_THRESHOLD = 10
+local SMOOTH_TRANSITION_DURATION = 0.3
 
--- ========= PEMETAAN FIELD UNTUK OBFUSCATION =========
-local PEMETAAN_FIELD = {
-    Posisi = "11",
-    VektorLihat = "88", 
-    VektorAtas = "55",
-    Kecepatan = "22",
-    StateGerak = "33",
-    KecepatanJalan = "44",
+-- ========= FIELD MAPPING FOR OBFUSCATION =========
+local FIELD_MAPPING = {
+    Position = "11",
+    LookVector = "88", 
+    UpVector = "55",
+    Velocity = "22",
+    MoveState = "33",
+    WalkSpeed = "44",
     Timestamp = "66"
 }
 
-local PEMETAAN_BALIK = {
-    ["11"] = "Posisi",
-    ["88"] = "VektorLihat",
-    ["55"] = "VektorAtas", 
-    ["22"] = "Kecepatan",
-    ["33"] = "StateGerak",
-    ["44"] = "KecepatanJalan",
+local REVERSE_MAPPING = {
+    ["11"] = "Position",
+    ["88"] = "LookVector",
+    ["55"] = "UpVector", 
+    ["22"] = "Velocity",
+    ["33"] = "MoveState",
+    ["44"] = "WalkSpeed",
     ["66"] = "Timestamp"
 }
 
--- ========= VARIABEL =========
-local SedangRekam = false
-local SedangMain = false
-local SedangJeda = false
-local SedangMundur = false
-local SedangMaju = false
-local ModeTimeline = false
-local KecepatanSekarang = 1
-local KecepatanJalanSekarang = 16
-local RekamanGerakan = {}
-local UrutanRekaman = {}
-local RekamanSekarang = {Frame = {}, WaktuMulai = 0, Nama = ""}
+-- ========= VARIABLES =========
+local IsRecording = false
+local IsPlaying = false
+local IsPaused = false
+local IsReversing = false
+local IsForwarding = false
+local IsTimelineMode = false
+local CurrentSpeed = 1
+local CurrentWalkSpeed = 16
+local RecordedMovements = {}
+local RecordingOrder = {}
+local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoRespawn = false
-local LompatTakTerbatas = false
+local InfiniteJump = false
 local AutoLoop = false
-local koneksiRekam = nil
-local koneksiPutar = nil
-local koneksiLoop = nil
-local koneksiLompat = nil
-local koneksiMundur = nil
-local koneksiMaju = nil
-local waktuRekamTerakhir = 0
-local posisiRekamTerakhir = nil
-local namaCheckpoint = {}
-local VisualisasiJalur = {}
-local TampilkanJalur = false
-local PenandaJedaSekarang = nil
-local waktuMulaiPutar = 0
-local totalDurasiJeda = 0
-local waktuMulaiJeda = 0
-local framePutarSekarang = 1
-local stateHumanoidSebelumJeda = nil
-local kecepatanJalanSebelumJeda = 16
-local autoRotateSebelumJeda = true
-local kekuatanLompatSebelumJeda = 50
-local platformStandSebelumJeda = false
-local dudukSebelumJeda = false
-local statePutarTerakhir = nil
-local waktuGantiStateTerakhir = 0
-local SedangAutoLoop = false
-local IndexLoopSekarang = 1
-local WaktuMulaiJedaLoop = 0
-local TotalDurasiJedaLoop = 0
-local koneksiShiftLock = nil
-local perilakuMouseAsli = nil
-local ShiftLockAktif = false
+local recordConnection = nil
+local playbackConnection = nil
+local loopConnection = nil
+local jumpConnection = nil
+local reverseConnection = nil
+local forwardConnection = nil
+local lastRecordTime = 0
+local lastRecordPos = nil
+local checkpointNames = {}
+local PathVisualization = {}
+local ShowPaths = false
+local CurrentPauseMarker = nil
+local playbackStartTime = 0
+local totalPausedDuration = 0
+local pauseStartTime = 0
+local currentPlaybackFrame = 1
+local prePauseHumanoidState = nil
+local prePauseWalkSpeed = 16
+local prePauseAutoRotate = true
+local prePauseJumpPower = 50
+local prePausePlatformStand = false
+local prePauseSit = false
+local lastPlaybackState = nil
+local lastStateChangeTime = 0
+local IsAutoLoopPlaying = false
+local CurrentLoopIndex = 1
+local LoopPauseStartTime = 0
+local LoopTotalPausedDuration = 0
+local shiftLockConnection = nil
+local originalMouseBehavior = nil
+local ShiftLockEnabled = false
 local isShiftLockActive = false
-local StudioSedangRekam = false
-local RekamanStudioSekarang = {Frame = {}, WaktuMulai = 0, Nama = ""}
-local waktuRekamStudioTerakhir = 0
-local posisiRekamStudioTerakhir = nil
-local koneksiAktif = {}
-local RekamanTercentang = {}
-local FrameTimelineSekarang = 0
-local PosisiTimeline = 0
+local StudioIsRecording = false
+local StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
+local lastStudioRecordTime = 0
+local lastStudioRecordPos = nil
+local activeConnections = {}
+local CheckedRecordings = {}
+local CurrentTimelineFrame = 0
+local TimelinePosition = 0
 local AutoReset = false
-local RekamanYangDimainkan = nil
-local DijedaDiFrame = 0
-local akumulatorPutar = 0
-local PosisiJedaTerakhir = nil
-local RekamanJedaTerakhir = nil
-local JarakRekamanTerdekat = math.huge
+local CurrentPlayingRecording = nil
+local PausedAtFrame = 0
+local playbackAccumulator = 0
+local LastPausePosition = nil
+local LastPauseRecording = nil
+local NearestRecordingDistance = math.huge
 
--- ========= EFEK SUARA =========
-local EfekSuara = {
-    Klik = "rbxassetid://4499400560",
+-- ========= SOUND EFFECTS =========
+local SoundEffects = {
+    Click = "rbxassetid://4499400560",
     Toggle = "rbxassetid://7468131335", 
-    RekamMulai = "rbxassetid://4499400560",
-    RekamBerhenti = "rbxassetid://4499400560",
-    Main = "rbxassetid://4499400560",
-    Berhenti = "rbxassetid://4499400560",
+    RecordStart = "rbxassetid://4499400560",
+    RecordStop = "rbxassetid://4499400560",
+    Play = "rbxassetid://4499400560",
+    Stop = "rbxassetid://4499400560",
     Error = "rbxassetid://7772283448",
-    Sukses = "rbxassetid://2865227271"
+    Success = "rbxassetid://2865227271"
 }
 
-local function TambahkanKoneksi(koneksi)
-    table.insert(koneksiAktif, koneksi)
+local function AddConnection(connection)
+    table.insert(activeConnections, connection)
 end
 
-local function BersihkanKoneksi()
-    for _, koneksi in ipairs(koneksiAktif) do
-        if koneksi then
-            koneksi:Disconnect()
+local function CleanupConnections()
+    for _, connection in ipairs(activeConnections) do
+        if connection then
+            connection:Disconnect()
         end
     end
-    koneksiAktif = {}
+    activeConnections = {}
     
-    if koneksiRekam then koneksiRekam:Disconnect() koneksiRekam = nil end
-    if koneksiPutar then koneksiPutar:Disconnect() koneksiPutar = nil end
-    if koneksiLoop then koneksiLoop:Disconnect() koneksiLoop = nil end
-    if koneksiShiftLock then koneksiShiftLock:Disconnect() koneksiShiftLock = nil end
-    if koneksiLompat then koneksiLompat:Disconnect() koneksiLompat = nil end
-    if koneksiMundur then koneksiMundur:Disconnect() koneksiMundur = nil end
-    if koneksiMaju then koneksiMaju:Disconnect() koneksiMaju = nil end
+    if recordConnection then recordConnection:Disconnect() recordConnection = nil end
+    if playbackConnection then playbackConnection:Disconnect() playbackConnection = nil end
+    if loopConnection then loopConnection:Disconnect() loopConnection = nil end
+    if shiftLockConnection then shiftLockConnection:Disconnect() shiftLockConnection = nil end
+    if jumpConnection then jumpConnection:Disconnect() jumpConnection = nil end
+    if reverseConnection then reverseConnection:Disconnect() reverseConnection = nil end
+    if forwardConnection then forwardConnection:Disconnect() forwardConnection = nil end
 end
 
-local function MainkanSuara(jenisSuara)
+local function PlaySound(soundType)
     task.spawn(function()
-        local suara = Instance.new("Sound")
-        suara.SoundId = EfekSuara[jenisSuara] or EfekSuara.Klik
-        suara.Volume = 0.3
-        suara.Parent = workspace
-        suara:Play()
-        game:GetService("Debris"):AddItem(suara, 2)
+        local sound = Instance.new("Sound")
+        sound.SoundId = SoundEffects[soundType] or SoundEffects.Click
+        sound.Volume = 0.3
+        sound.Parent = workspace
+        sound:Play()
+        game:GetService("Debris"):AddItem(sound, 2)
     end)
 end
 
-local function AnimasiKlikTombol(tombol)
-    MainkanSuara("Klik")
-    local warnaAsli = tombol.BackgroundColor3
-    local warnaLebihTerang = Color3.new(
-        math.min(warnaAsli.R * 1.3, 1),
-        math.min(warnaAsli.G * 1.3, 1), 
-        math.min(warnaAsli.B * 1.3, 1)
+local function AnimateButtonClick(button)
+    PlaySound("Click")
+    local originalColor = button.BackgroundColor3
+    local brighterColor = Color3.new(
+        math.min(originalColor.R * 1.3, 1),
+        math.min(originalColor.G * 1.3, 1), 
+        math.min(originalColor.B * 1.3, 1)
     )
     
-    TweenService:Create(tombol, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = warnaLebihTerang
+    TweenService:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = brighterColor
     }):Play()
     
     wait(0.1)
     
-    TweenService:Create(tombol, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-        BackgroundColor3 = warnaAsli
+    TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        BackgroundColor3 = originalColor
     }):Play()
 end
 
-local function ResetKarakter()
-    local karakter = player.Character
-    if karakter then
-        local humanoid = karakter:FindFirstChildOfClass("Humanoid")
+local function ResetCharacter()
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid.Health = 0
         end
     end
 end
 
-local function TungguRespawn()
-    local waktuMulai = tick()
-    local batasWaktu = 10
+local function WaitForRespawn()
+    local startTime = tick()
+    local timeout = 10
     repeat
         task.wait(0.1)
-        if tick() - waktuMulai > batasWaktu then return false end
+        if tick() - startTime > timeout then return false end
     until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
     task.wait(1)
     return true
 end
 
-local function ApakahKarakterSiap()
-    local karakter = player.Character
-    if not karakter then return false end
-    if not karakter:FindFirstChild("HumanoidRootPart") then return false end
-    if not karakter:FindFirstChildOfClass("Humanoid") then return false end
-    if karakter.Humanoid.Health <= 0 then return false end
+local function IsCharacterReady()
+    local char = player.Character
+    if not char then return false end
+    if not char:FindFirstChild("HumanoidRootPart") then return false end
+    if not char:FindFirstChildOfClass("Humanoid") then return false end
+    if char.Humanoid.Health <= 0 then return false end
     return true
 end
 
-local function ResetKarakterLengkap(karakter)
-    if not karakter or not karakter:IsDescendantOf(workspace) then return end
-    local humanoid = karakter:FindFirstChildOfClass("Humanoid")
-    local hrp = karakter:FindFirstChild("HumanoidRootPart")
+local function CompleteCharacterReset(char)
+    if not char or not char:IsDescendantOf(workspace) then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return end
     task.spawn(function()
         humanoid.PlatformStand = false
         humanoid.AutoRotate = true
-        humanoid.WalkSpeed = KecepatanJalanSekarang
-        humanoid.JumpPower = kekuatanLompatSebelumJeda or 50
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = prePauseJumpPower or 50
         humanoid.Sit = false
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
@@ -220,136 +220,136 @@ local function ResetKarakterLengkap(karakter)
     end)
 end
 
-local function TerapkanShiftLockTerlihat()
-    if not ShiftLockAktif or not player.Character then return end
-    local karakter = player.Character
-    local humanoid = karakter:FindFirstChildOfClass("Humanoid")
-    local hrp = karakter:FindFirstChild("HumanoidRootPart")
-    local kamera = workspace.CurrentCamera
-    if humanoid and hrp and kamera then
+local function ApplyVisibleShiftLock()
+    if not ShiftLockEnabled or not player.Character then return end
+    local char = player.Character
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local camera = workspace.CurrentCamera
+    if humanoid and hrp and camera then
         humanoid.AutoRotate = false
-        local vektorLihat = kamera.CFrame.LookVector
-        local lihatHorizontal = Vector3.new(vektorLihat.X, 0, vektorLihat.Z).Unit
-        if lihatHorizontal.Magnitude > 0 then
-            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lihatHorizontal)
+        local lookVector = camera.CFrame.LookVector
+        local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+        if horizontalLook.Magnitude > 0 then
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
         end
     end
 end
 
-local function AktifkanShiftLockTerlihat()
-    if koneksiShiftLock or not ShiftLockAktif then return end
-    perilakuMouseAsli = UserInputService.MouseBehavior
+local function EnableVisibleShiftLock()
+    if shiftLockConnection or not ShiftLockEnabled then return end
+    originalMouseBehavior = UserInputService.MouseBehavior
     UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
     isShiftLockActive = true
-    koneksiShiftLock = RunService.RenderStepped:Connect(function()
-        if ShiftLockAktif and player.Character then
-            TerapkanShiftLockTerlihat()
+    shiftLockConnection = RunService.RenderStepped:Connect(function()
+        if ShiftLockEnabled and player.Character then
+            ApplyVisibleShiftLock()
         end
     end)
-    TambahkanKoneksi(koneksiShiftLock)
-    MainkanSuara("Toggle")
+    AddConnection(shiftLockConnection)
+    PlaySound("Toggle")
 end
 
-local function NonaktifkanShiftLockTerlihat()
-    if koneksiShiftLock then
-        koneksiShiftLock:Disconnect()
-        koneksiShiftLock = nil
+local function DisableVisibleShiftLock()
+    if shiftLockConnection then
+        shiftLockConnection:Disconnect()
+        shiftLockConnection = nil
     end
-    if perilakuMouseAsli then
-        UserInputService.MouseBehavior = perilakuMouseAsli
+    if originalMouseBehavior then
+        UserInputService.MouseBehavior = originalMouseBehavior
     end
-    local karakter = player.Character
-    if karakter and karakter:FindFirstChildOfClass("Humanoid") then
-        karakter.Humanoid.AutoRotate = true
+    local char = player.Character
+    if char and char:FindFirstChildOfClass("Humanoid") then
+        char.Humanoid.AutoRotate = true
     end
     isShiftLockActive = false
-    MainkanSuara("Toggle")
+    PlaySound("Toggle")
 end
 
-local function ToggleShiftLockTerlihat()
-    ShiftLockAktif = not ShiftLockAktif
-    if ShiftLockAktif then
-        AktifkanShiftLockTerlihat()
+local function ToggleVisibleShiftLock()
+    ShiftLockEnabled = not ShiftLockEnabled
+    if ShiftLockEnabled then
+        EnableVisibleShiftLock()
     else
-        NonaktifkanShiftLockTerlihat()
+        DisableVisibleShiftLock()
     end
 end
 
-local function AktifkanLompatTakTerbatas()
-    if koneksiLompat then return end
-    koneksiLompat = UserInputService.JumpRequest:Connect(function()
-        if LompatTakTerbatas and player.Character then
+local function EnableInfiniteJump()
+    if jumpConnection then return end
+    jumpConnection = UserInputService.JumpRequest:Connect(function()
+        if InfiniteJump and player.Character then
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
             if humanoid then
                 humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end
     end)
-    TambahkanKoneksi(koneksiLompat)
+    AddConnection(jumpConnection)
 end
 
-local function NonaktifkanLompatTakTerbatas()
-    if koneksiLompat then
-        koneksiLompat:Disconnect()
-        koneksiLompat = nil
+local function DisableInfiniteJump()
+    if jumpConnection then
+        jumpConnection:Disconnect()
+        jumpConnection = nil
     end
 end
 
-local function ToggleLompatTakTerbatas()
-    LompatTakTerbatas = not LompatTakTerbatas
-    if LompatTakTerbatas then
-        AktifkanLompatTakTerbatas()
+local function ToggleInfiniteJump()
+    InfiniteJump = not InfiniteJump
+    if InfiniteJump then
+        EnableInfiniteJump()
     else
-        NonaktifkanLompatTakTerbatas()
+        DisableInfiniteJump()
     end
 end
 
-local function SimpanStateHumanoid()
-    local karakter = player.Character
-    if not karakter then return end
-    local humanoid = karakter:FindFirstChildOfClass("Humanoid")
+local function SaveHumanoidState()
+    local char = player.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        autoRotateSebelumJeda = humanoid.AutoRotate
-        kecepatanJalanSebelumJeda = humanoid.WalkSpeed
-        kekuatanLompatSebelumJeda = humanoid.JumpPower
-        platformStandSebelumJeda = humanoid.PlatformStand
-        dudukSebelumJeda = humanoid.Sit
-        stateHumanoidSebelumJeda = humanoid:GetState()
-        if stateHumanoidSebelumJeda == Enum.HumanoidStateType.Climbing then
+        prePauseAutoRotate = humanoid.AutoRotate
+        prePauseWalkSpeed = humanoid.WalkSpeed
+        prePauseJumpPower = humanoid.JumpPower
+        prePausePlatformStand = humanoid.PlatformStand
+        prePauseSit = humanoid.Sit
+        prePauseHumanoidState = humanoid:GetState()
+        if prePauseHumanoidState == Enum.HumanoidStateType.Climbing then
             humanoid.PlatformStand = false
             humanoid.AutoRotate = false
         end
     end
 end
 
-local function KembalikanStateHumanoid()
-    local karakter = player.Character
-    if not karakter then return end
-    local humanoid = karakter:FindFirstChildOfClass("Humanoid")
+local function RestoreHumanoidState()
+    local char = player.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        if stateHumanoidSebelumJeda == Enum.HumanoidStateType.Climbing then
+        if prePauseHumanoidState == Enum.HumanoidStateType.Climbing then
             humanoid.PlatformStand = false
             humanoid.AutoRotate = false
             humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
         else
-            humanoid.AutoRotate = autoRotateSebelumJeda
-            humanoid.WalkSpeed = kecepatanJalanSebelumJeda
-            humanoid.JumpPower = kekuatanLompatSebelumJeda
-            humanoid.PlatformStand = platformStandSebelumJeda
-            humanoid.Sit = dudukSebelumJeda
+            humanoid.AutoRotate = prePauseAutoRotate
+            humanoid.WalkSpeed = prePauseWalkSpeed
+            humanoid.JumpPower = prePauseJumpPower
+            humanoid.PlatformStand = prePausePlatformStand
+            humanoid.Sit = prePauseSit
         end
     end
 end
 
-local function KembalikanKontrolPenuh()
-    local karakter = player.Character
-    if not karakter then return end
-    local humanoid = karakter:FindFirstChildOfClass("Humanoid")
-    local hrp = karakter:FindFirstChild("HumanoidRootPart")
+local function RestoreFullUserControl()
+    local char = player.Character
+    if not char then return end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     if humanoid then
         humanoid.AutoRotate = true
-        humanoid.WalkSpeed = KecepatanJalanSekarang
-        humanoid.JumpPower = kekuatanLompatSebelumJeda or 50
+        humanoid.WalkSpeed = CurrentWalkSpeed
+        humanoid.JumpPower = prePauseJumpPower or 50
         humanoid.PlatformStand = false
         humanoid.Sit = false
         humanoid:ChangeState(Enum.HumanoidStateType.Running)
@@ -358,65 +358,65 @@ local function KembalikanKontrolPenuh()
         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
-    if ShiftLockAktif then
-        AktifkanShiftLockTerlihat()
+    if ShiftLockEnabled then
+        EnableVisibleShiftLock()
     end
 end
 
-local function DapatkanStateGerakSekarang(hum)
-    if not hum then return "Darat" end
+local function GetCurrentMoveState(hum)
+    if not hum then return "Grounded" end
     local state = hum:GetState()
-    if state == Enum.HumanoidStateType.Climbing then return "Memanjat"
-    elseif state == Enum.HumanoidStateType.Jumping then return "Melompat"
-    elseif state == Enum.HumanoidStateType.Freefall then return "Jatuh"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Darat"
-    elseif state == Enum.HumanoidStateType.Swimming then return "Berenang"
-    else return "Darat" end
+    if state == Enum.HumanoidStateType.Climbing then return "Climbing"
+    elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
+    elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
+    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
+    elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
+    else return "Grounded" end
 end
 
-local function HapusVisualisasiJalur()
-    for _, part in pairs(VisualisasiJalur) do
+local function ClearPathVisualization()
+    for _, part in pairs(PathVisualization) do
         if part and part.Parent then
             part:Destroy()
         end
     end
-    VisualisasiJalur = {}
-    if PenandaJedaSekarang and PenandaJedaSekarang.Parent then
-        PenandaJedaSekarang:Destroy()
-        PenandaJedaSekarang = nil
+    PathVisualization = {}
+    if CurrentPauseMarker and CurrentPauseMarker.Parent then
+        CurrentPauseMarker:Destroy()
+        CurrentPauseMarker = nil
     end
 end
 
-local function BuatSegmenJalur(posisiAwal, posisiAkhir, warna)
+local function CreatePathSegment(startPos, endPos, color)
     local part = Instance.new("Part")
-    part.Name = "SegmenJalur"
+    part.Name = "PathSegment"
     part.Anchored = true
     part.CanCollide = false
     part.Material = Enum.Material.Neon
-    part.BrickColor = warna or BrickColor.new("Really black")
+    part.BrickColor = color or BrickColor.new("Really black")
     part.Transparency = 0.2
-    local jarak = (posisiAwal - posisiAkhir).Magnitude
-    part.Size = Vector3.new(0.2, 0.2, jarak)
-    part.CFrame = CFrame.lookAt((posisiAwal + posisiAkhir) / 2, posisiAkhir)
+    local distance = (startPos - endPos).Magnitude
+    part.Size = Vector3.new(0.2, 0.2, distance)
+    part.CFrame = CFrame.lookAt((startPos + endPos) / 2, endPos)
     part.Parent = workspace
-    table.insert(VisualisasiJalur, part)
+    table.insert(PathVisualization, part)
     return part
 end
 
-local function BuatPenandaJeda(posisi)
-    if PenandaJedaSekarang and PenandaJedaSekarang.Parent then
-        PenandaJedaSekarang:Destroy()
-        PenandaJedaSekarang = nil
+local function CreatePauseMarker(position)
+    if CurrentPauseMarker and CurrentPauseMarker.Parent then
+        CurrentPauseMarker:Destroy()
+        CurrentPauseMarker = nil
     end
     local billboard = Instance.new("BillboardGui")
-    billboard.Name = "PenandaJeda"
+    billboard.Name = "PauseMarker"
     billboard.Size = UDim2.new(0, 200, 0, 60)
     billboard.StudsOffset = Vector3.new(0, 3, 0)
     billboard.AlwaysOnTop = true
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, 0, 1, 0)
     label.BackgroundTransparency = 1
-    label.Text = "JEDA"
+    label.Text = "PAUSE"
     label.TextColor3 = Color3.new(1, 1, 0)
     label.TextStrokeColor3 = Color3.new(0, 0, 0)
     label.TextStrokeTransparency = 0
@@ -425,334 +425,334 @@ local function BuatPenandaJeda(posisi)
     label.TextScaled = false
     label.Parent = billboard
     local part = Instance.new("Part")
-    part.Name = "PartPenandaJeda"
+    part.Name = "PauseMarkerPart"
     part.Anchored = true
     part.CanCollide = false
     part.Size = Vector3.new(0.1, 0.1, 0.1)
     part.Transparency = 1
-    part.Position = posisi + Vector3.new(0, 2, 0)
+    part.Position = position + Vector3.new(0, 2, 0)
     part.Parent = workspace
     billboard.Adornee = part
     billboard.Parent = part
-    PenandaJedaSekarang = part
+    CurrentPauseMarker = part
     return part
 end
 
-local function PerbaruiPenandaJeda()
-    if SedangJeda then
-        if not PenandaJedaSekarang then
-            local karakter = player.Character
-            if karakter and karakter:FindFirstChild("HumanoidRootPart") then
-                local posisi = karakter.HumanoidRootPart.Position
-                BuatPenandaJeda(posisi)
+local function UpdatePauseMarker()
+    if IsPaused then
+        if not CurrentPauseMarker then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local position = char.HumanoidRootPart.Position
+                CreatePauseMarker(position)
             end
         end
     else
-        if PenandaJedaSekarang and PenandaJedaSekarang.Parent then
-            PenandaJedaSekarang:Destroy()
-            PenandaJedaSekarang = nil
+        if CurrentPauseMarker and CurrentPauseMarker.Parent then
+            CurrentPauseMarker:Destroy()
+            CurrentPauseMarker = nil
         end
     end
 end
 
-local function ObfuscateDataRekaman(dataRekaman)
-    local terobfuscate = {}
-    for namaCheckpoint, frame in pairs(dataRekaman) do
-        local frameTerobfuscate = {}
-        for _, frame in ipairs(frame) do
-            local frameTerobfuscate = {}
-            for namaField, nilaiField in pairs(frame) do
-                local kode = PEMETAAN_FIELD[namaField]
-                if kode then
-                    frameTerobfuscate[kode] = nilaiField
+local function ObfuscateRecordingData(recordingData)
+    local obfuscated = {}
+    for checkpointName, frames in pairs(recordingData) do
+        local obfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local obfuscatedFrame = {}
+            for fieldName, fieldValue in pairs(frame) do
+                local code = FIELD_MAPPING[fieldName]
+                if code then
+                    obfuscatedFrame[code] = fieldValue
                 else
-                    frameTerobfuscate[namaField] = nilaiField
+                    obfuscatedFrame[fieldName] = fieldValue
                 end
             end
-            table.insert(frameTerobfuscate, frameTerobfuscate)
+            table.insert(obfuscatedFrames, obfuscatedFrame)
         end
-        terobfuscate[namaCheckpoint] = frameTerobfuscate
+        obfuscated[checkpointName] = obfuscatedFrames
     end
-    return terobfuscate
+    return obfuscated
 end
 
-local function DeobfuscateDataRekaman(dataTerobfuscate)
-    local terdeobfuscate = {}
-    for namaCheckpoint, frame in pairs(dataTerobfuscate) do
-        local frameTerdeobfuscate = {}
-        for _, frame in ipairs(frame) do
-            local frameTerdeobfuscate = {}
-            for kode, nilaiField in pairs(frame) do
-                local namaField = PEMETAAN_BALIK[kode]
-                if namaField then
-                    frameTerdeobfuscate[namaField] = nilaiField
+local function DeobfuscateRecordingData(obfuscatedData)
+    local deobfuscated = {}
+    for checkpointName, frames in pairs(obfuscatedData) do
+        local deobfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local deobfuscatedFrame = {}
+            for code, fieldValue in pairs(frame) do
+                local fieldName = REVERSE_MAPPING[code]
+                if fieldName then
+                    deobfuscatedFrame[fieldName] = fieldValue
                 else
-                    frameTerdeobfuscate[kode] = nilaiField
+                    deobfuscatedFrame[code] = fieldValue
                 end
             end
-            table.insert(frameTerdeobfuscate, frameTerdeobfuscate)
+            table.insert(deobfuscatedFrames, deobfuscatedFrame)
         end
-        terdeobfuscate[namaCheckpoint] = frameTerdeobfuscate
+        deobfuscated[checkpointName] = deobfuscatedFrames
     end
-    return terdeobfuscate
+    return deobfuscated
 end
 
-local function BuatTransisiHalus(frameTerakhir, framePertama, jumlahFrame)
-    local frameTransisi = {}
-    for i = 1, jumlahFrame do
-        local alpha = i / (jumlahFrame + 1)
-        local pos1 = Vector3.new(frameTerakhir.Posisi[1], frameTerakhir.Posisi[2], frameTerakhir.Posisi[3])
-        local pos2 = Vector3.new(framePertama.Posisi[1], framePertama.Posisi[2], framePertama.Posisi[3])
-        local posLerp = pos1:Lerp(pos2, alpha)
-        local lihat1 = Vector3.new(frameTerakhir.VektorLihat[1], frameTerakhir.VektorLihat[2], frameTerakhir.VektorLihat[3])
-        local lihat2 = Vector3.new(framePertama.VektorLihat[1], framePertama.VektorLihat[2], framePertama.VektorLihat[3])
-        local lihatLerp = lihat1:Lerp(lihat2, alpha).Unit
-        local atas1 = Vector3.new(frameTerakhir.VektorAtas[1], frameTerakhir.VektorAtas[2], frameTerakhir.VektorAtas[3])
-        local atas2 = Vector3.new(framePertama.VektorAtas[1], framePertama.VektorAtas[2], framePertama.VektorAtas[3])
-        local atasLerp = atas1:Lerp(atas2, alpha).Unit
-        local vel1 = Vector3.new(frameTerakhir.Kecepatan[1], frameTerakhir.Kecepatan[2], frameTerakhir.Kecepatan[3])
-        local vel2 = Vector3.new(framePertama.Kecepatan[1], framePertama.Kecepatan[2], framePertama.Kecepatan[3])
-        local velLerp = vel1:Lerp(vel2, alpha)
-        local kj1 = frameTerakhir.KecepatanJalan
-        local kj2 = framePertama.KecepatanJalan
-        local kjLerp = kj1 + (kj2 - kj1) * alpha
-        table.insert(frameTransisi, {
-            Posisi = {posLerp.X, posLerp.Y, posLerp.Z},
-            VektorLihat = {lihatLerp.X, lihatLerp.Y, lihatLerp.Z},
-            VektorAtas = {atasLerp.X, atasLerp.Y, atasLerp.Z},
-            Kecepatan = {velLerp.X, velLerp.Y, velLerp.Z},
-            StateGerak = frameTerakhir.StateGerak,
-            KecepatanJalan = kjLerp,
-            Timestamp = frameTerakhir.Timestamp + (i * 0.016)
+local function CreateSmoothTransition(lastFrame, firstFrame, numFrames)
+    local transitionFrames = {}
+    for i = 1, numFrames do
+        local alpha = i / (numFrames + 1)
+        local pos1 = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+        local pos2 = Vector3.new(firstFrame.Position[1], firstFrame.Position[2], firstFrame.Position[3])
+        local lerpedPos = pos1:Lerp(pos2, alpha)
+        local look1 = Vector3.new(lastFrame.LookVector[1], lastFrame.LookVector[2], lastFrame.LookVector[3])
+        local look2 = Vector3.new(firstFrame.LookVector[1], firstFrame.LookVector[2], firstFrame.LookVector[3])
+        local lerpedLook = look1:Lerp(look2, alpha).Unit
+        local up1 = Vector3.new(lastFrame.UpVector[1], lastFrame.UpVector[2], lastFrame.UpVector[3])
+        local up2 = Vector3.new(firstFrame.UpVector[1], firstFrame.UpVector[2], firstFrame.UpVector[3])
+        local lerpedUp = up1:Lerp(up2, alpha).Unit
+        local vel1 = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
+        local vel2 = Vector3.new(firstFrame.Velocity[1], firstFrame.Velocity[2], firstFrame.Velocity[3])
+        local lerpedVel = vel1:Lerp(vel2, alpha)
+        local ws1 = lastFrame.WalkSpeed
+        local ws2 = firstFrame.WalkSpeed
+        local lerpedWS = ws1 + (ws2 - ws1) * alpha
+        table.insert(transitionFrames, {
+            Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
+            LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
+            UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
+            Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
+            MoveState = lastFrame.MoveState,
+            WalkSpeed = lerpedWS,
+            Timestamp = lastFrame.Timestamp + (i * 0.016)
         })
     end
-    return frameTransisi
+    return transitionFrames
 end
 
-local function BuatRekamanGabungan()
-    if #UrutanRekaman < 2 then
-        MainkanSuara("Error")
+local function CreateMergedReplay()
+    if #RecordingOrder < 2 then
+        PlaySound("Error")
         return
     end
-    local frameGabungan = {}
-    local totalOffsetWaktu = 0
-    for _, namaCheckpoint in ipairs(UrutanRekaman) do
-        local checkpoint = RekamanGerakan[namaCheckpoint]
+    local mergedFrames = {}
+    local totalTimeOffset = 0
+    for _, checkpointName in ipairs(RecordingOrder) do
+        local checkpoint = RecordedMovements[checkpointName]
         if not checkpoint then continue end
-        if #frameGabungan > 0 and #checkpoint > 0 then
-            local frameTerakhir = frameGabungan[#frameGabungan]
-            local framePertama = checkpoint[1]
-            local frameTransisi = BuatTransisiHalus(frameTerakhir, framePertama, FRAME_TRANSISI)
-            for _, tFrame in ipairs(frameTransisi) do
-                tFrame.Timestamp = tFrame.Timestamp + totalOffsetWaktu
-                table.insert(frameGabungan, tFrame)
+        if #mergedFrames > 0 and #checkpoint > 0 then
+            local lastFrame = mergedFrames[#mergedFrames]
+            local firstFrame = checkpoint[1]
+            local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, TRANSITION_FRAMES)
+            for _, tFrame in ipairs(transitionFrames) do
+                tFrame.Timestamp = tFrame.Timestamp + totalTimeOffset
+                table.insert(mergedFrames, tFrame)
             end
-            totalOffsetWaktu = totalOffsetWaktu + (FRAME_TRANSISI * 0.016)
+            totalTimeOffset = totalTimeOffset + (TRANSITION_FRAMES * 0.016)
         end
-        for indexFrame, frame in ipairs(checkpoint) do
-            local frameBaru = {
-                Posisi = {frame.Posisi[1], frame.Posisi[2], frame.Posisi[3]},
-                VektorLihat = {frame.VektorLihat[1], frame.VektorLihat[2], frame.VektorLihat[3]},
-                VektorAtas = {frame.VektorAtas[1], frame.VektorAtas[2], frame.VektorAtas[3]},
-                Kecepatan = {frame.Kecepatan[1], frame.Kecepatan[2], frame.Kecepatan[3]},
-                StateGerak = frame.StateGerak,
-                KecepatanJalan = frame.KecepatanJalan,
-                Timestamp = frame.Timestamp + totalOffsetWaktu
+        for frameIndex, frame in ipairs(checkpoint) do
+            local newFrame = {
+                Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
+                LookVector = {frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]},
+                UpVector = {frame.UpVector[1], frame.UpVector[2], frame.UpVector[3]},
+                Velocity = {frame.Velocity[1], frame.Velocity[2], frame.Velocity[3]},
+                MoveState = frame.MoveState,
+                WalkSpeed = frame.WalkSpeed,
+                Timestamp = frame.Timestamp + totalTimeOffset
             }
-            table.insert(frameGabungan, frameBaru)
+            table.insert(mergedFrames, newFrame)
         end
         if #checkpoint > 0 then
-            totalOffsetWaktu = totalOffsetWaktu + checkpoint[#checkpoint].Timestamp + 0.1
+            totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
         end
     end
-    local frameTeroptimasi = {}
-    local frameSignifikanTerakhir = nil
-    for i, frame in ipairs(frameGabungan) do
-        local harusDimasukkan = true
-        if frameSignifikanTerakhir then
-            local pos1 = Vector3.new(frameSignifikanTerakhir.Posisi[1], frameSignifikanTerakhir.Posisi[2], frameSignifikanTerakhir.Posisi[3])
-            local pos2 = Vector3.new(frame.Posisi[1], frame.Posisi[2], frame.Posisi[3])
-            local jarak = (pos1 - pos2).Magnitude
-            if jarak < 0.1 and frame.StateGerak == frameSignifikanTerakhir.StateGerak then
-                harusDimasukkan = false
+    local optimizedFrames = {}
+    local lastSignificantFrame = nil
+    for i, frame in ipairs(mergedFrames) do
+        local shouldInclude = true
+        if lastSignificantFrame then
+            local pos1 = Vector3.new(lastSignificantFrame.Position[1], lastSignificantFrame.Position[2], lastSignificantFrame.Position[3])
+            local pos2 = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            local distance = (pos1 - pos2).Magnitude
+            if distance < 0.1 and frame.MoveState == lastSignificantFrame.MoveState then
+                shouldInclude = false
             end
         end
-        if harusDimasukkan then
-            table.insert(frameTeroptimasi, frame)
-            frameSignifikanTerakhir = frame
+        if shouldInclude then
+            table.insert(optimizedFrames, frame)
+            lastSignificantFrame = frame
         end
     end
-    local namaGabungan = "gabungan_" .. os.date("%H%M%S")
-    RekamanGerakan[namaGabungan] = frameTeroptimasi
-    table.insert(UrutanRekaman, namaGabungan)
-    namaCheckpoint[namaGabungan] = "GABUNGAN SEMUA"
-    PerbaruiDaftarRekaman()
-    MainkanSuara("Sukses")
+    local mergedName = "merged_" .. os.date("%H%M%S")
+    RecordedMovements[mergedName] = optimizedFrames
+    table.insert(RecordingOrder, mergedName)
+    checkpointNames[mergedName] = "MERGED ALL"
+    UpdateRecordList()
+    PlaySound("Success")
 end
 
-local function DapatkanCFrameFrame(frame)
-    local pos = Vector3.new(frame.Posisi[1], frame.Posisi[2], frame.Posisi[3])
-    local lihat = Vector3.new(frame.VektorLihat[1], frame.VektorLihat[2], frame.VektorLihat[3])
-    local atas = Vector3.new(frame.VektorAtas[1], frame.VektorAtas[2], frame.VektorAtas[3])
-    return CFrame.lookAt(pos, pos + lihat, atas)
+local function GetFrameCFrame(frame)
+    local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
+    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    return CFrame.lookAt(pos, pos + look, up)
 end
 
-local function DapatkanKecepatanFrame(frame)
-    return frame.Kecepatan and Vector3.new(
-        frame.Kecepatan[1] * SKALA_KECEPATAN,
-        frame.Kecepatan[2] * SKALA_KECEPATAN_Y,
-        frame.Kecepatan[3] * SKALA_KECEPATAN
+local function GetFrameVelocity(frame)
+    return frame.Velocity and Vector3.new(
+        frame.Velocity[1] * VELOCITY_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[3] * VELOCITY_SCALE
     ) or Vector3.new(0, 0, 0)
 end
 
-local function DapatkanKecepatanJalanFrame(frame)
-    return frame.KecepatanJalan or 16
+local function GetFrameWalkSpeed(frame)
+    return frame.WalkSpeed or 16
 end
 
-local function DapatkanTimestampFrame(frame)
+local function GetFrameTimestamp(frame)
     return frame.Timestamp or 0
 end
 
-local function DapatkanPosisiFrame(frame)
-    return Vector3.new(frame.Posisi[1], frame.Posisi[2], frame.Posisi[3])
+local function GetFramePosition(frame)
+    return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
 end
 
-local function CariFrameTerdekat(rekaman, posisi)
-    if not rekaman or #rekaman == 0 then return 1, math.huge end
-    local frameTerdekat = 1
-    local jarakTerdekat = math.huge
-    for i, frame in ipairs(rekaman) do
-        local posFrame = DapatkanPosisiFrame(frame)
-        local jarak = (posFrame - posisi).Magnitude
-        if jarak < jarakTerdekat then
-            jarakTerdekat = jarak
-            frameTerdekat = i
+local function FindNearestFrame(recording, position)
+    if not recording or #recording == 0 then return 1, math.huge end
+    local nearestFrame = 1
+    local nearestDistance = math.huge
+    for i, frame in ipairs(recording) do
+        local framePos = GetFramePosition(frame)
+        local distance = (framePos - position).Magnitude
+        if distance < nearestDistance then
+            nearestDistance = distance
+            nearestFrame = i
         end
     end
-    return frameTerdekat, jarakTerdekat
+    return nearestFrame, nearestDistance
 end
 
--- ========= SISTEM PUTAR CERDAS =========
-local function CariRekamanTerdekat(jarakMaks)
-    local karakter = player.Character
-    if not karakter or not karakter:FindFirstChild("HumanoidRootPart") then
+-- ========= SMART PLAY SYSTEM =========
+local function FindNearestRecording(maxDistance)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
         return nil, math.huge, nil
     end
     
-    local posisiSekarang = karakter.HumanoidRootPart.Position
-    local rekamanTerdekat = nil
-    local jarakTerdekat = math.huge
-    local namaTerdekat = nil
+    local currentPos = char.HumanoidRootPart.Position
+    local nearestRecording = nil
+    local nearestDistance = math.huge
+    local nearestName = nil
     
-    for _, namaRekaman in ipairs(UrutanRekaman) do
-        local rekaman = RekamanGerakan[namaRekaman]
-        if rekaman and #rekaman > 0 then
-            local frameTerdekat, jarakFrame = CariFrameTerdekat(rekaman, posisiSekarang)
+    for _, recordingName in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[recordingName]
+        if recording and #recording > 0 then
+            local nearestFrame, frameDistance = FindNearestFrame(recording, currentPos)
             
-            if jarakFrame < jarakTerdekat and jarakFrame <= (jarakMaks or 40) then
-                jarakTerdekat = jarakFrame
-                rekamanTerdekat = rekaman
-                namaTerdekat = namaRekaman
+            if frameDistance < nearestDistance and frameDistance <= (maxDistance or 40) then
+                nearestDistance = frameDistance
+                nearestRecording = recording
+                nearestName = recordingName
             end
         end
     end
     
-    return rekamanTerdekat, jarakTerdekat, namaTerdekat
+    return nearestRecording, nearestDistance, nearestName
 end
 
-local function PerbaruiStatusTombolPutar()
-    local rekamanTerdekat, jarak = CariRekamanTerdekat(40)
-    JarakRekamanTerdekat = jarak or math.huge
+local function UpdatePlayButtonStatus()
+    local nearestRecording, distance = FindNearestRecording(40)
+    NearestRecordingDistance = distance or math.huge
     
-    if TombolPutarKontrol then
-        if rekamanTerdekat and jarak <= 40 then
-            TombolPutarKontrol.Text = "MAIN (" .. math.floor(jarak) .. "m)"
-            TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+    if PlayBtnControl then
+        if nearestRecording and distance <= 40 then
+            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
         else
-            TombolPutarKontrol.Text = "MAIN"
-            TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         end
     end
 end
 
--- ========= TRANSISI HALUS YANG DITINGKATKAN =========
-local function BuatTransisiTingkatTinggi(posisiSekarang, frameTarget, durasi)
-    local frameTransisi = {}
-    local jumlahFrame = math.max(5, math.floor(durasi / INTERVAL_WAKTU_TETAP))
+-- ========= IMPROVED SMOOTH TRANSITION =========
+local function CreateEnhancedTransition(currentPos, targetFrame, duration)
+    local transitionFrames = {}
+    local numFrames = math.max(5, math.floor(duration / PLAYBACK_FIXED_TIMESTEP))
     
-    local posTarget = DapatkanPosisiFrame(frameTarget)
-    local cframeTarget = DapatkanCFrameFrame(frameTarget)
-    local kecepatanTarget = DapatkanKecepatanFrame(frameTarget)
+    local targetPos = GetFramePosition(targetFrame)
+    local targetCFrame = GetFrameCFrame(targetFrame)
+    local targetVelocity = GetFrameVelocity(targetFrame)
     
-    for i = 1, jumlahFrame do
-        local alpha = i / (jumlahFrame + 1)
-        local alphaHalus = 1 - (1 - alpha) * (1 - alpha)
+    for i = 1, numFrames do
+        local alpha = i / (numFrames + 1)
+        local smoothAlpha = 1 - (1 - alpha) * (1 - alpha)
         
-        local posLerp = posisiSekarang:Lerp(posTarget, alphaHalus)
-        local lihatSekarang = (posTarget - posisiSekarang).Unit
-        local lihatLerp = lihatSekarang:Lerp(cframeTarget.LookVector, alphaHalus).Unit
-        local atasLerp = Vector3.new(0, 1, 0):Lerp(cframeTarget.UpVector, alphaHalus).Unit
+        local lerpedPos = currentPos:Lerp(targetPos, smoothAlpha)
+        local currentLook = (targetPos - currentPos).Unit
+        local lerpedLook = currentLook:Lerp(targetCFrame.LookVector, smoothAlpha).Unit
+        local lerpedUp = Vector3.new(0, 1, 0):Lerp(targetCFrame.UpVector, smoothAlpha).Unit
         
-        local kecepatanLerp = Vector3.new(0, 0, 0):Lerp(kecepatanTarget, alphaHalus)
+        local lerpedVel = Vector3.new(0, 0, 0):Lerp(targetVelocity, smoothAlpha)
         
-        table.insert(frameTransisi, {
-            Posisi = {posLerp.X, posLerp.Y, posLerp.Z},
-            VektorLihat = {lihatLerp.X, lihatLerp.Y, lihatLerp.Z},
-            VektorAtas = {atasLerp.X, atasLerp.Y, atasLerp.Z},
-            Kecepatan = {kecepatanLerp.X, kecepatanLerp.Y, kecepatanLerp.Z},
-            StateGerak = frameTarget.StateGerak,
-            KecepatanJalan = DapatkanKecepatanJalanFrame(frameTarget),
+        table.insert(transitionFrames, {
+            Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
+            LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
+            UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
+            Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
+            MoveState = targetFrame.MoveState,
+            WalkSpeed = GetFrameWalkSpeed(targetFrame),
             Timestamp = 0
         })
     end
     
-    return frameTransisi
+    return transitionFrames
 end
 
--- ========= MANAJEMEN STATE HUMANOID YANG DITINGKATKAN =========
-local function ProsesStateHumanoid(hum, frame, stateTerakhir, waktuStateTerakhir)
-    local stateGerak = frame.StateGerak
-    local kecepatanFrame = DapatkanKecepatanFrame(frame)
-    local waktuSekarang = tick()
+-- ========= IMPROVED HUMANOID STATE MANAGEMENT =========
+local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
+    local moveState = frame.MoveState
+    local frameVelocity = GetFrameVelocity(frame)
+    local currentTime = tick()
     
-    local sedangLompatDariKecepatan = kecepatanFrame.Y > BATAS_KECEPATAN_LOMPAT
-    local sedangJatuhDariKecepatan = kecepatanFrame.Y < -5
+    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+    local isFallingByVelocity = frameVelocity.Y < -5
     
-    if sedangLompatDariKecepatan and stateGerak ~= "Melompat" then
-        stateGerak = "Melompat"
-    elseif sedangJatuhDariKecepatan and stateGerak ~= "Jatuh" then
-        stateGerak = "Jatuh"
+    if isJumpingByVelocity and moveState ~= "Jumping" then
+        moveState = "Jumping"
+    elseif isFallingByVelocity and moveState ~= "Falling" then
+        moveState = "Falling"
     end
     
-    if stateGerak == "Melompat" then
-        if stateTerakhir ~= "Melompat" then
+    if moveState == "Jumping" then
+        if lastState ~= "Jumping" then
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            return "Melompat", waktuSekarang
+            return "Jumping", currentTime
         end
-    elseif stateGerak == "Jatuh" then
-        if stateTerakhir ~= "Jatuh" then
+    elseif moveState == "Falling" then
+        if lastState ~= "Falling" then
             hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            return "Jatuh", waktuSekarang
+            return "Falling", currentTime
         end
     else
-        if stateGerak ~= stateTerakhir and (waktuSekarang - waktuStateTerakhir) >= COOLDOWN_GANTI_STATE then
-            if stateGerak == "Memanjat" then
+        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
+            if moveState == "Climbing" then
                 hum:ChangeState(Enum.HumanoidStateType.Climbing)
                 hum.PlatformStand = false
                 hum.AutoRotate = false
-            elseif stateGerak == "Berenang" then
+            elseif moveState == "Swimming" then
                 hum:ChangeState(Enum.HumanoidStateType.Swimming)
             else
                 hum:ChangeState(Enum.HumanoidStateType.Running)
             end
-            return stateGerak, waktuSekarang
+            return moveState, currentTime
         end
     end
     
-    return stateTerakhir, waktuStateTerakhir
+    return lastState, lastStateTime
 end
 
--- ========= SETUP GUI =========
+-- ========= GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "AutoWalkByaruL"
 ScreenGui.ResetOnSpawn = false
@@ -763,241 +763,241 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- ========= GUI STUDIO REKAMAN (160x100) =========
-local StudioRekaman = Instance.new("Frame")
-StudioRekaman.Size = UDim2.fromOffset(160, 100)
-StudioRekaman.Position = UDim2.new(0.5, -80, 0.5, -50)
-StudioRekaman.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-StudioRekaman.BorderSizePixel = 0
-StudioRekaman.Active = true
-StudioRekaman.Draggable = true
-StudioRekaman.Visible = false
-StudioRekaman.Parent = ScreenGui
+-- ========= RECORDING STUDIO GUI (160x100) =========
+local RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(160, 100)
+RecordingStudio.Position = UDim2.new(0.5, -80, 0.5, -50)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-local SudutStudio = Instance.new("UICorner")
-SudutStudio.CornerRadius = UDim.new(0, 8)
-SudutStudio.Parent = StudioRekaman
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 8)
+StudioCorner.Parent = RecordingStudio
 
-local HeaderStudio = Instance.new("Frame")
-HeaderStudio.Size = UDim2.new(1, 0, 0, 20)
-HeaderStudio.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-HeaderStudio.BorderSizePixel = 0
-HeaderStudio.Parent = StudioRekaman
+local StudioHeader = Instance.new("Frame")
+StudioHeader.Size = UDim2.new(1, 0, 0, 20)
+StudioHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+StudioHeader.BorderSizePixel = 0
+StudioHeader.Parent = RecordingStudio
 
-local SudutHeaderStudio = Instance.new("UICorner")
-SudutHeaderStudio.CornerRadius = UDim.new(0, 8)
-SudutHeaderStudio.Parent = HeaderStudio
+local HeaderCorner = Instance.new("UICorner")
+HeaderCorner.CornerRadius = UDim.new(0, 8)
+HeaderCorner.Parent = StudioHeader
 
-local JudulStudio = Instance.new("TextLabel")
-JudulStudio.Size = UDim2.new(1, -30, 1, 0)
-JudulStudio.BackgroundTransparency = 1
-JudulStudio.Text = ""
-JudulStudio.TextColor3 = Color3.fromRGB(255, 255, 255)
-JudulStudio.Font = Enum.Font.GothamBold
-JudulStudio.TextSize = 10
-JudulStudio.Parent = HeaderStudio
+local StudioTitle = Instance.new("TextLabel")
+StudioTitle.Size = UDim2.new(1, -30, 1, 0)
+StudioTitle.BackgroundTransparency = 1
+StudioTitle.Text = ""
+StudioTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+StudioTitle.Font = Enum.Font.GothamBold
+StudioTitle.TextSize = 10
+StudioTitle.Parent = StudioHeader
 
-local TombolTutupStudio = Instance.new("TextButton")
-TombolTutupStudio.Size = UDim2.fromOffset(18, 18)
-TombolTutupStudio.Position = UDim2.new(1, -20, 0.5, -9)
-TombolTutupStudio.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-TombolTutupStudio.Text = "×"
-TombolTutupStudio.TextColor3 = Color3.new(1, 1, 1)
-TombolTutupStudio.Font = Enum.Font.GothamBold
-TombolTutupStudio.TextSize = 14
-TombolTutupStudio.Parent = HeaderStudio
+local CloseStudioBtn = Instance.new("TextButton")
+CloseStudioBtn.Size = UDim2.fromOffset(18, 18)
+CloseStudioBtn.Position = UDim2.new(1, -20, 0.5, -9)
+CloseStudioBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+CloseStudioBtn.Text = "×"
+CloseStudioBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseStudioBtn.Font = Enum.Font.GothamBold
+CloseStudioBtn.TextSize = 14
+CloseStudioBtn.Parent = StudioHeader
 
-local SudutTutupStudio = Instance.new("UICorner")
-SudutTutupStudio.CornerRadius = UDim.new(0, 4)
-SudutTutupStudio.Parent = TombolTutupStudio
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 4)
+CloseCorner.Parent = CloseStudioBtn
 
-local KontenStudio = Instance.new("Frame")
-KontenStudio.Size = UDim2.new(1, -10, 1, -25)
-KontenStudio.Position = UDim2.new(0, 5, 0, 22)
-KontenStudio.BackgroundTransparency = 1
-KontenStudio.Parent = StudioRekaman
+local StudioContent = Instance.new("Frame")
+StudioContent.Size = UDim2.new(1, -10, 1, -25)
+StudioContent.Position = UDim2.new(0, 5, 0, 22)
+StudioContent.BackgroundTransparency = 1
+StudioContent.Parent = RecordingStudio
 
-local LEDRekaman = Instance.new("Frame")
-LEDRekaman.Size = UDim2.fromOffset(8, 8)
-LEDRekaman.Position = UDim2.new(0, 5, 0, 5)
-LEDRekaman.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-LEDRekaman.BorderSizePixel = 0
-LEDRekaman.Visible = false
-LEDRekaman.Parent = HeaderStudio
+local RecordingLED = Instance.new("Frame")
+RecordingLED.Size = UDim2.fromOffset(8, 8)
+RecordingLED.Position = UDim2.new(0, 5, 0, 5)
+RecordingLED.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+RecordingLED.BorderSizePixel = 0
+RecordingLED.Visible = false
+RecordingLED.Parent = StudioHeader
 
-local SudutLED = Instance.new("UICorner")
-SudutLED.CornerRadius = UDim.new(1, 0)
-SudutLED.Parent = LEDRekaman
+local LEDCorner = Instance.new("UICorner")
+LEDCorner.CornerRadius = UDim.new(1, 0)
+LEDCorner.Parent = RecordingLED
 
-local function BuatTombolStudio(teks, x, y, w, h, warna)
-    local tombol = Instance.new("TextButton")
-    tombol.Size = UDim2.fromOffset(w, h)
-    tombol.Position = UDim2.fromOffset(x, y)
-    tombol.BackgroundColor3 = warna
-    tombol.Text = teks
-    tombol.TextColor3 = Color3.new(1, 1, 1)
-    tombol.Font = Enum.Font.GothamBold
-    tombol.TextSize = 12
-    tombol.AutoButtonColor = false
-    tombol.Parent = KontenStudio
+local function CreateStudioBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.AutoButtonColor = false
+    btn.Parent = StudioContent
     
-    local sudut = Instance.new("UICorner")
-    sudut.CornerRadius = UDim.new(0, 4)
-    sudut.Parent = tombol
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
     
-    tombol.MouseEnter:Connect(function()
+    btn.MouseEnter:Connect(function()
         task.spawn(function()
-            TweenService:Create(tombol, TweenInfo.new(0.2), {
+            TweenService:Create(btn, TweenInfo.new(0.2), {
                 BackgroundColor3 = Color3.fromRGB(
-                    math.min(warna.R * 255 + 30, 255),
-                    math.min(warna.G * 255 + 30, 255),
-                    math.min(warna.B * 255 + 30, 255)
+                    math.min(color.R * 255 + 30, 255),
+                    math.min(color.G * 255 + 30, 255),
+                    math.min(color.B * 255 + 30, 255)
                 )
             }):Play()
         end)
     end)
     
-    tombol.MouseLeave:Connect(function()
+    btn.MouseLeave:Connect(function()
         task.spawn(function()
-            TweenService:Create(tombol, TweenInfo.new(0.2), {BackgroundColor3 = warna}):Play()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
         end)
     end)
     
-    return tombol
+    return btn
 end
 
-local TombolSimpan = BuatTombolStudio("Simpan", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
-local TombolMulai = BuatTombolStudio("Mulai", 79, 5, 70, 20, Color3.fromRGB(59, 15, 116))
+local SaveBtn = CreateStudioBtn("Save", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
+local StartBtn = CreateStudioBtn("Start", 79, 5, 70, 20, Color3.fromRGB(59, 15, 116))
 
-local TombolLanjut = BuatTombolStudio("LANJUT", 5, 30, 144, 22, Color3.fromRGB(59, 15, 116))
+local ResumeBtn = CreateStudioBtn("RESUME", 5, 30, 144, 22, Color3.fromRGB(59, 15, 116))
 
-local TombolSebelum = BuatTombolStudio("Sebelum", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
-local TombolBerikut = BuatTombolStudio("Berikut", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
+local PrevBtn = CreateStudioBtn("Prev", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
+local NextBtn = CreateStudioBtn("Next", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
 
--- ========= GUI KONTROL PUTAR BARU (200x170) =========
-local KontrolPutar = Instance.new("Frame")
-KontrolPutar.Size = UDim2.fromOffset(200, 170)
-KontrolPutar.Position = UDim2.new(0.5, -100, 0.5, -100)
-KontrolPutar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-KontrolPutar.BorderSizePixel = 0
-KontrolPutar.Active = true
-KontrolPutar.Draggable = true
-KontrolPutar.Visible = false
-KontrolPutar.Parent = ScreenGui
+-- ========= NEW PLAYBACK CONTROL GUI (200x170) =========
+local PlaybackControl = Instance.new("Frame")
+PlaybackControl.Size = UDim2.fromOffset(200, 170)
+PlaybackControl.Position = UDim2.new(0.5, -100, 0.5, -100)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.BorderSizePixel = 0
+PlaybackControl.Active = true
+PlaybackControl.Draggable = true
+PlaybackControl.Visible = false
+PlaybackControl.Parent = ScreenGui
 
-local SudutKontrolPutar = Instance.new("UICorner")
-SudutKontrolPutar.CornerRadius = UDim.new(0, 10)
-SudutKontrolPutar.Parent = KontrolPutar
+local PlaybackCorner = Instance.new("UICorner")
+PlaybackCorner.CornerRadius = UDim.new(0, 10)
+PlaybackCorner.Parent = PlaybackControl
 
-local HeaderKontrolPutar = Instance.new("Frame")
-HeaderKontrolPutar.Size = UDim2.new(1, 0, 0, 25)
-HeaderKontrolPutar.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-HeaderKontrolPutar.BorderSizePixel = 0
-HeaderKontrolPutar.Parent = KontrolPutar
+local PlaybackHeader = Instance.new("Frame")
+PlaybackHeader.Size = UDim2.new(1, 0, 0, 25)
+PlaybackHeader.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+PlaybackHeader.BorderSizePixel = 0
+PlaybackHeader.Parent = PlaybackControl
 
-local SudutHeaderKontrolPutar = Instance.new("UICorner")
-SudutHeaderKontrolPutar.CornerRadius = UDim.new(0, 10)
-SudutHeaderKontrolPutar.Parent = HeaderKontrolPutar
+local PlaybackHeaderCorner = Instance.new("UICorner")
+PlaybackHeaderCorner.CornerRadius = UDim.new(0, 10)
+PlaybackHeaderCorner.Parent = PlaybackHeader
 
-local JudulKontrolPutar = Instance.new("TextLabel")
-JudulKontrolPutar.Size = UDim2.new(1, -30, 1, 0)
-JudulKontrolPutar.BackgroundTransparency = 1
-JudulKontrolPutar.Text = ""
-JudulKontrolPutar.TextColor3 = Color3.fromRGB(255, 255, 255)
-JudulKontrolPutar.Font = Enum.Font.GothamBold
-JudulKontrolPutar.TextSize = 10
-JudulKontrolPutar.Parent = HeaderKontrolPutar
+local PlaybackTitle = Instance.new("TextLabel")
+PlaybackTitle.Size = UDim2.new(1, -30, 1, 0)
+PlaybackTitle.BackgroundTransparency = 1
+PlaybackTitle.Text = ""
+PlaybackTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlaybackTitle.Font = Enum.Font.GothamBold
+PlaybackTitle.TextSize = 10
+PlaybackTitle.Parent = PlaybackHeader
 
-local TombolTutupKontrolPutar = Instance.new("TextButton")
-TombolTutupKontrolPutar.Size = UDim2.fromOffset(20, 20)
-TombolTutupKontrolPutar.Position = UDim2.new(1, -22, 0.5, -10)
-TombolTutupKontrolPutar.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-TombolTutupKontrolPutar.Text = "×"
-TombolTutupKontrolPutar.TextColor3 = Color3.new(1, 1, 1)
-TombolTutupKontrolPutar.Font = Enum.Font.GothamBold
-TombolTutupKontrolPutar.TextSize = 18
-TombolTutupKontrolPutar.Parent = HeaderKontrolPutar
+local ClosePlaybackBtn = Instance.new("TextButton")
+ClosePlaybackBtn.Size = UDim2.fromOffset(20, 20)
+ClosePlaybackBtn.Position = UDim2.new(1, -22, 0.5, -10)
+ClosePlaybackBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+ClosePlaybackBtn.Text = "×"
+ClosePlaybackBtn.TextColor3 = Color3.new(1, 1, 1)
+ClosePlaybackBtn.Font = Enum.Font.GothamBold
+ClosePlaybackBtn.TextSize = 18
+ClosePlaybackBtn.Parent = PlaybackHeader
 
-local SudutTutupKontrolPutar = Instance.new("UICorner")
-SudutTutupKontrolPutar.CornerRadius = UDim.new(0, 5)
-SudutTutupKontrolPutar.Parent = TombolTutupKontrolPutar
+local ClosePlaybackCorner = Instance.new("UICorner")
+ClosePlaybackCorner.CornerRadius = UDim.new(0, 5)
+ClosePlaybackCorner.Parent = ClosePlaybackBtn
 
-local KontenKontrolPutar = Instance.new("Frame")
-KontenKontrolPutar.Size = UDim2.new(1, -16, 1, -33)
-KontenKontrolPutar.Position = UDim2.new(0, 8, 0, 28)
-KontenKontrolPutar.BackgroundTransparency = 1
-KontenKontrolPutar.Parent = KontrolPutar
+local PlaybackContent = Instance.new("Frame")
+PlaybackContent.Size = UDim2.new(1, -16, 1, -33)
+PlaybackContent.Position = UDim2.new(0, 8, 0, 28)
+PlaybackContent.BackgroundTransparency = 1
+PlaybackContent.Parent = PlaybackControl
 
-local function BuatTombolKontrolPutar(teks, x, y, w, h, warna)
-    local tombol = Instance.new("TextButton")
-    tombol.Size = UDim2.fromOffset(w, h)
-    tombol.Position = UDim2.fromOffset(x, y)
-    tombol.BackgroundColor3 = warna
-    tombol.Text = teks
-    tombol.TextColor3 = Color3.new(1, 1, 1)
-    tombol.Font = Enum.Font.GothamBold
-    tombol.TextSize = 13
-    tombol.AutoButtonColor = false
-    tombol.Parent = KontenKontrolPutar
+local function CreatePlaybackBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.AutoButtonColor = false
+    btn.Parent = PlaybackContent
     
-    local sudut = Instance.new("UICorner")
-    sudut.CornerRadius = UDim.new(0, 5)
-    sudut.Parent = tombol
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = btn
     
-    tombol.MouseEnter:Connect(function()
+    btn.MouseEnter:Connect(function()
         task.spawn(function()
-            TweenService:Create(tombol, TweenInfo.new(0.2), {
+            TweenService:Create(btn, TweenInfo.new(0.2), {
                 BackgroundColor3 = Color3.fromRGB(
-                    math.min(warna.R * 255 + 30, 255),
-                    math.min(warna.G * 255 + 30, 255),
-                    math.min(warna.B * 255 + 30, 255)
+                    math.min(color.R * 255 + 30, 255),
+                    math.min(color.G * 255 + 30, 255),
+                    math.min(color.B * 255 + 30, 255)
                 )
             }):Play()
         end)
     end)
     
-    tombol.MouseLeave:Connect(function()
+    btn.MouseLeave:Connect(function()
         task.spawn(function()
-            TweenService:Create(tombol, TweenInfo.new(0.2), {BackgroundColor3 = warna}):Play()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
         end)
     end)
     
-    return tombol
+    return btn
 end
 
-local function BuatToggleKontrolPutar(teks, x, y, w, h, default)
-    local tombol = Instance.new("TextButton")
-    tombol.Size = UDim2.fromOffset(w, h)
-    tombol.Position = UDim2.fromOffset(x, y)
-    tombol.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    tombol.Text = ""
-    tombol.Parent = KontenKontrolPutar
+local function CreatePlaybackToggle(text, x, y, w, h, default)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    btn.Text = ""
+    btn.Parent = PlaybackContent
     
-    local sudut = Instance.new("UICorner")
-    sudut.CornerRadius = UDim.new(0, 4)
-    sudut.Parent = tombol
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
     
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(0, w - 28, 1, 0)
     label.Position = UDim2.new(0, 4, 0, 0)
     label.BackgroundTransparency = 1
-    label.Text = teks
+    label.Text = text
     label.TextColor3 = Color3.fromRGB(200, 200, 220)
     label.Font = Enum.Font.GothamBold
     label.TextSize = 11
     label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = tombol
+    label.Parent = btn
     
     local toggle = Instance.new("Frame")
     toggle.Size = UDim2.fromOffset(20, 11)
     toggle.Position = UDim2.new(1, -23, 0.5, -5)
     toggle.BackgroundColor3 = default and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
     toggle.BorderSizePixel = 0
-    toggle.Parent = tombol
+    toggle.Parent = btn
     
-    local sudutToggle = Instance.new("UICorner")
-    sudutToggle.CornerRadius = UDim.new(1, 0)
-    sudutToggle.Parent = toggle
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(1, 0)
+    toggleCorner.Parent = toggle
     
     local knob = Instance.new("Frame")
     knob.Size = UDim2.fromOffset(7, 7)
@@ -1006,1338 +1006,1622 @@ local function BuatToggleKontrolPutar(teks, x, y, w, h, default)
     knob.BorderSizePixel = 0
     knob.Parent = toggle
     
-    local sudutKnob = Instance.new("UICorner")
-    sudutKnob.CornerRadius = UDim.new(1, 0)
-    sudutKnob.Parent = knob
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(1, 0)
+    knobCorner.Parent = knob
     
-    local function Animasi(nyala)
-        MainkanSuara("Toggle")
-        local infoTween = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        local warnaBg = nyala and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
-        local posisiKnob = nyala and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
-        TweenService:Create(toggle, infoTween, {BackgroundColor3 = warnaBg}):Play()
-        TweenService:Create(knob, infoTween, {Position = posisiKnob}):Play()
+    local function Animate(isOn)
+        PlaySound("Toggle")
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local bgColor = isOn and Color3.fromRGB(40, 180, 80) or Color3.fromRGB(50, 50, 50)
+        local knobPos = isOn and UDim2.new(0, 11, 0, 2) or UDim2.new(0, 2, 0, 2)
+        TweenService:Create(toggle, tweenInfo, {BackgroundColor3 = bgColor}):Play()
+        TweenService:Create(knob, tweenInfo, {Position = knobPos}):Play()
     end
     
-    return tombol, Animasi
+    return btn, Animate
 end
 
-TombolPutarKontrol = BuatTombolKontrolPutar("MAIN", 5, 5, 190, 32, Color3.fromRGB(59, 15, 116))
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 190, 32, Color3.fromRGB(59, 15, 116))
 
-TombolLoopKontrol, AnimasiLoopKontrol = BuatToggleKontrolPutar("AutoLoop", 5, 42, 92, 22, false)
-TombolShiftLockKontrol, AnimasiShiftLockKontrol = BuatToggleKontrolPutar("ShiftLock", 103, 42, 92, 22, false)
+local LoopBtnControl, AnimateLoopControl = CreatePlaybackToggle("AutoLoop", 5, 42, 92, 22, false)
+local ShiftLockBtnControl, AnimateShiftLockControl = CreatePlaybackToggle("ShiftLock", 103, 42, 92, 22, false)
 
-TombolResetKontrol, AnimasiResetKontrol = BuatToggleKontrolPutar("ResetKarakter", 5, 69, 92, 22, false)
-TombolRespawnKontrol, AnimasiRespawnKontrol = BuatToggleKontrolPutar("Respawn", 103, 69, 92, 22, false)
+local ResetBtnControl, AnimateResetControl = CreatePlaybackToggle("ResetChar", 5, 69, 92, 22, false)
+local RespawnBtnControl, AnimateRespawnControl = CreatePlaybackToggle("Respawn", 103, 69, 92, 22, false)
 
-TombolLompatKontrol, AnimasiLompatKontrol = BuatToggleKontrolPutar("LompatTakTerbatas", 5, 96, 190, 22, false)
+local JumpBtnControl, AnimateJumpControl = CreatePlaybackToggle("InfJump", 5, 96, 190, 22, false)
 
--- ========= GUI UTAMA (250x340) =========
-local FrameUtama = Instance.new("Frame")
-FrameUtama.Size = UDim2.fromOffset(250, 340)
-FrameUtama.Position = UDim2.new(0.5, -125, 0.5, -170)
-FrameUtama.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-FrameUtama.BorderSizePixel = 0
-FrameUtama.Active = true
-FrameUtama.Draggable = true
-FrameUtama.Parent = ScreenGui
+-- ========= MAIN GUI (250x340) =========
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.fromOffset(250, 340)
+MainFrame.Position = UDim2.new(0.5, -125, 0.5, -170)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
 
-local SudutUtama = Instance.new("UICorner")
-SudutUtama.CornerRadius = UDim.new(0, 12)
-SudutUtama.Parent = FrameUtama
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.Parent = MainFrame
 
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 28)
 Header.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
 Header.BorderSizePixel = 0
-Header.Parent = FrameUtama
+Header.Parent = MainFrame
 
-local SudutHeader = Instance.new("UICorner")
-SudutHeader.CornerRadius = UDim.new(0, 12)
-SudutHeader.Parent = Header
+local HeaderCorner2 = Instance.new("UICorner")
+HeaderCorner2.CornerRadius = UDim.new(0, 12)
+HeaderCorner2.Parent = Header
 
-local Judul = Instance.new("TextLabel")
-Judul.Size = UDim2.new(1, 0, 1, 0)
-Judul.BackgroundTransparency = 1
-Judul.Text = "ByaruL Recorder"
-Judul.TextColor3 = Color3.fromRGB(255,255,255)
-Judul.Font = Enum.Font.GothamBold
-Judul.TextSize = 14
-Judul.TextXAlignment = Enum.TextXAlignment.Center
-Judul.Parent = Header
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "ByaruL Recorder"
+Title.TextColor3 = Color3.fromRGB(255,255,255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 14
+Title.TextXAlignment = Enum.TextXAlignment.Center
+Title.Parent = Header
 
-local TombolSembunyi = Instance.new("TextButton")
-TombolSembunyi.Size = UDim2.fromOffset(22, 22)
-TombolSembunyi.Position = UDim2.new(1, -50, 0.5, -11)
-TombolSembunyi.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
-TombolSembunyi.Text = "_"
-TombolSembunyi.TextColor3 = Color3.new(1, 1, 1)
-TombolSembunyi.Font = Enum.Font.GothamBold
-TombolSembunyi.TextSize = 12
-TombolSembunyi.Parent = Header
+local HideButton = Instance.new("TextButton")
+HideButton.Size = UDim2.fromOffset(22, 22)
+HideButton.Position = UDim2.new(1, -50, 0.5, -11)
+HideButton.BackgroundColor3 = Color3.fromRGB(162, 175, 170)
+HideButton.Text = "_"
+HideButton.TextColor3 = Color3.new(1, 1, 1)
+HideButton.Font = Enum.Font.GothamBold
+HideButton.TextSize = 12
+HideButton.Parent = Header
 
-local SudutSembunyi = Instance.new("UICorner")
-SudutSembunyi.CornerRadius = UDim.new(0, 6)
-SudutSembunyi.Parent = TombolSembunyi
+local HideCorner2 = Instance.new("UICorner")
+HideCorner2.CornerRadius = UDim.new(0, 6)
+HideCorner2.Parent = HideButton
 
-local TombolTutup = Instance.new("TextButton")
-TombolTutup.Size = UDim2.fromOffset(22, 22)
-TombolTutup.Position = UDim2.new(1, -25, 0.5, -11)
-TombolTutup.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
-TombolTutup.Text = "X"
-TombolTutup.TextColor3 = Color3.new(1, 1, 1)
-TombolTutup.Font = Enum.Font.GothamBold
-TombolTutup.TextSize = 10
-TombolTutup.Parent = Header
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.fromOffset(22, 22)
+CloseButton.Position = UDim2.new(1, -25, 0.5, -11)
+CloseButton.BackgroundColor3 = Color3.fromRGB(230, 62, 62)
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.TextSize = 10
+CloseButton.Parent = Header
 
-local SudutTutup = Instance.new("UICorner")
-SudutTutup.CornerRadius = UDim.new(0, 6)
-SudutTutup.Parent = TombolTutup
+local CloseCorner2 = Instance.new("UICorner")
+CloseCorner2.CornerRadius = UDim.new(0, 6)
+CloseCorner2.Parent = CloseButton
 
-local Konten = Instance.new("Frame")
-Konten.Size = UDim2.new(1, -16, 1, -36)
-Konten.Position = UDim2.new(0, 8, 0, 32)
-Konten.BackgroundTransparency = 1
-Konten.Parent = FrameUtama
+local Content = Instance.new("Frame")
+Content.Size = UDim2.new(1, -16, 1, -36)
+Content.Position = UDim2.new(0, 8, 0, 32)
+Content.BackgroundTransparency = 1
+Content.Parent = MainFrame
 
-local TombolMini = Instance.new("TextButton")
-TombolMini.Size = UDim2.fromOffset(40, 40)
-TombolMini.Position = UDim2.new(0.5, -20, 0, -30)
-TombolMini.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-TombolMini.Text = "A"
-TombolMini.TextColor3 = Color3.new(1, 1, 1)
-TombolMini.Font = Enum.Font.GothamBold
-TombolMini.TextSize = 25
-TombolMini.Visible = false
-TombolMini.Active = true
-TombolMini.Draggable = true
-TombolMini.Parent = ScreenGui
+local MiniButton = Instance.new("TextButton")
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0.5, -20, 0, -30)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Text = "A"
+MiniButton.TextColor3 = Color3.new(1, 1, 1)
+MiniButton.Font = Enum.Font.GothamBold
+MiniButton.TextSize = 25
+MiniButton.Visible = false
+MiniButton.Active = true
+MiniButton.Draggable = true
+MiniButton.Parent = ScreenGui
 
-local SudutMini = Instance.new("UICorner")
-SudutMini.CornerRadius = UDim.new(0, 8)
-SudutMini.Parent = TombolMini
+local MiniCorner2 = Instance.new("UICorner")
+MiniCorner2.CornerRadius = UDim.new(0, 8)
+MiniCorner2.Parent = MiniButton
 
-local function BuatTombol(teks, x, y, w, h, warna)
-    local tombol = Instance.new("TextButton")
-    tombol.Size = UDim2.fromOffset(w, h)
-    tombol.Position = UDim2.fromOffset(x, y)
-    tombol.BackgroundColor3 = warna
-    tombol.Text = teks
-    tombol.TextColor3 = Color3.new(1, 1, 1)
-    tombol.Font = Enum.Font.GothamBold
-    tombol.TextSize = 12
-    tombol.AutoButtonColor = false
-    tombol.Parent = Konten
+local function CreateButton(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.AutoButtonColor = false
+    btn.Parent = Content
     
-    local sudut = Instance.new("UICorner")
-    sudut.CornerRadius = UDim.new(0, 6)
-    sudut.Parent = tombol
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = btn
     
-    tombol.MouseEnter:Connect(function()
-        TweenService:Create(tombol, TweenInfo.new(0.2), {
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
             BackgroundColor3 = Color3.new(
-                math.min(warna.R * 1.2, 1),
-                math.min(warna.G * 1.2, 1),
-                math.min(warna.B * 1.2, 1)
+                math.min(color.R * 1.2, 1),
+                math.min(color.G * 1.2, 1),
+                math.min(color.B * 1.2, 1)
             )
         }):Play()
     end)
     
-    tombol.MouseLeave:Connect(function()
-        TweenService:Create(tombol, TweenInfo.new(0.2), {
-            BackgroundColor3 = warna
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {
+            BackgroundColor3 = color
         }):Play()
     end)
     
-    return tombol
+    return btn
 end
 
--- Tombol utama
-local TombolBukaStudio = BuatTombol("REKAM", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
-local TombolMenu = BuatTombol("MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
-local TombolKontrolPutar = BuatTombol("MAIN", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
+local OpenStudioBtn = CreateButton("RECORD", 0, 2, 75, 30, Color3.fromRGB(59, 15, 116))
+local MenuBtn = CreateButton("MENU", 79, 2, 75, 30, Color3.fromRGB(59, 15, 116))
+local PlaybackBtn = CreateButton("PLAY", 158, 2, 76, 30, Color3.fromRGB(59, 15, 116))
 
--- Kotak input
-local KotakKecepatan = Instance.new("TextBox")
-KotakKecepatan.Size = UDim2.fromOffset(60, 22)
-KotakKecepatan.Position = UDim2.fromOffset(0, 36)
-KotakKecepatan.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-KotakKecepatan.BorderSizePixel = 0
-KotakKecepatan.Text = "1.00"
-KotakKecepatan.PlaceholderText = "Kecepatan"
-KotakKecepatan.TextColor3 = Color3.fromRGB(255, 255, 255)
-KotakKecepatan.Font = Enum.Font.GothamBold
-KotakKecepatan.TextSize = 8
-KotakKecepatan.TextXAlignment = Enum.TextXAlignment.Center
-KotakKecepatan.ClearTextOnFocus = false
-KotakKecepatan.Parent = Konten
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.fromOffset(60, 22)
+SpeedBox.Position = UDim2.fromOffset(0, 36)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+SpeedBox.BorderSizePixel = 0
+SpeedBox.Text = "1.00"
+SpeedBox.PlaceholderText = "Speed"
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 8
+SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = Content
 
-local SudutKecepatan = Instance.new("UICorner")
-SudutKecepatan.CornerRadius = UDim.new(0, 4)
-SudutKecepatan.Parent = KotakKecepatan
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 4)
+SpeedCorner.Parent = SpeedBox
 
-local KotakNamaFile = Instance.new("TextBox")
-KotakNamaFile.Size = UDim2.fromOffset(110, 22)
-KotakNamaFile.Position = UDim2.fromOffset(62, 36)
-KotakNamaFile.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-KotakNamaFile.BorderSizePixel = 0
-KotakNamaFile.Text = ""
-KotakNamaFile.PlaceholderText = "Nama File Kustom"
-KotakNamaFile.TextColor3 = Color3.fromRGB(255, 255, 255)
-KotakNamaFile.Font = Enum.Font.GothamBold
-KotakNamaFile.TextSize = 8
-KotakNamaFile.TextXAlignment = Enum.TextXAlignment.Center
-KotakNamaFile.ClearTextOnFocus = false
-KotakNamaFile.Parent = Konten
+local FilenameBox = Instance.new("TextBox")
+FilenameBox.Size = UDim2.fromOffset(110, 22)
+FilenameBox.Position = UDim2.fromOffset(62, 36)
+FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+FilenameBox.BorderSizePixel = 0
+FilenameBox.Text = ""
+FilenameBox.PlaceholderText = "Custom Filename"
+FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+FilenameBox.Font = Enum.Font.GothamBold
+FilenameBox.TextSize = 8
+FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
+FilenameBox.ClearTextOnFocus = false
+FilenameBox.Parent = Content
 
-local SudutNamaFile = Instance.new("UICorner")
-SudutNamaFile.CornerRadius = UDim.new(0, 4)
-SudutNamaFile.Parent = KotakNamaFile
+local FilenameCorner = Instance.new("UICorner")
+FilenameCorner.CornerRadius = UDim.new(0, 4)
+FilenameCorner.Parent = FilenameBox
 
-local KotakKecepatanJalan = Instance.new("TextBox")
-KotakKecepatanJalan.Size = UDim2.fromOffset(60, 22)
-KotakKecepatanJalan.Position = UDim2.fromOffset(174, 36)
-KotakKecepatanJalan.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-KotakKecepatanJalan.BorderSizePixel = 0
-KotakKecepatanJalan.Text = "16"
-KotakKecepatanJalan.PlaceholderText = "Kecepatan Jalan"
-KotakKecepatanJalan.TextColor3 = Color3.fromRGB(255, 255, 255)
-KotakKecepatanJalan.Font = Enum.Font.GothamBold
-KotakKecepatanJalan.TextSize = 8
-KotakKecepatanJalan.TextXAlignment = Enum.TextXAlignment.Center
-KotakKecepatanJalan.ClearTextOnFocus = false
-KotakKecepatanJalan.Parent = Konten
+local WalkSpeedBox = Instance.new("TextBox")
+WalkSpeedBox.Size = UDim2.fromOffset(60, 22)
+WalkSpeedBox.Position = UDim2.fromOffset(174, 36)
+WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+WalkSpeedBox.BorderSizePixel = 0
+WalkSpeedBox.Text = "16"
+WalkSpeedBox.PlaceholderText = "WalkSpeed"
+WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+WalkSpeedBox.Font = Enum.Font.GothamBold
+WalkSpeedBox.TextSize = 8
+WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+WalkSpeedBox.ClearTextOnFocus = false
+WalkSpeedBox.Parent = Content
 
-local SudutKecepatanJalan = Instance.new("UICorner")
-SudutKecepatanJalan.CornerRadius = UDim.new(0, 4)
-SudutKecepatanJalan.Parent = KotakKecepatanJalan
+local WalkSpeedCorner = Instance.new("UICorner")
+WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
+WalkSpeedCorner.Parent = WalkSpeedBox
 
--- Tombol aksi
-local TombolSimpanFile = BuatTombol("SIMPAN FILE", 0, 62, 115, 30, Color3.fromRGB(59, 15, 116))
-local TombolMuatFile = BuatTombol("MUAT FILE", 119, 62, 115, 30, Color3.fromRGB(59, 15, 116))
+local SaveFileBtn = CreateButton("SAVE FILE", 0, 62, 115, 30, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateButton("LOAD FILE", 119, 62, 115, 30, Color3.fromRGB(59, 15, 116))
 
-local TombolToggleJalur = BuatTombol("TAMPILKAN RUTE", 0, 96, 115, 30, Color3.fromRGB(59, 15, 116))
-local TombolGabung = BuatTombol("GABUNG", 119, 96, 115, 30, Color3.fromRGB(59, 15, 116))
+local PathToggleBtn = CreateButton("SHOW RUTE", 0, 96, 115, 30, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateButton("MERGE", 119, 96, 115, 30, Color3.fromRGB(59, 15, 116))
 
--- Daftar rekaman
-local DaftarRekaman = Instance.new("ScrollingFrame")
-DaftarRekaman.Size = UDim2.new(1, 0, 0, 170)
-DaftarRekaman.Position = UDim2.fromOffset(0, 130)
-DaftarRekaman.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
-DaftarRekaman.BorderSizePixel = 0
-DaftarRekaman.ScrollBarThickness = 4
-DaftarRekaman.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
-DaftarRekaman.ScrollingDirection = Enum.ScrollingDirection.Y
-DaftarRekaman.VerticalScrollBarInset = Enum.ScrollBarInset.Always
-DaftarRekaman.CanvasSize = UDim2.new(0, 0, 0, 0)
-DaftarRekaman.Parent = Konten
+local RecordList = Instance.new("ScrollingFrame")
+RecordList.Size = UDim2.new(1, 0, 0, 170)
+RecordList.Position = UDim2.fromOffset(0, 130)
+RecordList.BackgroundColor3 = Color3.fromRGB(18, 18, 25)
+RecordList.BorderSizePixel = 0
+RecordList.ScrollBarThickness = 4
+RecordList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
+RecordList.ScrollingDirection = Enum.ScrollingDirection.Y
+RecordList.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+RecordList.CanvasSize = UDim2.new(0, 0, 0, 0)
+RecordList.Parent = Content
 
-local SudutDaftar = Instance.new("UICorner")
-SudutDaftar.CornerRadius = UDim.new(0, 6)
-SudutDaftar.Parent = DaftarRekaman
+local ListCorner = Instance.new("UICorner")
+ListCorner.CornerRadius = UDim.new(0, 6)
+ListCorner.Parent = RecordList
 
--- ========= FUNGSI VALIDASI =========
-local function ValidasiKecepatan(teksKecepatan)
-    local kecepatan = tonumber(teksKecepatan)
-    if not kecepatan then return false, "Angka tidak valid" end
-    if kecepatan < 0.25 or kecepatan > 30 then return false, "Kecepatan harus antara 0.25 dan 30" end
-    local kecepatanBulat = math.floor((kecepatan * 4) + 0.5) / 4
-    return true, kecepatanBulat
+local function ValidateSpeed(speedText)
+    local speed = tonumber(speedText)
+    if not speed then return false, "Invalid number" end
+    if speed < 0.25 or speed > 30 then return false, "Speed must be between 0.25 and 30" end
+    local roundedSpeed = math.floor((speed * 4) + 0.5) / 4
+    return true, roundedSpeed
 end
 
-KotakKecepatan.FocusLost:Connect(function()
-    local berhasil, hasil = ValidasiKecepatan(KotakKecepatan.Text)
-    if berhasil then
-        KecepatanSekarang = hasil
-        KotakKecepatan.Text = string.format("%.2f", hasil)
-        MainkanSuara("Sukses")
+SpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateSpeed(SpeedBox.Text)
+    if success then
+        CurrentSpeed = result
+        SpeedBox.Text = string.format("%.2f", result)
+        PlaySound("Success")
     else
-        KotakKecepatan.Text = string.format("%.2f", KecepatanSekarang)
-        MainkanSuara("Error")
+        SpeedBox.Text = string.format("%.2f", CurrentSpeed)
+        PlaySound("Error")
     end
 end)
 
-local function ValidasiKecepatanJalan(teksKecepatanJalan)
-    local kecepatanJalan = tonumber(teksKecepatanJalan)
-    if not kecepatanJalan then return false, "Angka tidak valid" end
-    if kecepatanJalan < 8 or kecepatanJalan > 200 then return false, "Kecepatan jalan harus antara 8 dan 200" end
-    return true, kecepatanJalan
+local function ValidateWalkSpeed(walkSpeedText)
+    local walkSpeed = tonumber(walkSpeedText)
+    if not walkSpeed then return false, "Invalid number" end
+    if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+    return true, walkSpeed
 end
 
-KotakKecepatanJalan.FocusLost:Connect(function()
-    local berhasil, hasil = ValidasiKecepatanJalan(KotakKecepatanJalan.Text)
-    if berhasil then
-        KecepatanJalanSekarang = hasil
-        KotakKecepatanJalan.Text = tostring(hasil)
-        local karakter = player.Character
-        if karakter and karakter:FindFirstChildOfClass("Humanoid") then
-            karakter.Humanoid.WalkSpeed = KecepatanJalanSekarang
+WalkSpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
+    if success then
+        CurrentWalkSpeed = result
+        WalkSpeedBox.Text = tostring(result)
+        local char = player.Character
+        if char and char:FindFirstChildOfClass("Humanoid") then
+            char.Humanoid.WalkSpeed = CurrentWalkSpeed
         end
-        MainkanSuara("Sukses")
+        PlaySound("Success")
     else
-        KotakKecepatanJalan.Text = tostring(KecepatanJalanSekarang)
-        MainkanSuara("Error")
+        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
+        PlaySound("Error")
     end
 end)
 
-local function PindahkanRekamanNaik(nama)
-    local indexSekarang = table.find(UrutanRekaman, nama)
-    if indexSekarang and indexSekarang > 1 then
-        UrutanRekaman[indexSekarang] = UrutanRekaman[indexSekarang - 1]
-        UrutanRekaman[indexSekarang - 1] = nama
-        PerbaruiDaftarRekaman()
+local function MoveRecordingUp(name)
+    local currentIndex = table.find(RecordingOrder, name)
+    if currentIndex and currentIndex > 1 then
+        RecordingOrder[currentIndex] = RecordingOrder[currentIndex - 1]
+        RecordingOrder[currentIndex - 1] = name
+        UpdateRecordList()
     end
 end
 
-local function PindahkanRekamanTurun(nama)
-    local indexSekarang = table.find(UrutanRekaman, nama)
-    if indexSekarang and indexSekarang < #UrutanRekaman then
-        UrutanRekaman[indexSekarang] = UrutanRekaman[indexSekarang + 1]
-        UrutanRekaman[indexSekarang + 1] = nama
-        PerbaruiDaftarRekaman()
+local function MoveRecordingDown(name)
+    local currentIndex = table.find(RecordingOrder, name)
+    if currentIndex and currentIndex < #RecordingOrder then
+        RecordingOrder[currentIndex] = RecordingOrder[currentIndex + 1]
+        RecordingOrder[currentIndex + 1] = name
+        UpdateRecordList()
     end
 end
 
-local function FormatDurasi(detik)
-    local menit = math.floor(detik / 60)
-    local detikSisa = math.floor(detik % 60)
-    return string.format("%d:%02d", menit, detikSisa)
+local function FormatDuration(seconds)
+    local minutes = math.floor(seconds / 60)
+    local remainingSeconds = math.floor(seconds % 60)
+    return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
-function PerbaruiDaftarRekaman()
-    for _, child in pairs(DaftarRekaman:GetChildren()) do 
+function UpdateRecordList()
+    for _, child in pairs(RecordList:GetChildren()) do 
         if child:IsA("Frame") then child:Destroy() end
     end
     
-    local posisiY = 0
-    for index, nama in ipairs(UrutanRekaman) do
-        local rek = RekamanGerakan[nama]
-        if not rek then continue end
+    local yPos = 0
+    for index, name in ipairs(RecordingOrder) do
+        local rec = RecordedMovements[name]
+        if not rec then continue end
         
         local item = Instance.new("Frame")
         item.Size = UDim2.new(1, -4, 0, 40)
-        item.Position = UDim2.new(0, 2, 0, posisiY)
+        item.Position = UDim2.new(0, 2, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-        item.Parent = DaftarRekaman
+        item.Parent = RecordList
     
-        local sudut = Instance.new("UICorner")
-        sudut.CornerRadius = UDim.new(0, 4)
-        sudut.Parent = item
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = item
         
-        -- Checkbox
-        local kotakCentang = Instance.new("TextButton")
-        kotakCentang.Size = UDim2.fromOffset(20, 20)
-        kotakCentang.Position = UDim2.fromOffset(3, 10)
-        kotakCentang.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        kotakCentang.Text = RekamanTercentang[nama] and "✓" or ""
-        kotakCentang.TextColor3 = Color3.fromRGB(100, 255, 150)
-        kotakCentang.Font = Enum.Font.GothamBold
-        kotakCentang.TextSize = 14
-        kotakCentang.Parent = item
+        local checkBox = Instance.new("TextButton")
+        checkBox.Size = UDim2.fromOffset(20, 20)
+        checkBox.Position = UDim2.fromOffset(3, 10)
+        checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        checkBox.Text = CheckedRecordings[name] and "✓" or ""
+        checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
+        checkBox.Font = Enum.Font.GothamBold
+        checkBox.TextSize = 14
+        checkBox.Parent = item
         
-        local sudutCentang = Instance.new("UICorner")
-        sudutCentang.CornerRadius = UDim.new(0, 3)
-        sudutCentang.Parent = kotakCentang
+        local checkCorner = Instance.new("UICorner")
+        checkCorner.CornerRadius = UDim.new(0, 3)
+        checkCorner.Parent = checkBox
         
-        -- Tombol putar
-        local tombolPutar = Instance.new("TextButton")
-        tombolPutar.Size = UDim2.fromOffset(30, 20)
-        tombolPutar.Position = UDim2.fromOffset(26, 10)
-        tombolPutar.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
-        tombolPutar.Text = "▶"
-        tombolPutar.TextColor3 = Color3.new(1, 1, 1)
-        tombolPutar.Font = Enum.Font.GothamBold
-        tombolPutar.TextSize = 14
-        tombolPutar.Parent = item
+        local playBtn = Instance.new("TextButton")
+        playBtn.Size = UDim2.fromOffset(30, 20)
+        playBtn.Position = UDim2.fromOffset(26, 10)
+        playBtn.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+        playBtn.Text = "▶"
+        playBtn.TextColor3 = Color3.new(1, 1, 1)
+        playBtn.Font = Enum.Font.GothamBold
+        playBtn.TextSize = 14
+        playBtn.Parent = item
         
-        local sudutPutar = Instance.new("UICorner")
-        sudutPutar.CornerRadius = UDim.new(0, 4)
-        sudutPutar.Parent = tombolPutar
+        local playCorner = Instance.new("UICorner")
+        playCorner.CornerRadius = UDim.new(0, 4)
+        playCorner.Parent = playBtn
         
-        -- Tombol hapus
-        local tombolHapus = Instance.new("TextButton")
-        tombolHapus.Size = UDim2.fromOffset(30, 20)
-        tombolHapus.Position = UDim2.fromOffset(59, 10)
-        tombolHapus.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        tombolHapus.Text = "🗑"
-        tombolHapus.TextColor3 = Color3.new(1, 1, 1)
-        tombolHapus.Font = Enum.Font.GothamBold
-        tombolHapus.TextSize = 10
-        tombolHapus.Parent = item
+        local delBtn = Instance.new("TextButton")
+        delBtn.Size = UDim2.fromOffset(30, 20)
+        delBtn.Position = UDim2.fromOffset(59, 10)
+        delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+        delBtn.Text = "🗑"
+        delBtn.TextColor3 = Color3.new(1, 1, 1)
+        delBtn.Font = Enum.Font.GothamBold
+        delBtn.TextSize = 10
+        delBtn.Parent = item
         
-        local sudutHapus = Instance.new("UICorner")
-        sudutHapus.CornerRadius = UDim.new(0, 4)
-        sudutHapus.Parent = tombolHapus
+        local delCorner = Instance.new("UICorner")
+        delCorner.CornerRadius = UDim.new(0, 4)
+        delCorner.Parent = delBtn
         
-        -- Nama rekaman
-        local kotakNama = Instance.new("TextBox")
-        kotakNama.Size = UDim2.new(0, 85, 0, 20)
-        kotakNama.Position = UDim2.fromOffset(92, 10)
-        kotakNama.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        kotakNama.BorderSizePixel = 0
-        kotakNama.Text = namaCheckpoint[nama] or "Checkpoint" .. index
-        kotakNama.TextColor3 = Color3.fromRGB(255, 255, 255)
-        kotakNama.Font = Enum.Font.GothamBold
-        kotakNama.TextSize = 9
-        kotakNama.TextXAlignment = Enum.TextXAlignment.Center
-        kotakNama.PlaceholderText = "Nama"
-        kotakNama.ClearTextOnFocus = false
-        kotakNama.Parent = item
+        local nameBox = Instance.new("TextBox")
+        nameBox.Size = UDim2.new(0, 85, 0, 20)
+        nameBox.Position = UDim2.fromOffset(92, 10)
+        nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        nameBox.BorderSizePixel = 0
+        nameBox.Text = checkpointNames[name] or "Checkpoint1"
+        nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameBox.Font = Enum.Font.GothamBold
+        nameBox.TextSize = 9
+        nameBox.TextXAlignment = Enum.TextXAlignment.Center
+        nameBox.PlaceholderText = "Name"
+        nameBox.ClearTextOnFocus = false
+        nameBox.Parent = item
         
-        local sudutKotakNama = Instance.new("UICorner")
-        sudutKotakNama.CornerRadius = UDim.new(0, 3)
-        sudutKotakNama.Parent = kotakNama
+        local nameBoxCorner = Instance.new("UICorner")
+        nameBoxCorner.CornerRadius = UDim.new(0, 3)
+        nameBoxCorner.Parent = nameBox
         
-        -- Tombol naik/turun
-        local tombolNaik = Instance.new("TextButton")
-        tombolNaik.Size = UDim2.fromOffset(30, 20)
-        tombolNaik.Position = UDim2.new(1, -60, 0, 10)
-        tombolNaik.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
-        tombolNaik.Text = "↑"
-        tombolNaik.TextColor3 = Color3.new(1, 1, 1)
-        tombolNaik.Font = Enum.Font.GothamBold
-        tombolNaik.TextSize = 14
-        tombolNaik.Parent = item
+        local upBtn = Instance.new("TextButton")
+        upBtn.Size = UDim2.fromOffset(30, 20)
+        upBtn.Position = UDim2.new(1, -60, 0, 10)
+        upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
+        upBtn.Text = "↑"
+        upBtn.TextColor3 = Color3.new(1, 1, 1)
+        upBtn.Font = Enum.Font.GothamBold
+        upBtn.TextSize = 14
+        upBtn.Parent = item
         
-        local sudutNaik = Instance.new("UICorner")
-        sudutNaik.CornerRadius = UDim.new(0, 3)
-        sudutNaik.Parent = tombolNaik
+        local upCorner = Instance.new("UICorner")
+        upCorner.CornerRadius = UDim.new(0, 3)
+        upCorner.Parent = upBtn
         
-        local tombolTurun = Instance.new("TextButton")
-        tombolTurun.Size = UDim2.fromOffset(30, 20)
-        tombolTurun.Position = UDim2.new(1, -28, 0, 10)
-        tombolTurun.BackgroundColor3 = index < #UrutanRekaman and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
-        tombolTurun.Text = "↓"
-        tombolTurun.TextColor3 = Color3.new(1, 1, 1)
-        tombolTurun.Font = Enum.Font.GothamBold
-        tombolTurun.TextSize = 14
-        tombolTurun.Parent = item
+        local downBtn = Instance.new("TextButton")
+        downBtn.Size = UDim2.fromOffset(30, 20)
+        downBtn.Position = UDim2.new(1, -28, 0, 10)
+        downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 40)
+        downBtn.Text = "↓"
+        downBtn.TextColor3 = Color3.new(1, 1, 1)
+        downBtn.Font = Enum.Font.GothamBold
+        downBtn.TextSize = 14
+        downBtn.Parent = item
         
-        local sudutTurun = Instance.new("UICorner")
-        sudutTurun.CornerRadius = UDim.new(0, 3)
-        sudutTurun.Parent = tombolTurun
+        local downCorner = Instance.new("UICorner")
+        downCorner.CornerRadius = UDim.new(0, 3)
+        downCorner.Parent = downBtn
         
-        -- Info durasi
-        local labelInfo = Instance.new("TextLabel")
-        labelInfo.Size = UDim2.new(0, 180, 0, 16)
-        labelInfo.Position = UDim2.fromOffset(95, 22)
-        labelInfo.BackgroundTransparency = 1
-        if #rek > 0 then
-            local totalDetik = rek[#rek].Timestamp
-            labelInfo.Text = FormatDurasi(totalDetik) .. " • " .. #rek .. " frame"
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Size = UDim2.new(0, 180, 0, 16)
+        infoLabel.Position = UDim2.fromOffset(95, 22)
+        infoLabel.BackgroundTransparency = 1
+        if #rec > 0 then
+            local totalSeconds = rec[#rec].Timestamp
+            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
         else
-            labelInfo.Text = "0:00 • 0 frame"
+            infoLabel.Text = "0:00 • 0 frames"
         end
-        labelInfo.TextColor3 = Color3.fromRGB(200, 200, 220)
-        labelInfo.Font = Enum.Font.GothamBold
-        labelInfo.TextSize = 8
-        labelInfo.TextXAlignment = Enum.TextXAlignment.Left
-        labelInfo.Parent = item
+        infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+        infoLabel.Font = Enum.Font.GothamBold
+        infoLabel.TextSize = 8
+        infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        infoLabel.Parent = item
         
-        -- Event handlers
-        kotakNama.FocusLost:Connect(function()
-            local namaBaru = kotakNama.Text
-            if namaBaru and namaBaru ~= "" then
-                namaCheckpoint[nama] = namaBaru
-                MainkanSuara("Sukses")
+        nameBox.FocusLost:Connect(function()
+            local newName = nameBox.Text
+            if newName and newName ~= "" then
+                checkpointNames[name] = newName
+                PlaySound("Success")
             end
         end)
         
-        kotakCentang.MouseButton1Click:Connect(function()
-            RekamanTercentang[nama] = not RekamanTercentang[nama]
-            kotakCentang.Text = RekamanTercentang[nama] and "✓" or ""
-            AnimasiKlikTombol(kotakCentang)
+        checkBox.MouseButton1Click:Connect(function()
+            CheckedRecordings[name] = not CheckedRecordings[name]
+            checkBox.Text = CheckedRecordings[name] and "✓" or ""
+            AnimateButtonClick(checkBox)
         end)
         
-        tombolNaik.MouseButton1Click:Connect(function()
+        upBtn.MouseButton1Click:Connect(function()
             if index > 1 then 
-                AnimasiKlikTombol(tombolNaik)
-                PindahkanRekamanNaik(nama) 
+                AnimateButtonClick(upBtn)
+                MoveRecordingUp(name) 
             end
         end)
         
-        tombolTurun.MouseButton1Click:Connect(function()
-            if index < #UrutanRekaman then 
-                AnimasiKlikTombol(tombolTurun)
-                PindahkanRekamanTurun(nama) 
+        downBtn.MouseButton1Click:Connect(function()
+            if index < #RecordingOrder then 
+                AnimateButtonClick(downBtn)
+                MoveRecordingDown(name) 
             end
         end)
         
-        tombolPutar.MouseButton1Click:Connect(function()
-            if not SedangMain then 
-                AnimasiKlikTombol(tombolPutar)
-                MainkanRekaman(nama) 
+        playBtn.MouseButton1Click:Connect(function()
+            if not IsPlaying then 
+                AnimateButtonClick(playBtn)
+                PlayRecording(name) 
             end
         end)
         
-        tombolHapus.MouseButton1Click:Connect(function()
-            AnimasiKlikTombol(tombolHapus)
-            RekamanGerakan[nama] = nil
-            namaCheckpoint[nama] = nil
-            RekamanTercentang[nama] = nil
-            local idx = table.find(UrutanRekaman, nama)
-            if idx then table.remove(UrutanRekaman, idx) end
-            PerbaruiDaftarRekaman()
+        delBtn.MouseButton1Click:Connect(function()
+            AnimateButtonClick(delBtn)
+            RecordedMovements[name] = nil
+            checkpointNames[name] = nil
+            CheckedRecordings[name] = nil
+            local idx = table.find(RecordingOrder, name)
+            if idx then table.remove(RecordingOrder, idx) end
+            UpdateRecordList()
         end)
         
-        posisiY = posisiY + 43
+        yPos = yPos + 43
     end
     
-    DaftarRekaman.CanvasSize = UDim2.new(0, 0, 0, math.max(posisiY, DaftarRekaman.AbsoluteSize.Y))
+    RecordList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordList.AbsoluteSize.Y))
 end
 
--- ========= SISTEM SIMPAN/MUAT YANG DIPERBAIKI =========
-local function SimpanKeJSON()
-    local namaFile = KotakNamaFile.Text
-    if namaFile == "" then namaFile = "RekamanSaya" end
-    namaFile = namaFile .. ".json"
+local function UpdateStudioUI()
+    task.spawn(function()
+        StudioTitle.Text = ""
+    end)
+end
+
+local function ApplyFrameToCharacter(frame)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
     
-    local adaRekamanTercentang = false
-    for nama, tercentang in pairs(RekamanTercentang) do
-        if tercentang then
-            adaRekamanTercentang = true
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not hum then return end
+    
+    task.spawn(function()
+        local targetCFrame = GetFrameCFrame(frame)
+        hrp.CFrame = targetCFrame
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        
+        if hum then
+            hum.WalkSpeed = 0
+            hum.AutoRotate = false
+            
+            local moveState = frame.MoveState
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
+    end)
+end
+
+local function StartStudioRecording()
+    if StudioIsRecording then return end
+    
+    task.spawn(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            PlaySound("Error")
+            return
+        end
+        
+        StudioIsRecording = true
+        IsTimelineMode = false
+        StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+        lastStudioRecordTime = 0
+        lastStudioRecordPos = nil
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
+        
+        StartBtn.Text = "Stop"
+        StartBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 60)
+        RecordingLED.Visible = true
+        
+        PlaySound("RecordStart")
+        
+        recordConnection = RunService.Heartbeat:Connect(function()
+            task.spawn(function()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                    return
+                end
+                
+                local hrp = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                
+                if IsTimelineMode then
+                    return
+                end
+                
+                local now = tick()
+                if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                
+                local currentPos = hrp.Position
+                local currentVelocity = hrp.AssemblyLinearVelocity
+                
+                if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                    lastStudioRecordTime = now
+                    return
+                end
+                
+                local cf = hrp.CFrame
+                table.insert(StudioCurrentRecording.Frames, {
+                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                    MoveState = GetCurrentMoveState(hum),
+                    WalkSpeed = hum and hum.WalkSpeed or 16,
+                    Timestamp = now - StudioCurrentRecording.StartTime
+                })
+                
+                lastStudioRecordTime = now
+                lastStudioRecordPos = currentPos
+                CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                TimelinePosition = CurrentTimelineFrame
+                
+                UpdateStudioUI()
+            end)
+        end)
+    end)
+end
+
+local function StopStudioRecording()
+    StudioIsRecording = false
+    IsTimelineMode = false
+    
+    task.spawn(function()
+        if recordConnection then
+            recordConnection:Disconnect()
+            recordConnection = nil
+        end
+        
+        StartBtn.Text = "Start"
+        StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        RecordingLED.Visible = false
+        
+        PlaySound("RecordStop")
+    end)
+end
+
+local function GoBackTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        IsTimelineMode = true
+        
+        local targetFrame = math.max(1, TimelinePosition - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+        
+        TimelinePosition = targetFrame
+        CurrentTimelineFrame = targetFrame
+        
+        local frame = StudioCurrentRecording.Frames[targetFrame]
+        if frame then
+            ApplyFrameToCharacter(frame)
+            UpdateStudioUI()
+            PlaySound("Click")
+        end
+    end)
+end
+
+local function GoNextTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        IsTimelineMode = true
+        
+        local targetFrame = math.min(#StudioCurrentRecording.Frames, TimelinePosition + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+        
+        TimelinePosition = targetFrame
+        CurrentTimelineFrame = targetFrame
+        
+        local frame = StudioCurrentRecording.Frames[targetFrame]
+        if frame then
+            ApplyFrameToCharacter(frame)
+            UpdateStudioUI()
+            PlaySound("Click")
+        end
+    end)
+end
+
+local function ResumeStudioRecording()
+    if not StudioIsRecording then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        if #StudioCurrentRecording.Frames == 0 then
+            PlaySound("Error")
+            return
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            PlaySound("Error")
+            return
+        end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if TimelinePosition < #StudioCurrentRecording.Frames then
+            local newFrames = {}
+            for i = 1, TimelinePosition do
+                table.insert(newFrames, StudioCurrentRecording.Frames[i])
+            end
+            StudioCurrentRecording.Frames = newFrames
+            
+            if #StudioCurrentRecording.Frames > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+            end
+        end
+        
+        IsTimelineMode = false
+        lastStudioRecordTime = tick()
+        lastStudioRecordPos = hrp.Position
+        
+        if hum then
+            hum.WalkSpeed = CurrentWalkSpeed
+            hum.AutoRotate = true
+        end
+        
+        UpdateStudioUI()
+        PlaySound("Success")
+    end)
+end
+
+local function SaveStudioRecording()
+    task.spawn(function()
+        if #StudioCurrentRecording.Frames == 0 then
+            PlaySound("Error")
+            return
+        end
+        
+        if StudioIsRecording then
+            StopStudioRecording()
+        end
+        
+        RecordedMovements[StudioCurrentRecording.Name] = StudioCurrentRecording.Frames
+        table.insert(RecordingOrder, StudioCurrentRecording.Name)
+        checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
+        UpdateRecordList()
+        
+        PlaySound("Success")
+        
+        StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+        IsTimelineMode = false
+        CurrentTimelineFrame = 0
+        TimelinePosition = 0
+        UpdateStudioUI()
+        
+        wait(1)
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end
+
+StartBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(StartBtn)
+        if StudioIsRecording then
+            StopStudioRecording()
+        else
+            StartStudioRecording()
+        end
+    end)
+end)
+
+PrevBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(PrevBtn)
+        GoBackTimeline()
+    end)
+end)
+
+NextBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(NextBtn)
+        GoNextTimeline()
+    end)
+end)
+
+ResumeBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(ResumeBtn)
+        ResumeStudioRecording()
+    end)
+end)
+
+SaveBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(SaveBtn)
+        SaveStudioRecording()
+    end)
+end)
+
+CloseStudioBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(CloseStudioBtn)
+        if StudioIsRecording then
+            StopStudioRecording()
+        end
+        RecordingStudio.Visible = false
+        MainFrame.Visible = true
+    end)
+end)
+
+-- ========= FIXED SAVE/LOAD SYSTEM =========
+local function SaveToObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local hasCheckedRecordings = false
+    for name, checked in pairs(CheckedRecordings) do
+        if checked then
+            hasCheckedRecordings = true
             break
         end
     end
     
-    if not adaRekamanTercentang then
-        MainkanSuara("Error")
+    if not hasCheckedRecordings then
+        PlaySound("Error")
         return
     end
     
-    local berhasil, err = pcall(function()
-        local dataSimpan = {
-            Versi = "2.1",
-            Terobfuscate = true,
-            Checkpoint = {},
-            UrutanRekaman = {},
-            NamaCheckpoint = {}
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "2.1",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
         }
         
-        for _, nama in ipairs(UrutanRekaman) do
-            if RekamanTercentang[nama] then
-                local frame = RekamanGerakan[nama]
-                if frame then
-                    local dataCheckpoint = {
-                        Nama = nama,
-                        NamaTampilan = namaCheckpoint[nama] or "checkpoint",
-                        Frame = frame
+        for _, name in ipairs(RecordingOrder) do
+            if CheckedRecordings[name] then
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
                     }
-                    table.insert(dataSimpan.Checkpoint, dataCheckpoint)
-                    table.insert(dataSimpan.UrutanRekaman, nama)
-                    dataSimpan.NamaCheckpoint[nama] = namaCheckpoint[nama]
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
                 end
             end
         end
         
-        local rekamanUntukObfuscate = {}
-        for _, nama in ipairs(dataSimpan.UrutanRekaman) do
-            rekamanUntukObfuscate[nama] = RekamanGerakan[nama]
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
         end
         
-        local dataTerobfuscate = ObfuscateDataRekaman(rekamanUntukObfuscate)
-        dataSimpan.FrameTerobfuscate = dataTerobfuscate
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
         
-        local stringJSON = HttpService:JSONEncode(dataSimpan)
+        local jsonString = HttpService:JSONEncode(saveData)
         
-        -- PERBAIKAN: Gunakan writefile dengan aman
+        -- FIX: Gunakan writefile dengan aman
         if writefile then
-            writefile(namaFile, stringJSON)
-            MainkanSuara("Sukses")
+            writefile(filename, jsonString)
+            PlaySound("Success")
         else
-            MainkanSuara("Error")
+            PlaySound("Error")
         end
     end)
     
-    if not berhasil then
-        MainkanSuara("Error")
+    if not success then
+        PlaySound("Error")
     end
 end
 
-local function MuatDariJSON()
-    local namaFile = KotakNamaFile.Text
-    if namaFile == "" then namaFile = "RekamanSaya" end
-    namaFile = namaFile .. ".json"
+local function LoadFromObfuscatedJSON()
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
     
-    local berhasil, err = pcall(function()
-        -- PERBAIKAN: Cek apakah file exists dengan aman
+    local success, err = pcall(function()
+        -- FIX: Cek apakah file exists dengan aman
         if not isfile or not readfile then
-            MainkanSuara("Error")
+            PlaySound("Error")
             return
         end
         
-        if not isfile(namaFile) then
-            MainkanSuara("Error")
+        if not isfile(filename) then
+            PlaySound("Error")
             return
         end
         
-        local stringJSON = readfile(namaFile)
-        local dataSimpan = HttpService:JSONDecode(stringJSON)
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
         
-        RekamanGerakan = {}
-        UrutanRekaman = dataSimpan.UrutanRekaman or {}
-        namaCheckpoint = dataSimpan.NamaCheckpoint or {}
-        RekamanTercentang = {}
+        RecordedMovements = {}
+        RecordingOrder = saveData.RecordingOrder or {}
+        checkpointNames = saveData.CheckpointNames or {}
+        CheckedRecordings = {}
         
-        if dataSimpan.Terobfuscate and dataSimpan.FrameTerobfuscate then
-            local dataTerdeobfuscate = DeobfuscateDataRekaman(dataSimpan.FrameTerobfuscate)
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
-            for _, dataCheckpoint in ipairs(dataSimpan.Checkpoint or {}) do
-                local nama = dataCheckpoint.Nama
-                local frame = dataTerdeobfuscate[nama]
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
                 
-                if frame then
-                    RekamanGerakan[nama] = frame
-                    if not table.find(UrutanRekaman, nama) then
-                        table.insert(UrutanRekaman, nama)
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
                     end
                 end
             end
         else
-            for _, dataCheckpoint in ipairs(dataSimpan.Checkpoint or {}) do
-                local nama = dataCheckpoint.Nama
-                local frame = dataCheckpoint.Frame
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
                 
-                if frame then
-                    RekamanGerakan[nama] = frame
-                    if not table.find(UrutanRekaman, nama) then
-                        table.insert(UrutanRekaman, nama)
+                if frames then
+                    RecordedMovements[name] = frames
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
                     end
                 end
             end
         end
         
-        PerbaruiDaftarRekaman()
-        MainkanSuara("Sukses")
+        UpdateRecordList()
+        PlaySound("Success")
     end)
     
-    if not berhasil then
-        MainkanSuara("Error")
+    if not success then
+        PlaySound("Error")
     end
 end
 
--- ========= VISUALISASI JALUR YANG DIPERBAIKI =========
-local function VisualisasiSemuaJalur()
-    HapusVisualisasiJalur()
+-- ========= FIXED PATH VISUALIZATION =========
+local function VisualizeAllPaths()
+    ClearPathVisualization()
     
-    if not TampilkanJalur then return end
+    if not ShowPaths then return end
     
-    for _, nama in ipairs(UrutanRekaman) do
-        local rekaman = RekamanGerakan[nama]
-        if not rekaman or #rekaman < 2 then continue end
+    for _, name in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[name]
+        if not recording or #recording < 2 then continue end
         
-        local posisiSebelum = Vector3.new(
-            rekaman[1].Posisi[1],
-            rekaman[1].Posisi[2], 
-            rekaman[1].Posisi[3]
+        local previousPos = Vector3.new(
+            recording[1].Position[1],
+            recording[1].Position[2], 
+            recording[1].Position[3]
         )
         
-        for i = 2, #rekaman, 3 do
-            local frame = rekaman[i]
-            local posisiSekarang = Vector3.new(frame.Posisi[1], frame.Posisi[2], frame.Posisi[3])
+        for i = 2, #recording, 3 do
+            local frame = recording[i]
+            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
             
-            if (posisiSekarang - posisiSebelum).Magnitude > 0.5 then
-                BuatSegmenJalur(posisiSebelum, posisiSekarang)
-                posisiSebelum = posisiSekarang
+            if (currentPos - previousPos).Magnitude > 0.5 then
+                CreatePathSegment(previousPos, currentPos)
+                previousPos = currentPos
             end
         end
     end
 end
 
--- ========= SISTEM PUTAR CERDAS YANG DIPERBAIKI =========
-function PutarRekamanCerdas(jarakMaks)
-    if SedangMain then return end
+-- ========= IMPROVED SMART PLAYBACK SYSTEM =========
+function SmartPlayRecording(maxDistance)
+    if IsPlaying then return end
     
-    local karakter = player.Character
-    if not karakter or not karakter:FindFirstChild("HumanoidRootPart") then
-        MainkanSuara("Error")
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
         return
     end
 
-    local posisiSekarang = karakter.HumanoidRootPart.Position
-    local rekamanTerbaik = nil
-    local frameTerbaik = 1
-    local jarakTerbaik = math.huge
-    local namaTerbaik = nil
+    local currentPos = char.HumanoidRootPart.Position
+    local bestRecording = nil
+    local bestFrame = 1
+    local bestDistance = math.huge
+    local bestRecordingName = nil
     
-    for _, namaRekaman in ipairs(UrutanRekaman) do
-        local rekaman = RekamanGerakan[namaRekaman]
-        if rekaman and #rekaman > 0 then
-            local frameTerdekat, jarakFrame = CariFrameTerdekat(rekaman, posisiSekarang)
+    for _, recordingName in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[recordingName]
+        if recording and #recording > 0 then
+            local nearestFrame, frameDistance = FindNearestFrame(recording, currentPos)
             
-            if jarakFrame < jarakTerbaik and jarakFrame <= (jarakMaks or 40) then
-                jarakTerbaik = jarakFrame
-                rekamanTerbaik = rekaman
-                frameTerbaik = frameTerdekat
-                namaTerbaik = namaRekaman
+            if frameDistance < bestDistance and frameDistance <= (maxDistance or 40) then
+                bestDistance = frameDistance
+                bestRecording = recording
+                bestFrame = nearestFrame
+                bestRecordingName = recordingName
             end
         end
     end
     
-    if rekamanTerbaik then
-        PutarDariFrameTertentu(rekamanTerbaik, frameTerbaik, namaTerbaik)
+    if bestRecording then
+        PlayFromSpecificFrame(bestRecording, bestFrame, bestRecordingName)
     else
-        local rekamanPertama = UrutanRekaman[1] and RekamanGerakan[UrutanRekaman[1]]
-        if rekamanPertama then
-            PutarDariFrameTertentu(rekamanPertama, 1, UrutanRekaman[1])
+        local firstRecording = RecordingOrder[1] and RecordedMovements[RecordingOrder[1]]
+        if firstRecording then
+            PlayFromSpecificFrame(firstRecording, 1, RecordingOrder[1])
         else
-            MainkanSuara("Error")
+            PlaySound("Error")
         end
     end
 end
 
-function PutarDariFrameTertentu(rekaman, frameAwal, namaRekaman)
-    if SedangMain then return end
+function PlayFromSpecificFrame(recording, startFrame, recordingName)
+    if IsPlaying then return end
     
-    local karakter = player.Character
-    if not karakter or not karakter:FindFirstChild("HumanoidRootPart") then
-        MainkanSuara("Error")
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        PlaySound("Error")
         return
     end
 
-    SedangMain = true
-    SedangJeda = false
-    RekamanYangDimainkan = rekaman
-    DijedaDiFrame = 0
-    akumulatorPutar = 0
+    IsPlaying = true
+    IsPaused = false
+    CurrentPlayingRecording = recording
+    PausedAtFrame = 0
+    playbackAccumulator = 0
     
-    local hrp = karakter:FindFirstChild("HumanoidRootPart")
-    local posisiSekarang = hrp.Position
-    local frameTarget = rekaman[frameAwal]
-    local posTarget = DapatkanPosisiFrame(frameTarget)
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local currentPos = hrp.Position
+    local targetFrame = recording[startFrame]
+    local targetPos = GetFramePosition(targetFrame)
     
-    local jarak = (posisiSekarang - posTarget).Magnitude
-    local waktuTransisi = math.min(DURASI_TRANSISI_HALUS, jarak / 50)
+    local distance = (currentPos - targetPos).Magnitude
+    local transitionTime = math.min(SMOOTH_TRANSITION_DURATION, distance / 50)
     
-    if jarak > 5 then
-        local cframeTransisi = CFrame.lookAt(posisiSekarang, posTarget)
-        hrp.CFrame = cframeTransisi
+    if distance > 5 then
+        local transitionCFrame = CFrame.lookAt(currentPos, targetPos)
+        hrp.CFrame = transitionCFrame
         
-        local infoTween = TweenInfo.new(waktuTransisi, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        TweenService:Create(hrp, infoTween, {CFrame = DapatkanCFrameFrame(frameTarget)}):Play()
-        task.wait(waktuTransisi)
+        local tweenInfo = TweenInfo.new(transitionTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)}):Play()
+        task.wait(transitionTime)
     end
     
-    framePutarSekarang = frameAwal
-    waktuMulaiPutar = tick() - (DapatkanTimestampFrame(rekaman[frameAwal]) / KecepatanSekarang)
-    totalDurasiJeda = 0
-    waktuMulaiJeda = 0
-    statePutarTerakhir = nil
-    waktuGantiStateTerakhir = 0
+    currentPlaybackFrame = startFrame
+    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
+    totalPausedDuration = 0
+    pauseStartTime = 0
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
 
-    SimpanStateHumanoid()
-    MainkanSuara("Main")
+    SaveHumanoidState()
+    PlaySound("Play")
     
-    TombolPutarKontrol.Text = "BERHENTI"
-    TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    PlayBtnControl.Text = "STOP"
+    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
-    koneksiPutar = RunService.Heartbeat:Connect(function(deltaTime)
-        if not SedangMain then
-            koneksiPutar:Disconnect()
-            KembalikanKontrolPenuh()
-            PerbaruiPenandaJeda()
-            statePutarTerakhir = nil
-            waktuGantiStateTerakhir = 0
-            TombolPutarKontrol.Text = "MAIN"
-            TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            PerbaruiStatusTombolPutar()
+    playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not IsPlaying then
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
             return
         end
         
-        local karakter = player.Character
-        if not karakter or not karakter:FindFirstChild("HumanoidRootPart") then
-            SedangMain = false
-            KembalikanKontrolPenuh()
-            PerbaruiPenandaJeda()
-            statePutarTerakhir = nil
-            waktuGantiStateTerakhir = 0
-            TombolPutarKontrol.Text = "MAIN"
-            TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            PerbaruiStatusTombolPutar()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            IsPlaying = false
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
             return
         end
         
-        local hum = karakter:FindFirstChildOfClass("Humanoid")
-        local hrp = karakter:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
         if not hum or not hrp then
-            SedangMain = false
-            KembalikanKontrolPenuh()
-            PerbaruiPenandaJeda()
-            statePutarTerakhir = nil
-            waktuGantiStateTerakhir = 0
-            TombolPutarKontrol.Text = "MAIN"
-            TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            PerbaruiStatusTombolPutar()
+            IsPlaying = false
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
             return
         end
 
-        akumulatorPutar = akumulatorPutar + deltaTime
+        playbackAccumulator = playbackAccumulator + deltaTime
         
-        while akumulatorPutar >= INTERVAL_WAKTU_TETAP do
-            akumulatorPutar = akumulatorPutar - INTERVAL_WAKTU_TETAP
+        while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+            playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
             
-            local waktuSekarang = tick()
-            local waktuEfektif = (waktuSekarang - waktuMulaiPutar - totalDurasiJeda) * KecepatanSekarang
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
             
-            while framePutarSekarang < #rekaman and DapatkanTimestampFrame(rekaman[framePutarSekarang + 1]) <= waktuEfektif do
-                framePutarSekarang = framePutarSekarang + 1
+            while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
+                currentPlaybackFrame = currentPlaybackFrame + 1
             end
 
-            if framePutarSekarang >= #rekaman then
-                SedangMain = false
-                KembalikanKontrolPenuh()
-                MainkanSuara("Sukses")
-                PerbaruiPenandaJeda()
-                statePutarTerakhir = nil
-                waktuGantiStateTerakhir = 0
-                TombolPutarKontrol.Text = "MAIN"
-                TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                PerbaruiStatusTombolPutar()
+            if currentPlaybackFrame >= #recording then
+                IsPlaying = false
+                RestoreFullUserControl()
+                PlaySound("Success")
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                UpdatePlayButtonStatus()
                 return
             end
 
-            local frame = rekaman[framePutarSekarang]
+            local frame = recording[currentPlaybackFrame]
             if not frame then
-                SedangMain = false
-                KembalikanKontrolPenuh()
-                PerbaruiPenandaJeda()
-                statePutarTerakhir = nil
-                waktuGantiStateTerakhir = 0
-                TombolPutarKontrol.Text = "MAIN"
-                TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                PerbaruiStatusTombolPutar()
+                IsPlaying = false
+                RestoreFullUserControl()
+                UpdatePauseMarker()
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                PlayBtnControl.Text = "PLAY"
+                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                UpdatePlayButtonStatus()
                 return
             end
 
             task.spawn(function()
-                hrp.CFrame = DapatkanCFrameFrame(frame)
-                hrp.AssemblyLinearVelocity = DapatkanKecepatanFrame(frame)
+                hrp.CFrame = GetFrameCFrame(frame)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                 
                 if hum then
-                    hum.WalkSpeed = DapatkanKecepatanJalanFrame(frame) * KecepatanSekarang
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                     hum.AutoRotate = false
                     
-                    statePutarTerakhir, waktuGantiStateTerakhir = ProsesStateHumanoid(
-                        hum, frame, statePutarTerakhir, waktuGantiStateTerakhir
+                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                        hum, frame, lastPlaybackState, lastStateChangeTime
                     )
                 end
                 
-                if ShiftLockAktif then
-                    TerapkanShiftLockTerlihat()
+                if ShiftLockEnabled then
+                    ApplyVisibleShiftLock()
                 end
             end)
         end
     end)
     
-    TambahkanKoneksi(koneksiPutar)
-    PerbaruiStatusTombolPutar()
+    AddConnection(playbackConnection)
+    UpdatePlayButtonStatus()
 end
 
-function MainkanRekaman(nama)
-    if nama then
-        local rekaman = RekamanGerakan[nama]
-        if rekaman then
-            PutarDariFrameTertentu(rekaman, 1, nama)
+function PlayRecording(name)
+    if name then
+        local recording = RecordedMovements[name]
+        if recording then
+            PlayFromSpecificFrame(recording, 1, name)
         end
     else
-        PutarRekamanCerdas(40)
+        SmartPlayRecording(40)
     end
 end
 
--- ========= SISTEM AUTO LOOP YANG DIPERBAIKI =========
-function MulaiAutoLoopSemua()
+-- ========= FIXED AUTO LOOP SYSTEM =========
+function StartAutoLoopAll()
     if not AutoLoop then return end
     
-    if #UrutanRekaman == 0 then
+    if #RecordingOrder == 0 then
         AutoLoop = false
-        AnimasiLoopKontrol(false)
-        MainkanSuara("Error")
+        AnimateLoopControl(false)
+        PlaySound("Error")
         return
     end
     
-    MainkanSuara("Main")
+    PlaySound("Play")
     
-    IndexLoopSekarang = 1
-    SedangAutoLoop = true
-    statePutarTerakhir = nil
-    waktuGantiStateTerakhir = 0
+    CurrentLoopIndex = 1
+    IsAutoLoopPlaying = true
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     
-    TombolPutarKontrol.Text = "BERHENTI"
-    TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    PlayBtnControl.Text = "STOP"
+    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     
-    koneksiLoop = task.spawn(function()
-        while AutoLoop and SedangAutoLoop do
-            if not AutoLoop or not SedangAutoLoop then
+    loopConnection = task.spawn(function()
+        while AutoLoop and IsAutoLoopPlaying do
+            if not AutoLoop or not IsAutoLoopPlaying then
                 break
             end
             
-            -- Cari rekaman berikutnya yang valid
-            local rekamanUntukDimainkan = nil
-            local namaRekamanUntukDimainkan = nil
-            local percobaan = 0
+            -- Cari recording berikutnya yang valid
+            local recordingToPlay = nil
+            local recordingNameToPlay = nil
+            local attempts = 0
             
-            while percobaan < #UrutanRekaman do
-                namaRekamanUntukDimainkan = UrutanRekaman[IndexLoopSekarang]
-                rekamanUntukDimainkan = RekamanGerakan[namaRekamanUntukDimainkan]
+            while attempts < #RecordingOrder do
+                recordingNameToPlay = RecordingOrder[CurrentLoopIndex]
+                recordingToPlay = RecordedMovements[recordingNameToPlay]
                 
-                if rekamanUntukDimainkan and #rekamanUntukDimainkan > 0 then
+                if recordingToPlay and #recordingToPlay > 0 then
                     break
                 else
-                    -- Skip rekaman kosong dan lanjut ke berikutnya
-                    IndexLoopSekarang = IndexLoopSekarang + 1
-                    if IndexLoopSekarang > #UrutanRekaman then
-                        IndexLoopSekarang = 1
+                    -- Skip recording kosong dan lanjut ke berikutnya
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
                     end
-                    percobaan = percobaan + 1
+                    attempts = attempts + 1
                 end
             end
             
-            if not rekamanUntukDimainkan or #rekamanUntukDimainkan == 0 then
-                -- Semua rekaman kosong, reset ke #1
-                IndexLoopSekarang = 1
+            if not recordingToPlay or #recordingToPlay == 0 then
+                -- Semua recording kosong, reset ke #1
+                CurrentLoopIndex = 1
                 task.wait(1)
                 continue
             end
             
-            if not ApakahKarakterSiap() then
+            if not IsCharacterReady() then
                 if AutoRespawn then
-                    ResetKarakter()
-                    local berhasil = TungguRespawn()
-                    if not berhasil then
+                    ResetCharacter()
+                    local success = WaitForRespawn()
+                    if not success then
                         task.wait(2)
                         continue
                     end
                     task.wait(1.5)
                 else
-                    local percobaanTunggu = 0
-                    local percobaanTungguMaks = 60
+                    local waitAttempts = 0
+                    local maxWaitAttempts = 60
                     
-                    while not ApakahKarakterSiap() and AutoLoop and SedangAutoLoop do
-                        percobaanTunggu = percobaanTunggu + 1
+                    while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                        waitAttempts = waitAttempts + 1
                         
-                        if percobaanTunggu >= percobaanTungguMaks then
+                        if waitAttempts >= maxWaitAttempts then
                             AutoLoop = false
-                            SedangAutoLoop = false
-                            AnimasiLoopKontrol(false)
-                            MainkanSuara("Error")
+                            IsAutoLoopPlaying = false
+                            AnimateLoopControl(false)
+                            PlaySound("Error")
                             break
                         end
                         
                         task.wait(0.5)
                     end
                     
-                    if not AutoLoop or not SedangAutoLoop then break end
+                    if not AutoLoop or not IsAutoLoopPlaying then break end
                     task.wait(1.0)
                 end
             end
             
-            if not AutoLoop or not SedangAutoLoop then break end
+            if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            local pemutaranSelesai = false
-            local waktuMulaiPutar = tick()
-            local frameSekarang = 1
-            local jumlahMatiUlang = 0
-            local maksMatiUlang = 999999
-            local akumulatorLoop = 0
+            local playbackCompleted = false
+            local playbackStart = tick()
+            local currentFrame = 1
+            local deathRetryCount = 0
+            local maxDeathRetries = 999999
+            local loopAccumulator = 0
             
-            statePutarTerakhir = nil
-            waktuGantiStateTerakhir = 0
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             
-            SimpanStateHumanoid()
+            SaveHumanoidState()
             
-            -- Resume cerdas untuk auto loop
-            local karakter = player.Character
-            if karakter and karakter:FindFirstChild("HumanoidRootPart") then
-                local posisiSekarang = karakter.HumanoidRootPart.Position
-                local frameTerdekat, jarakFrame = CariFrameTerdekat(rekamanUntukDimainkan, posisiSekarang)
-                if jarakFrame <= 40 then
-                    frameSekarang = frameTerdekat
-                    waktuMulaiPutar = tick() - (DapatkanTimestampFrame(rekamanUntukDimainkan[frameTerdekat]) / KecepatanSekarang)
+            -- Smart resume untuk auto loop
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local currentPos = char.HumanoidRootPart.Position
+                local nearestFrame, frameDistance = FindNearestFrame(recordingToPlay, currentPos)
+                if frameDistance <= 40 then
+                    currentFrame = nearestFrame
+                    playbackStart = tick() - (GetFrameTimestamp(recordingToPlay[nearestFrame]) / CurrentSpeed)
                 end
             end
             
-            while AutoLoop and SedangAutoLoop and frameSekarang <= #rekamanUntukDimainkan and jumlahMatiUlang < maksMatiUlang do
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
                 
-                if not ApakahKarakterSiap() then
-                    jumlahMatiUlang = jumlahMatiUlang + 1
+                if not IsCharacterReady() then
+                    deathRetryCount = deathRetryCount + 1
                     
                     if AutoRespawn then
-                        ResetKarakter()
-                        local berhasil = TungguRespawn()
+                        ResetCharacter()
+                        local success = WaitForRespawn()
                         
-                        if berhasil then
-                            KembalikanKontrolPenuh()
+                        if success then
+                            RestoreFullUserControl()
                             task.wait(1.5)
                             
-                            -- Tetap lanjut dari rekaman yang sama, tapi dari awal
-                            frameSekarang = 1
-                            waktuMulaiPutar = tick()
-                            statePutarTerakhir = nil
-                            waktuGantiStateTerakhir = 0
-                            akumulatorLoop = 0
+                            -- Tetap lanjut dari recording yang sama, tapi dari awal
+                            currentFrame = 1
+                            playbackStart = tick()
+                            lastPlaybackState = nil
+                            lastStateChangeTime = 0
+                            loopAccumulator = 0
                             
-                            SimpanStateHumanoid()
+                            SaveHumanoidState()
                             continue
                         else
                             task.wait(2)
                             continue
                         end
                     else
-                        local tungguRespawnManual = 0
-                        local tungguMaksManual = 60
+                        local manualRespawnWait = 0
+                        local maxManualWait = 60
                         
-                        while not ApakahKarakterSiap() and AutoLoop and SedangAutoLoop do
-                            tungguRespawnManual = tungguRespawnManual + 1
+                        while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
+                            manualRespawnWait = manualRespawnWait + 1
                             
-                            if tungguRespawnManual >= tungguMaksManual then
+                            if manualRespawnWait >= maxManualWait then
                                 AutoLoop = false
-                                SedangAutoLoop = false
-                                AnimasiLoopKontrol(false)
-                                MainkanSuara("Error")
+                                IsAutoLoopPlaying = false
+                                AnimateLoopControl(false)
+                                PlaySound("Error")
                                 break
                             end
                             
                             task.wait(0.5)
                         end
                         
-                        if not AutoLoop or not SedangAutoLoop then break end
+                        if not AutoLoop or not IsAutoLoopPlaying then break end
                         
-                        KembalikanKontrolPenuh()
+                        RestoreFullUserControl()
                         task.wait(1.5)
                         
-                        frameSekarang = 1
-                        waktuMulaiPutar = tick()
-                        statePutarTerakhir = nil
-                        waktuGantiStateTerakhir = 0
-                        akumulatorLoop = 0
+                        currentFrame = 1
+                        playbackStart = tick()
+                        lastPlaybackState = nil
+                        lastStateChangeTime = 0
+                        loopAccumulator = 0
                         
-                        SimpanStateHumanoid()
+                        SaveHumanoidState()
                         continue
                     end
                 end
                 
-                local karakter = player.Character
-                if not karakter or not karakter:FindFirstChild("HumanoidRootPart") then
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
                     task.wait(0.5)
                     break
                 end
                 
-                local hum = karakter:FindFirstChildOfClass("Humanoid")
-                local hrp = karakter:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
                 if not hum or not hrp then
                     task.wait(0.5)
                     break
                 end
                 
                 local deltaTime = task.wait()
-                akumulatorLoop = akumulatorLoop + deltaTime
+                loopAccumulator = loopAccumulator + deltaTime
                 
-                while akumulatorLoop >= INTERVAL_WAKTU_TETAP do
-                    akumulatorLoop = akumulatorLoop - INTERVAL_WAKTU_TETAP
+                while loopAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+                    loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
                     
-                    local waktuSekarang = tick()
-                    local waktuEfektif = (waktuSekarang - waktuMulaiPutar) * KecepatanSekarang
+                    local currentTime = tick()
+                    local effectiveTime = (currentTime - playbackStart) * CurrentSpeed
                     
-                    while frameSekarang < #rekamanUntukDimainkan and DapatkanTimestampFrame(rekamanUntukDimainkan[frameSekarang + 1]) <= waktuEfektif do
-                        frameSekarang = frameSekarang + 1
+                    while currentFrame < #recordingToPlay and GetFrameTimestamp(recordingToPlay[currentFrame + 1]) <= effectiveTime do
+                        currentFrame = currentFrame + 1
                     end
                     
-                    if frameSekarang >= #rekamanUntukDimainkan then
-                        pemutaranSelesai = true
+                    if currentFrame >= #recordingToPlay then
+                        playbackCompleted = true
                         break
                     end
                     
-                    local frame = rekamanUntukDimainkan[frameSekarang]
+                    local frame = recordingToPlay[currentFrame]
                     if frame then
                         task.spawn(function()
-                            hrp.CFrame = DapatkanCFrameFrame(frame)
-                            hrp.AssemblyLinearVelocity = DapatkanKecepatanFrame(frame)
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
                             if hum then
-                                hum.WalkSpeed = DapatkanKecepatanJalanFrame(frame) * KecepatanSekarang
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                                 hum.AutoRotate = false
                                 
-                                statePutarTerakhir, waktuGantiStateTerakhir = ProsesStateHumanoid(
-                                    hum, frame, statePutarTerakhir, waktuGantiStateTerakhir
+                                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                                    hum, frame, lastPlaybackState, lastStateChangeTime
                                 )
                             end
         
-                            if ShiftLockAktif then
-                                TerapkanShiftLockTerlihat()
+                            if ShiftLockEnabled then
+                                ApplyVisibleShiftLock()
                             end
                         end)
                     end
                 end
                 
-                if pemutaranSelesai then
+                if playbackCompleted then
                     break
                 end
             end
             
-            KembalikanKontrolPenuh()
-            statePutarTerakhir = nil
-            waktuGantiStateTerakhir = 0
+            RestoreFullUserControl()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
             
-            if pemutaranSelesai then
-                MainkanSuara("Sukses")
+            if playbackCompleted then
+                PlaySound("Success")
                 
-                -- PERBAIKAN: Selalu kembali ke urutan #1 setelah selesai semua rekaman
-                IndexLoopSekarang = IndexLoopSekarang + 1
-                if IndexLoopSekarang > #UrutanRekaman then
-                    IndexLoopSekarang = 1
+                -- FIX: Selalu kembali ke urutan #1 setelah selesai semua recording
+                CurrentLoopIndex = CurrentLoopIndex + 1
+                if CurrentLoopIndex > #RecordingOrder then
+                    CurrentLoopIndex = 1
                 end
                 
                 task.wait(0.5)
             else
-                if not AutoLoop or not SedangAutoLoop then
+                if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
-                    -- Jika mati/error, tetap increment ke rekaman berikutnya
-                    IndexLoopSekarang = IndexLoopSekarang + 1
-                    if IndexLoopSekarang > #UrutanRekaman then
-                        IndexLoopSekarang = 1
+                    -- Jika mati/error, tetap increment ke recording berikutnya
+                    CurrentLoopIndex = CurrentLoopIndex + 1
+                    if CurrentLoopIndex > #RecordingOrder then
+                        CurrentLoopIndex = 1
                     end
                     task.wait(1)
                 end
             end
         end
         
-        SedangAutoLoop = false
-        KembalikanKontrolPenuh()
-        statePutarTerakhir = nil
-        waktuGantiStateTerakhir = 0
-        TombolPutarKontrol.Text = "MAIN"
-        TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        PerbaruiStatusTombolPutar()
+        IsAutoLoopPlaying = false
+        RestoreFullUserControl()
+        lastPlaybackState = nil
+        lastStateChangeTime = 0
+        PlayBtnControl.Text = "PLAY"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        UpdatePlayButtonStatus()
     end)
 end
 
-function HentikanAutoLoopSemua()
+function StopAutoLoopAll()
     AutoLoop = false
-    SedangAutoLoop = false
-    SedangMain = false
-    statePutarTerakhir = nil
-    waktuGantiStateTerakhir = 0
+    IsAutoLoopPlaying = false
+    IsPlaying = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
     
-    if koneksiLoop then
-        task.cancel(koneksiLoop)
-        koneksiLoop = nil
+    if loopConnection then
+        task.cancel(loopConnection)
+        loopConnection = nil
     end
     
-    KembalikanKontrolPenuh()
+    RestoreFullUserControl()
     
-    local karakter = player.Character
-    if karakter then ResetKarakterLengkap(karakter) end
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
     
-    MainkanSuara("Berhenti")
-    TombolPutarKontrol.Text = "MAIN"
-    TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    PerbaruiStatusTombolPutar()
+    PlaySound("Stop")
+    PlayBtnControl.Text = "PLAY"
+    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    UpdatePlayButtonStatus()
 end
 
-function HentikanPemutaran()
+function StopPlayback()
     if AutoLoop then
-        HentikanAutoLoopSemua()
-        AnimasiLoopKontrol(false)
+        StopAutoLoopAll()
+        AnimateLoopControl(false)
     end
     
-    if not SedangMain then return end
-    SedangMain = false
-    statePutarTerakhir = nil
-    waktuGantiStateTerakhir = 0
-    PosisiJedaTerakhir = nil
-    RekamanJedaTerakhir = nil
-    KembalikanKontrolPenuh()
+    if not IsPlaying then return end
+    IsPlaying = false
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
+    LastPausePosition = nil
+    LastPauseRecording = nil
+    RestoreFullUserControl()
     
-    local karakter = player.Character
-    if karakter then ResetKarakterLengkap(karakter) end
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
     
-    MainkanSuara("Berhenti")
-    TombolPutarKontrol.Text = "MAIN"
-    TombolPutarKontrol.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    PerbaruiStatusTombolPutar()
+    PlaySound("Stop")
+    PlayBtnControl.Text = "PLAY"
+    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    UpdatePlayButtonStatus()
 end
 
--- ========= KONTROL PUTAR YANG DISEDERHANAKAN =========
-TombolPutarKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolPutarKontrol)
-    if SedangMain or SedangAutoLoop then
-        HentikanPemutaran()
+-- ========= SIMPLIFIED PLAYBACK CONTROL =========
+PlayBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PlayBtnControl)
+    if IsPlaying or IsAutoLoopPlaying then
+        StopPlayback()
     else
         if AutoLoop then
-            MulaiAutoLoopSemua()
+            StartAutoLoopAll()
         else
-            PutarRekamanCerdas(40)
+            SmartPlayRecording(40)
         end
     end
 end)
 
-TombolLoopKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolLoopKontrol)
+LoopBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(LoopBtnControl)
     AutoLoop = not AutoLoop
-    AnimasiLoopKontrol(AutoLoop)
+    AnimateLoopControl(AutoLoop)
     
     if AutoLoop then
-        if not next(RekamanGerakan) then
+        if not next(RecordedMovements) then
             AutoLoop = false
-            AnimasiLoopKontrol(false)
+            AnimateLoopControl(false)
             return
         end
         
-        if SedangMain then
-            SedangMain = false
-            KembalikanKontrolPenuh()
+        if IsPlaying then
+            IsPlaying = false
+            RestoreFullUserControl()
         end
         
-        MulaiAutoLoopSemua()
+        StartAutoLoopAll()
     else
-        HentikanAutoLoopSemua()
+        StopAutoLoopAll()
     end
 end)
 
-TombolShiftLockKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolShiftLockKontrol)
-    ToggleShiftLockTerlihat()
-    AnimasiShiftLockKontrol(ShiftLockAktif)
+ShiftLockBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(ShiftLockBtnControl)
+    ToggleVisibleShiftLock()
+    AnimateShiftLockControl(ShiftLockEnabled)
 end)
 
-TombolRespawnKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolRespawnKontrol)
+RespawnBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(RespawnBtnControl)
     AutoRespawn = not AutoRespawn
-    AnimasiRespawnKontrol(AutoRespawn)
-    MainkanSuara("Toggle")
+    AnimateRespawnControl(AutoRespawn)
+    PlaySound("Toggle")
 end)
 
-TombolResetKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolResetKontrol)
+ResetBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(ResetBtnControl)
     AutoReset = not AutoReset
-    AnimasiResetKontrol(AutoReset)
-    MainkanSuara("Toggle")
+    AnimateResetControl(AutoReset)
+    PlaySound("Toggle")
 end)
 
-TombolLompatKontrol.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolLompatKontrol)
-    ToggleLompatTakTerbatas()
-    AnimasiLompatKontrol(LompatTakTerbatas)
-    MainkanSuara("Toggle")
+JumpBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(JumpBtnControl)
+    ToggleInfiniteJump()
+    AnimateJumpControl(InfiniteJump)
+    PlaySound("Toggle")
 end)
 
-TombolTutupKontrolPutar.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolTutupKontrolPutar)
-    KontrolPutar.Visible = false
+ClosePlaybackBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(ClosePlaybackBtn)
+    PlaybackControl.Visible = false
 end)
 
--- ========= KONEKSI TOMBOL UTAMA =========
-TombolBukaStudio.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolBukaStudio)
-    FrameUtama.Visible = false
-    StudioRekaman.Visible = true
-    -- PerbaruiUIStudio()
+-- ========= MAIN FRAME CONNECTIONS =========
+OpenStudioBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(OpenStudioBtn)
+    MainFrame.Visible = false
+    RecordingStudio.Visible = true
+    UpdateStudioUI()
 end)
 
-TombolKontrolPutar.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolKontrolPutar)
-    KontrolPutar.Visible = not KontrolPutar.Visible
+PlaybackBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PlaybackBtn)
+    PlaybackControl.Visible = not PlaybackControl.Visible
 end)
 
-TombolMenu.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolMenu)
+MenuBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MenuBtn)
     task.spawn(function()
-        local berhasil, err = pcall(function()
+        local success, err = pcall(function()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua", true))()
         end)
         
-        if berhasil then
-            MainkanSuara("Sukses")
+        if success then
+            PlaySound("Success")
         else
-            MainkanSuara("Error")
+            PlaySound("Error")
         end
     end)
 end)
 
-TombolSimpanFile.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolSimpanFile)
-    SimpanKeJSON()
+SaveFileBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(SaveFileBtn)
+    SaveToObfuscatedJSON()
 end)
 
-TombolMuatFile.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolMuatFile)
-    MuatDariJSON()
+LoadFileBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(LoadFileBtn)
+    LoadFromObfuscatedJSON()
 end)
 
-TombolToggleJalur.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolToggleJalur)
-    TampilkanJalur = not TampilkanJalur
-    if TampilkanJalur then
-        TombolToggleJalur.Text = "SEMBUNYIKAN RUTE"
-        VisualisasiSemuaJalur()
+PathToggleBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PathToggleBtn)
+    ShowPaths = not ShowPaths
+    if ShowPaths then
+        PathToggleBtn.Text = "HIDE RUTE"
+        VisualizeAllPaths()
     else
-        TombolToggleJalur.Text = "TAMPILKAN RUTE"
-        HapusVisualisasiJalur()
+        PathToggleBtn.Text = "SHOW RUTE"
+        ClearPathVisualization()
     end
 end)
 
-TombolGabung.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolGabung)
-    BuatRekamanGabungan()
+MergeBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MergeBtn)
+    CreateMergedReplay()
 end)
 
-TombolSembunyi.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolSembunyi)
-    FrameUtama.Visible = false
-    TombolMini.Visible = true
+HideButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(HideButton)
+    MainFrame.Visible = false
+    MiniButton.Visible = true
 end)
 
-TombolMini.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolMini)
-    FrameUtama.Visible = true
-    TombolMini.Visible = false
+MiniButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(MiniButton)
+    MainFrame.Visible = true
+    MiniButton.Visible = false
 end)
 
-TombolTutup.MouseButton1Click:Connect(function()
-    AnimasiKlikTombol(TombolTutup)
-    if StudioSedangRekam then
-        -- HentikanRekamanStudio()
-    end
-    if SedangMain or AutoLoop then
-        HentikanPemutaran()
-    end
-    if ShiftLockAktif then
-        NonaktifkanShiftLockTerlihat()
-    end
-    if LompatTakTerbatas then
-        NonaktifkanLompatTakTerbatas()
-    end
-    BersihkanKoneksi()
-    HapusVisualisasiJalur()
+CloseButton.MouseButton1Click:Connect(function()
+    AnimateButtonClick(CloseButton)
+    if StudioIsRecording then StopStudioRecording() end
+    if IsPlaying or AutoLoop then StopPlayback() end
+    if ShiftLockEnabled then DisableVisibleShiftLock() end
+    if InfiniteJump then DisableInfiniteJump() end
+    CleanupConnections()
+    ClearPathVisualization()
     ScreenGui:Destroy()
 end)
 
--- ========= INISIALISASI =========
-PerbaruiDaftarRekaman()
-PerbaruiStatusTombolPutar()
+-- ========= INITIALIZATION =========
+UpdateRecordList()
+UpdatePlayButtonStatus()
 
--- Muat rekaman otomatis jika ada
 task.spawn(function()
     task.wait(2)
-    local namaFile = "RekamanSaya.json"
-    if isfile and readfile and isfile(namaFile) then
-        MuatDariJSON()
+    local filename = "MyReplays.json"
+    if isfile and readfile and isfile(filename) then
+        LoadFromObfuscatedJSON()
     end
 end)
 
 player.CharacterRemoving:Connect(function()
-    if StudioSedangRekam then
-        -- HentikanRekamanStudio()
+    if StudioIsRecording then
+        StopStudioRecording()
     end
-    if SedangMain or AutoLoop then
-        HentikanPemutaran()
+    if IsPlaying or AutoLoop then
+        StopPlayback()
     end
 end)
 
 game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
     if descendant == ScreenGui then
-        BersihkanKoneksi()
-        HapusVisualisasiJalur()
+        CleanupConnections()
+        ClearPathVisualization()
     end
 end)
