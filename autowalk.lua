@@ -612,7 +612,7 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ========= NEW ELEGANT GUI SETUP =========
+-- ========= ELEGANT GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
 ScreenGui.ResetOnSpawn = false
@@ -625,8 +625,8 @@ end
 
 -- ========= MAIN ELEGANT FRAME =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(320, 460)
-MainFrame.Position = UDim2.new(0.5, -160, 0.5, -230)
+MainFrame.Size = UDim2.fromOffset(300, 320)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -636,11 +636,6 @@ MainFrame.Parent = ScreenGui
 local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
-
-local MainStroke = Instance.new("UIStroke")
-MainStroke.Color = Color3.fromRGB(80, 80, 100)
-MainStroke.Thickness = 2
-MainStroke.Parent = MainFrame
 
 -- Header dengan title dan window controls
 local Header = Instance.new("Frame")
@@ -701,7 +696,7 @@ Content.Parent = MainFrame
 
 -- ========= CONTROL BUTTONS SECTION =========
 local ControlSection = Instance.new("Frame")
-ControlSection.Size = UDim2.new(1, 0, 0, 50)
+ControlSection.Size = UDim2.new(1, 0, 0, 40)
 ControlSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 ControlSection.BorderSizePixel = 0
 ControlSection.Parent = Content
@@ -711,8 +706,8 @@ ControlCorner.CornerRadius = UDim.new(0, 6)
 ControlCorner.Parent = ControlSection
 
 local ControlButtons = Instance.new("Frame")
-ControlButtons.Size = UDim2.new(1, -20, 1, -20)
-ControlButtons.Position = UDim2.new(0, 10, 0, 10)
+ControlButtons.Size = UDim2.new(1, -20, 1, -10)
+ControlButtons.Position = UDim2.new(0, 10, 0, 5)
 ControlButtons.BackgroundTransparency = 1
 ControlButtons.Parent = ControlSection
 
@@ -751,14 +746,14 @@ local function CreateControlBtn(text, x, size, color)
     return btn
 end
 
-local PlayBtn = CreateControlBtn("▶️ PLAY", 0, 70, Color3.fromRGB(59, 15, 116))
-local RecordBtn = CreateControlBtn("⏺️ REC", 75, 70, Color3.fromRGB(200, 50, 60))
-local MenuBtn = CreateControlBtn("⚙️ MENU", 150, 70, Color3.fromRGB(70, 70, 90))
+local PlayBtn = CreateControlBtn("▶️ PLAY", 0, 90, Color3.fromRGB(59, 15, 116))
+local RecordBtn = CreateControlBtn("⏺️ REC", 95, 90, Color3.fromRGB(200, 50, 60))
+local MenuBtn = CreateControlBtn("⚙️ MENU", 190, 90, Color3.fromRGB(70, 70, 90))
 
 -- ========= SAVE SETTINGS SECTION =========
 local SaveSection = Instance.new("Frame")
-SaveSection.Size = UDim2.new(1, 0, 0, 100)
-SaveSection.Position = UDim2.new(0, 0, 0, 60)
+SaveSection.Size = UDim2.new(1, 0, 0, 80)
+SaveSection.Position = UDim2.new(0, 0, 0, 50)
 SaveSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 SaveSection.BorderSizePixel = 0
 SaveSection.Parent = Content
@@ -797,7 +792,7 @@ FilenameCorner.CornerRadius = UDim.new(0, 4)
 FilenameCorner.Parent = FilenameBox
 
 local SaveButtons = Instance.new("Frame")
-SaveButtons.Size = UDim2.new(1, -20, 0, 30)
+SaveButtons.Size = UDim2.new(1, -20, 0, 25)
 SaveButtons.Position = UDim2.new(0, 10, 0, 60)
 SaveButtons.BackgroundTransparency = 1
 SaveButtons.Parent = SaveSection
@@ -806,13 +801,13 @@ local SaveFileBtn = CreateControlBtn("💾 SAVE", 0, 85, Color3.fromRGB(59, 15, 
 SaveFileBtn.Parent = SaveButtons
 local LoadFileBtn = CreateControlBtn("📂 LOAD", 90, 85, Color3.fromRGB(59, 15, 116))
 LoadFileBtn.Parent = SaveButtons
-local MergeBtn = CreateControlBtn("🔗 MRG", 180, 85, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateControlBtn("🔗 MERGE", 180, 85, Color3.fromRGB(59, 15, 116))
 MergeBtn.Parent = SaveButtons
 
 -- ========= RECORDINGS LIST SECTION =========
 local RecordingsSection = Instance.new("Frame")
-RecordingsSection.Size = UDim2.new(1, 0, 0, 240)
-RecordingsSection.Position = UDim2.new(0, 0, 0, 170)
+RecordingsSection.Size = UDim2.new(1, 0, 0, 150)
+RecordingsSection.Position = UDim2.new(0, 0, 0, 140)
 RecordingsSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 RecordingsSection.BorderSizePixel = 0
 RecordingsSection.Parent = Content
@@ -833,7 +828,7 @@ RecordingsHeader.TextXAlignment = Enum.TextXAlignment.Left
 RecordingsHeader.Parent = RecordingsSection
 
 local RecordingsList = Instance.new("ScrollingFrame")
-RecordingsList.Size = UDim2.new(1, -20, 1, -35)
+RecordingsList.Size = UDim2.new(1, -20, 1, -30)
 RecordingsList.Position = UDim2.new(0, 10, 0, 25)
 RecordingsList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingsList.BorderSizePixel = 0
@@ -868,9 +863,9 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(180, 170)
-PlaybackControl.Position = UDim2.new(0.5, -90, 0.5, -85)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.Size = UDim2.fromOffset(300, 180)
+PlaybackControl.Position = UDim2.new(0.5, -150, 0.5, -90)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
 PlaybackControl.Draggable = true
@@ -880,11 +875,6 @@ PlaybackControl.Parent = ScreenGui
 local PlaybackCorner = Instance.new("UICorner")
 PlaybackCorner.CornerRadius = UDim.new(0, 8)
 PlaybackCorner.Parent = PlaybackControl
-
-local PlaybackStroke = Instance.new("UIStroke")
-PlaybackStroke.Color = Color3.fromRGB(255, 255, 255)
-PlaybackStroke.Thickness = 2
-PlaybackStroke.Parent = PlaybackControl
 
 local PlaybackContent = Instance.new("Frame")
 PlaybackContent.Size = UDim2.new(1, -10, 1, -10)
@@ -948,23 +938,24 @@ local function CreateToggleBtn(text, x, y, w, h)
     return btn
 end
 
--- Main Play/Pause Button (centered with space)
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 5, 5, 170, 35, Color3.fromRGB(59, 15, 116))
+-- Playback Control Buttons dengan layout yang lebih baik
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 10, 10, 135, 35, Color3.fromRGB(59, 15, 116))
+local PauseBtnControl = CreatePlaybackBtn("PAUSE", 155, 10, 135, 35, Color3.fromRGB(255, 140, 0))
 
--- Toggle Buttons with proper spacing
-local LoopBtnControl = CreateToggleBtn("AutoLoop OFF", 5, 45, 82, 22)
-local JumpBtnControl = CreateToggleBtn("InfiniteJump OFF", 93, 45, 82, 22)
+-- Toggle Buttons dengan layout yang rapi
+local LoopBtnControl = CreateToggleBtn("AutoLoop OFF", 10, 55, 135, 22)
+local JumpBtnControl = CreateToggleBtn("InfiniteJump OFF", 155, 55, 135, 22)
 
-local RespawnBtnControl = CreateToggleBtn("AutoRespawn OFF", 5, 72, 82, 22)
-local ShiftLockBtnControl = CreateToggleBtn("ShiftLock OFF", 93, 72, 82, 22)
+local RespawnBtnControl = CreateToggleBtn("AutoRespawn OFF", 10, 82, 135, 22)
+local ShiftLockBtnControl = CreateToggleBtn("ShiftLock OFF", 155, 82, 135, 22)
 
-local ResetBtnControl = CreateToggleBtn("ResetChar OFF", 5, 99, 82, 22)
-local ShowRuteBtnControl = CreateToggleBtn("ShowPath OFF", 93, 99, 82, 22)
+local ResetBtnControl = CreateToggleBtn("ResetChar OFF", 10, 109, 135, 22)
+local ShowRuteBtnControl = CreateToggleBtn("ShowPath OFF", 155, 109, 135, 22)
 
 -- Speed and WalkSpeed Controls
 local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.fromOffset(82, 22)
-SpeedBox.Position = UDim2.fromOffset(5, 126)
+SpeedBox.Size = UDim2.fromOffset(135, 22)
+SpeedBox.Position = UDim2.fromOffset(10, 136)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -981,8 +972,8 @@ SpeedCorner.CornerRadius = UDim.new(0, 4)
 SpeedCorner.Parent = SpeedBox
 
 local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(82, 22)
-WalkSpeedBox.Position = UDim2.fromOffset(93, 126)
+WalkSpeedBox.Size = UDim2.fromOffset(135, 22)
+WalkSpeedBox.Position = UDim2.fromOffset(155, 136)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
@@ -1000,9 +991,9 @@ WalkSpeedCorner.Parent = WalkSpeedBox
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(160, 100)
-RecordingStudio.Position = UDim2.new(0.5, -80, 0.5, -50)
-RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.Size = UDim2.fromOffset(300, 120)
+RecordingStudio.Position = UDim2.new(0.5, -150, 0.5, -60)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
@@ -1012,11 +1003,6 @@ RecordingStudio.Parent = ScreenGui
 local StudioCorner = Instance.new("UICorner")
 StudioCorner.CornerRadius = UDim.new(0, 8)
 StudioCorner.Parent = RecordingStudio
-
-local StudioStroke = Instance.new("UIStroke")
-StudioStroke.Color = Color3.fromRGB(255, 255, 255)
-StudioStroke.Thickness = 2
-StudioStroke.Parent = RecordingStudio
 
 local StudioContent = Instance.new("Frame")
 StudioContent.Size = UDim2.new(1, -10, 1, -10)
@@ -1061,13 +1047,13 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
-local SaveBtn = CreateStudioBtn("Save", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
-local StartBtn = CreateStudioBtn("● RECORD", 79, 5, 70, 20, Color3.fromRGB(200, 50, 60))
+local SaveBtn = CreateStudioBtn("Save", 10, 10, 135, 25, Color3.fromRGB(59, 15, 116))
+local StartBtn = CreateStudioBtn("● RECORD", 155, 10, 135, 25, Color3.fromRGB(200, 50, 60))
 
-local ResumeBtn = CreateStudioBtn("RESUME", 5, 30, 144, 22, Color3.fromRGB(59, 15, 116))
+local ResumeBtn = CreateStudioBtn("RESUME", 10, 40, 280, 25, Color3.fromRGB(59, 15, 116))
 
-local PrevBtn = CreateStudioBtn("Prev", 5, 57, 70, 20, Color3.fromRGB(59, 15, 116))
-local NextBtn = CreateStudioBtn("Next", 79, 57, 70, 20, Color3.fromRGB(59, 15, 116))
+local PrevBtn = CreateStudioBtn("Prev", 10, 70, 135, 25, Color3.fromRGB(59, 15, 116))
+local NextBtn = CreateStudioBtn("Next", 155, 70, 135, 25, Color3.fromRGB(59, 15, 116))
 
 -- ========= VALIDATION FUNCTIONS =========
 local function ValidateSpeed(speedText)
@@ -1149,7 +1135,7 @@ function UpdateRecordList()
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -10, 0, 70)
+        item.Size = UDim2.new(1, -10, 0, 60)
         item.Position = UDim2.new(0, 5, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
         item.Parent = RecordingsList
@@ -1207,13 +1193,13 @@ function UpdateRecordList()
         infoLabel.Parent = item
         
         local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.fromOffset(25, 25)
-        playBtn.Position = UDim2.new(1, -120, 0, 8)
+        playBtn.Size = UDim2.fromOffset(40, 20)
+        playBtn.Position = UDim2.new(1, -85, 0, 8)
         playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        playBtn.Text = "▶"
+        playBtn.Text = "Play"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 12
+        playBtn.TextSize = 10
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
@@ -1221,10 +1207,10 @@ function UpdateRecordList()
         playCorner.Parent = playBtn
         
         local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(25, 25)
-        delBtn.Position = UDim2.new(1, -90, 0, 8)
+        delBtn.Size = UDim2.fromOffset(40, 20)
+        delBtn.Position = UDim2.new(1, -40, 0, 8)
         delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        delBtn.Text = "🗑"
+        delBtn.Text = "Delete"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
         delBtn.TextSize = 10
@@ -1235,13 +1221,13 @@ function UpdateRecordList()
         delCorner.Parent = delBtn
         
         local upBtn = Instance.new("TextButton")
-        upBtn.Size = UDim2.fromOffset(30, 20)
-        upBtn.Position = UDim2.new(1, -120, 0, 40)
+        upBtn.Size = UDim2.fromOffset(30, 15)
+        upBtn.Position = UDim2.new(1, -85, 0, 35)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
         upBtn.Text = "↑"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 14
+        upBtn.TextSize = 12
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
@@ -1249,13 +1235,13 @@ function UpdateRecordList()
         upCorner.Parent = upBtn
         
         local downBtn = Instance.new("TextButton")
-        downBtn.Size = UDim2.fromOffset(30, 20)
-        downBtn.Position = UDim2.new(1, -85, 0, 40)
+        downBtn.Size = UDim2.fromOffset(30, 15)
+        downBtn.Position = UDim2.new(1, -50, 0, 35)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
         downBtn.Text = "↓"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 14
+        downBtn.TextSize = 12
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
@@ -1310,7 +1296,7 @@ function UpdateRecordList()
             end
         end)
         
-        yPos = yPos + 75
+        yPos = yPos + 65
     end
     
     RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
@@ -2625,6 +2611,11 @@ PlayBtnControl.MouseButton1Click:Connect(function()
     end
 end)
 
+PauseBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PauseBtnControl)
+    PausePlayback()
+end)
+
 -- Toggle button functions
 LoopBtnControl.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoopBtnControl)
@@ -2718,7 +2709,7 @@ end)
 -- ========= MAIN FRAME BUTTONS =========
 PlayBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(PlayBtn)
-    PlaybackControl.Visible = true
+    PlaybackControl.Visible = not PlaybackControl.Visible
 end)
 
 RecordBtn.MouseButton1Click:Connect(function()
