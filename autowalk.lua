@@ -851,17 +851,6 @@ local SaveCorner = Instance.new("UICorner")
 SaveCorner.CornerRadius = UDim.new(0, 6)
 SaveCorner.Parent = SaveSection
 
-local SaveHeader = Instance.new("TextLabel")
-SaveHeader.Size = UDim2.new(1, -6, 0, 20)
-SaveHeader.Position = UDim2.new(0, 3, 0, 3)
-SaveHeader.BackgroundTransparency = 1
-SaveHeader.Text = "Save Settings"
-SaveHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
-SaveHeader.Font = Enum.Font.GothamBold
-SaveHeader.TextSize = 12
-SaveHeader.TextXAlignment = Enum.TextXAlignment.Left
-SaveHeader.Parent = SaveSection
-
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.new(1, -6, 0, 22)
 FilenameBox.Position = UDim2.new(0, 3, 0, 26)
@@ -904,17 +893,6 @@ RecordingsSection.Parent = Content
 local RecordingsCorner = Instance.new("UICorner")
 RecordingsCorner.CornerRadius = UDim.new(0, 6)
 RecordingsCorner.Parent = RecordingsSection
-
-local RecordingsHeader = Instance.new("TextLabel")
-RecordingsHeader.Size = UDim2.new(1, -6, 0, 20)
-RecordingsHeader.Position = UDim2.new(0, 3, 0, 3)
-RecordingsHeader.BackgroundTransparency = 1
-RecordingsHeader.Text = "Recordings (0)"
-RecordingsHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
-RecordingsHeader.Font = Enum.Font.GothamBold
-RecordingsHeader.TextSize = 12
-RecordingsHeader.TextXAlignment = Enum.TextXAlignment.Left
-RecordingsHeader.Parent = RecordingsSection
 
 local RecordingsList = Instance.new("ScrollingFrame")
 RecordingsList.Size = UDim2.new(1, -6, 1, -26)
@@ -1362,9 +1340,6 @@ function UpdateRecordList()
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
-            
-            -- Update recordings count
-            RecordingsHeader.Text = "Recordings (" .. #RecordingOrder .. ")"
             
             -- ========= EVENT HANDLERS =========
             nameBox.FocusLost:Connect(function()
