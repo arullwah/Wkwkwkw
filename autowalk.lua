@@ -18,9 +18,9 @@ if not hasFileSystem then
 end
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
+local RECORDING_FPS = 90
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.015
+local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local REVERSE_SPEED_MULTIPLIER = 1.0
@@ -28,10 +28,10 @@ local FORWARD_SPEED_MULTIPLIER = 1.0
 local REVERSE_FRAME_STEP = 1
 local FORWARD_FRAME_STEP = 1
 local TIMELINE_STEP_SECONDS = 0.1
-local STATE_CHANGE_COOLDOWN = 0.05
+local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 60 -- 60 FPS fixed untuk playback
+local PLAYBACK_FIXED_TIMESTEP = 1 / 90
 local JUMP_VELOCITY_THRESHOLD = 10
 local SMOOTH_TRANSITION_DURATION = 0.3
 
@@ -118,6 +118,7 @@ local playbackAccumulator = 0
 local LastPausePosition = nil
 local LastPauseRecording = nil
 local LastPauseFrame = 0
+local NearestRecordingDistance = math.huge
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -672,7 +673,84 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ========= ENHANCED HUMANOID STATE MANAGEMENT =========
+-- ========= SMART PLAY SYSTEM DARI SCRIPT 2 =========
+local function FindNearestRecording(maxDistance)
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then
+        return nil, math.huge, nil
+    end
+    
+    local currentPos = char.HumanoidRootPart.Position
+    local nearestRecording = nil
+    local nearestDistance = math.huge
+    local nearestName = nil
+    
+    for _, recordingName in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[recordingName]
+        if recording and #recording > 0 then
+            local nearestFrame, frameDistance = FindNearestFrame(recording, currentPos)
+            
+            if frameDistance < nearestDistance and frameDistance <= (maxDistance or 40) then
+                nearestDistance = frameDistance
+                nearestRecording = recording
+                nearestName = recordingName
+            end
+        end
+    end
+    
+    return nearestRecording, nearestDistance, nearestName
+end
+
+local function UpdatePlayButtonStatus()
+    local nearestRecording, distance = FindNearestRecording(40)
+    NearestRecordingDistance = distance or math.huge
+    
+    if PlayBtnControl then
+        if nearestRecording and distance <= 40 then
+            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+        else
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        end
+    end
+end
+
+-- ========= IMPROVED SMOOTH TRANSITION DARI SCRIPT 2 =========
+local function CreateEnhancedTransition(currentPos, targetFrame, duration)
+    local transitionFrames = {}
+    local numFrames = math.max(5, math.floor(duration / PLAYBACK_FIXED_TIMESTEP))
+    
+    local targetPos = GetFramePosition(targetFrame)
+    local targetCFrame = GetFrameCFrame(targetFrame)
+    local targetVelocity = GetFrameVelocity(targetFrame)
+    
+    for i = 1, numFrames do
+        local alpha = i / (numFrames + 1)
+        local smoothAlpha = 1 - (1 - alpha) * (1 - alpha)
+        
+        local lerpedPos = currentPos:Lerp(targetPos, smoothAlpha)
+        local currentLook = (targetPos - currentPos).Unit
+        local lerpedLook = currentLook:Lerp(targetCFrame.LookVector, smoothAlpha).Unit
+        local lerpedUp = Vector3.new(0, 1, 0):Lerp(targetCFrame.UpVector, smoothAlpha).Unit
+        
+        local lerpedVel = Vector3.new(0, 0, 0):Lerp(targetVelocity, smoothAlpha)
+        
+        table.insert(transitionFrames, {
+            Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
+            LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
+            UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
+            Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
+            MoveState = targetFrame.MoveState,
+            WalkSpeed = GetFrameWalkSpeed(targetFrame),
+            Timestamp = 0
+        })
+    end
+    
+    return transitionFrames
+end
+
+-- ========= IMPROVED HUMANOID STATE MANAGEMENT DARI SCRIPT 2 =========
 local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     local moveState = frame.MoveState
     local frameVelocity = GetFrameVelocity(frame)
@@ -715,67 +793,7 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     return lastState, lastStateTime
 end
 
--- ========= SMART PLAY SYSTEM =========
-local function FindNearestRecording(maxDistance)
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        return nil, math.huge, nil
-    end
-    
-    local currentPos = char.HumanoidRootPart.Position
-    local nearestRecording = nil
-    local nearestDistance = math.huge
-    local nearestName = nil
-    
-    for _, recordingName in ipairs(RecordingOrder) do
-        local recording = RecordedMovements[recordingName]
-        if recording and #recording > 0 then
-            local nearestFrame, frameDistance = FindNearestFrame(recording, currentPos)
-            
-            if frameDistance < nearestDistance and frameDistance <= (maxDistance or 40) then
-                nearestDistance = frameDistance
-                nearestRecording = recording
-                nearestName = recordingName
-            end
-        end
-    end
-    
-    return nearestRecording, nearestDistance, nearestName
-end
-
-local function UpdatePlayButtonStatus()
-    local nearestRecording, distance = FindNearestRecording(40)
-    
-    if PlayBtnControl then
-        if nearestRecording and distance <= 40 then
-            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-        else
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        end
-    end
-end
-
--- ========= IMPROVED AUTO LOOP START =========
-local function EnsureMovementStart()
-    local char = player.Character
-    if not char then return end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Tambah small random offset untuk memastikan movement
-    local tinyOffset = Vector3.new(
-        math.random() * 0.01 - 0.005,  -- -0.005 to 0.005
-        0,
-        math.random() * 0.01 - 0.005
-    )
-    
-    hrp.CFrame = hrp.CFrame + tinyOffset
-end
-
--- ========= ELEGANT GUI SETUP =========
+-- ========= ELEGANT GUI SETUP (SCRIPT 1) =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
 ScreenGui.ResetOnSpawn = false
@@ -1082,20 +1100,21 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Playback Control Buttons dengan layout original
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 150, 25, Color3.fromRGB(59, 15, 116))
+-- Playback Control Buttons dengan spacing 3px yang PERFECT
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 69, 25, Color3.fromRGB(59, 15, 116))
+local PauseBtnControl = CreatePlaybackBtn("PAUSE", 75, 3, 69, 25, Color3.fromRGB(255, 140, 0))
 
--- Row 2: Toggle buttons
+-- Row 2: Toggle buttons dengan spacing 3px
 local LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 69, 20, Color3.fromRGB(80, 80, 80))
-local JumpBtnControl = CreatePlaybackBtn("Jump OFF", 78, 31, 69, 20, Color3.fromRGB(80, 80, 80))
+local JumpBtnControl = CreatePlaybackBtn("Jump OFF", 75, 31, 69, 20, Color3.fromRGB(80, 80, 80))
 
 -- Row 3
 local RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 69, 20, Color3.fromRGB(80, 80, 80))
-local ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 78, 54, 69, 20, Color3.fromRGB(80, 80, 80))
+local ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 75, 54, 69, 20, Color3.fromRGB(80, 80, 80))
 
 -- Row 4
 local ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 69, 20, Color3.fromRGB(80, 80, 80))
-local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 78, 77, 69, 20, Color3.fromRGB(80, 80, 80))
+local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 75, 77, 69, 20, Color3.fromRGB(80, 80, 80))
 
 -- Row 5: Info label
 local PlaybackInfo = Instance.new("TextLabel")
@@ -1113,7 +1132,7 @@ local InfoCorner = Instance.new("UICorner")
 InfoCorner.CornerRadius = UDim.new(0, 4)
 InfoCorner.Parent = PlaybackInfo
 
--- ========= RECORDING STUDIO GUI =========
+-- ========= RECORDING STUDIO GUI (FIXED LAYOUT) =========
 local RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(156, 130)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -65)
@@ -1171,12 +1190,69 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Studio buttons dengan layout original
+-- Row 1: Save & Record buttons dengan spacing 3px
 local SaveBtn = CreateStudioBtn("SAVE", 3, 3, 69, 22, Color3.fromRGB(59, 15, 116))
 local StartBtn = CreateStudioBtn("RECORD", 75, 3, 69, 22, Color3.fromRGB(200, 50, 60))
+
+-- Row 2: Resume button (full width)
 local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+
+-- Row 3: Prev & Next buttons
 local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 69, 22, Color3.fromRGB(59, 15, 116))
 local NextBtn = CreateStudioBtn("NEXT ▶", 75, 53, 69, 22, Color3.fromRGB(59, 15, 116))
+
+-- Row 4: Speed Controls
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.fromOffset(69, 20)
+SpeedBox.Position = UDim2.fromOffset(3, 78)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SpeedBox.BorderSizePixel = 0
+SpeedBox.Text = "1.00"
+SpeedBox.PlaceholderText = "Speed"
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 9
+SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = StudioContent
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 4)
+SpeedCorner.Parent = SpeedBox
+
+local WalkSpeedBox = Instance.new("TextBox")
+WalkSpeedBox.Size = UDim2.fromOffset(69, 20)
+WalkSpeedBox.Position = UDim2.fromOffset(75, 78)
+WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+WalkSpeedBox.BorderSizePixel = 0
+WalkSpeedBox.Text = "16"
+WalkSpeedBox.PlaceholderText = "WalkSpeed"
+WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+WalkSpeedBox.Font = Enum.Font.GothamBold
+WalkSpeedBox.TextSize = 9
+WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+WalkSpeedBox.ClearTextOnFocus = false
+WalkSpeedBox.Parent = StudioContent
+
+local WalkSpeedCorner = Instance.new("UICorner")
+WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
+WalkSpeedCorner.Parent = WalkSpeedBox
+
+-- Row 5: Info label
+local StudioInfo = Instance.new("TextLabel")
+StudioInfo.Size = UDim2.new(1, -6, 0, 20)
+StudioInfo.Position = UDim2.fromOffset(3, 101)
+StudioInfo.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+StudioInfo.BorderSizePixel = 0
+StudioInfo.Text = "Frame: 0 | Timeline: Ready"
+StudioInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
+StudioInfo.Font = Enum.Font.GothamBold
+StudioInfo.TextSize = 8
+StudioInfo.Parent = StudioContent
+
+local StudioInfoCorner = Instance.new("UICorner")
+StudioInfoCorner.CornerRadius = UDim.new(0, 4)
+StudioInfoCorner.Parent = StudioInfo
 
 -- ========= VALIDATION FUNCTIONS =========
 local function ValidateSpeed(speedText)
@@ -1186,6 +1262,43 @@ local function ValidateSpeed(speedText)
     local roundedSpeed = math.floor((speed * 4) + 0.5) / 4
     return true, roundedSpeed
 end
+
+SpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateSpeed(SpeedBox.Text)
+    if success then
+        CurrentSpeed = result
+        SpeedBox.Text = string.format("%.2f", result)
+        PlaySound("Success")
+    else
+        SpeedBox.Text = string.format("%.2f", CurrentSpeed)
+        PlaySound("Error")
+    end
+end)
+
+local function ValidateWalkSpeed(walkSpeedText)
+    local walkSpeed = tonumber(walkSpeedText)
+    if not walkSpeed then return false, "Invalid number" end
+    if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+    return true, walkSpeed
+end
+
+WalkSpeedBox.FocusLost:Connect(function()
+    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
+    if success then
+        CurrentWalkSpeed = result
+        WalkSpeedBox.Text = tostring(result)
+        pcall(function()
+            local char = player.Character
+            if char and char:FindFirstChildOfClass("Humanoid") then
+                char.Humanoid.WalkSpeed = CurrentWalkSpeed
+            end
+        end)
+        PlaySound("Success")
+    else
+        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
+        PlaySound("Error")
+    end
+end)
 
 -- ========= RECORDING LIST FUNCTIONS =========
 local function MoveRecordingUp(name)
@@ -1223,7 +1336,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ Height 95px seperti semula
+            -- ✅ Height diperbesar menjadi 95px
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 95)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -1287,7 +1400,7 @@ function UpdateRecordList()
             
             -- ✅ BARIS 1: PLAY & DELETE (Posisi kanan atas)
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(40, 20)
+            playBtn.Size = UDim2.fromOffset(40, 20)  -- ✅ Height 20px
             playBtn.Position = UDim2.new(1, -85, 0, 5)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             playBtn.Text = "Play"
@@ -1301,7 +1414,7 @@ function UpdateRecordList()
             playCorner.Parent = playBtn
             
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(40, 20)
+            delBtn.Size = UDim2.fromOffset(40, 20)  -- ✅ Height 20px
             delBtn.Position = UDim2.new(1, -40, 0, 5)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "Delete"
@@ -1316,8 +1429,8 @@ function UpdateRecordList()
             
             -- ✅ BARIS 2: MOVE UP (SEJAJAR dengan Play & Delete)
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(85, 22)
-            upBtn.Position = UDim2.new(1, -85, 0, 28)
+            upBtn.Size = UDim2.fromOffset(85, 22)  -- ✅ Width = Play + Delete + gap (40+3+40)
+            upBtn.Position = UDim2.new(1, -85, 0, 28)  -- ✅ Y = 28 (spacing 3px dari button atas)
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
             upBtn.Text = "⬆️ MOVE UP"
             upBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1331,8 +1444,8 @@ function UpdateRecordList()
             
             -- ✅ BARIS 3: MOVE DOWN (SEJAJAR dengan button di atasnya)
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(85, 22)
-            downBtn.Position = UDim2.new(1, -85, 0, 53)
+            downBtn.Size = UDim2.fromOffset(85, 22)  -- ✅ Width sama dengan Move Up
+            downBtn.Position = UDim2.new(1, -85, 0, 53)  -- ✅ Y = 53 (spacing 3px dari Move Up)
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
             downBtn.Text = "⬇️ DOWN"
             downBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -1400,15 +1513,17 @@ function UpdateRecordList()
     end)
 end
 
--- ========= STUDIO RECORDING FUNCTIONS =========
+-- ========= STUDIO RECORDING FUNCTIONS DARI SCRIPT 2 =========
 local function UpdateStudioUI()
     pcall(function()
         if StudioIsRecording then
-            StartBtn.Text = "STOP"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            StudioInfo.Text = string.format("Frame: %d | Timeline: %s", 
+                #StudioCurrentRecording.Frames, 
+                IsTimelineMode and "PAUSED" or "RECORDING")
+            StudioInfo.TextColor3 = IsTimelineMode and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(100, 255, 150)
         else
-            StartBtn.Text = "RECORD"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            StudioInfo.Text = "Frame: 0 | Timeline: Ready"
+            StudioInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
         end
     end)
 end
@@ -1469,6 +1584,9 @@ local function StartStudioRecording()
             lastStudioRecordPos = nil
             CurrentTimelineFrame = 0
             TimelinePosition = 0
+            
+            StartBtn.Text = "STOP"
+            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
             
             PlaySound("RecordStart")
             
@@ -1533,6 +1651,9 @@ local function StopStudioRecording()
                 recordConnection:Disconnect()
                 recordConnection = nil
             end
+            
+            StartBtn.Text = "RECORD"
+            StartBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             
             PlaySound("RecordStop")
             UpdateStudioUI()
@@ -1712,7 +1833,7 @@ SaveBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= SAVE/LOAD SYSTEM =========
+-- ========= SAVE/LOAD SYSTEM DARI SCRIPT 2 =========
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -1871,7 +1992,7 @@ local function VisualizeAllPaths()
     end)
 end
 
--- ========= IMPROVED PLAYBACK SYSTEM WITH SMART AUTO LOOP =========
+-- ========= SMART PLAYBACK SYSTEM DARI SCRIPT 2 =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying then return end
     
@@ -1959,10 +2080,61 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        pcall(function()
-            if not IsPlaying then
-                playbackConnection:Disconnect()
+        if not IsPlaying then
+            playbackConnection:Disconnect()
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
+            return
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            IsPlaying = false
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
+            return
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then
+            IsPlaying = false
+            RestoreFullUserControl()
+            UpdatePauseMarker()
+            lastPlaybackState = nil
+            lastStateChangeTime = 0
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            UpdatePlayButtonStatus()
+            return
+        end
+
+        playbackAccumulator = playbackAccumulator + deltaTime
+        
+        while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+            playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
+            
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            
+            while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
+                currentPlaybackFrame = currentPlaybackFrame + 1
+            end
+
+            if currentPlaybackFrame >= #recording then
+                IsPlaying = false
                 RestoreFullUserControl()
+                PlaySound("Success")
                 UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1971,9 +2143,9 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 UpdatePlayButtonStatus()
                 return
             end
-            
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
+
+            local frame = recording[currentPlaybackFrame]
+            if not frame then
                 IsPlaying = false
                 RestoreFullUserControl()
                 UpdatePauseMarker()
@@ -1984,78 +2156,30 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 UpdatePlayButtonStatus()
                 return
             end
-            
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then
-                IsPlaying = false
-                RestoreFullUserControl()
-                UpdatePauseMarker()
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                UpdatePlayButtonStatus()
-                return
-            end
 
-            playbackAccumulator = playbackAccumulator + deltaTime
-            
-            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
+            task.spawn(function()
+                hrp.CFrame = GetFrameCFrame(frame)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+                if hum then
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    hum.AutoRotate = false
+                    
+                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                        hum, frame, lastPlaybackState, lastStateChangeTime
+                    )
+                end
                 
-                while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
-                    currentPlaybackFrame = currentPlaybackFrame + 1
+                if ShiftLockEnabled then
+                    ApplyVisibleShiftLock()
                 end
-
-                if currentPlaybackFrame >= #recording then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    PlaySound("Success")
-                    UpdatePauseMarker()
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                    UpdatePlayButtonStatus()
-                    return
-                end
-
-                local frame = recording[currentPlaybackFrame]
-                if not frame then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    UpdatePauseMarker()
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                    UpdatePlayButtonStatus()
-                    return
-                end
-
-                task.spawn(function()
-                    hrp.CFrame = GetFrameCFrame(frame)
-                    hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                    
-                    if hum then
-                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                        hum.AutoRotate = false
-                        
-                        lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                            hum, frame, lastPlaybackState, lastStateChangeTime
-                        )
-                    end
-                    
-                    if ShiftLockEnabled then
-                        ApplyVisibleShiftLock()
-                    end
-                end)
-            end
-        end)
+                
+                -- Update info
+                local progress = math.floor((currentPlaybackFrame / #recording) * 100)
+                PlaybackInfo.Text = string.format("Frame %d/%d (%d%%)", currentPlaybackFrame, #recording, progress)
+                PlaybackInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
+            end)
+        end
     end)
     
     AddConnection(playbackConnection)
@@ -2073,7 +2197,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= IMPROVED AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM DARI SCRIPT 2 =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2092,28 +2216,10 @@ function StartAutoLoopAll()
     lastPlaybackState = nil
     lastStateChangeTime = 0
     
-    -- FIX: Smart start dari rekaman terdekat
-    local char = player.Character
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        local currentPos = char.HumanoidRootPart.Position
-        local nearestRecording, distance, recordingName = FindNearestRecording(40)
-        
-        if nearestRecording then
-            -- Cari index rekaman terdekat
-            for i, name in ipairs(RecordingOrder) do
-                if name == recordingName then
-                    CurrentLoopIndex = i
-                    break
-                end
-            end
-        end
-        
-        -- FIX: Ensure movement start untuk menghindari stuck
-        EnsureMovementStart()
-    end
-    
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    PlaybackInfo.Text = "Auto Loop Active"
+    PlaybackInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
@@ -2147,7 +2253,7 @@ function StartAutoLoopAll()
                     -- Semua recording kosong, reset ke #1
                     CurrentLoopIndex = 1
                     task.wait(1)
-                    return
+                    continue
                 end
                 
                 if not IsCharacterReady() then
@@ -2156,7 +2262,7 @@ function StartAutoLoopAll()
                         local success = WaitForRespawn()
                         if not success then
                             task.wait(2)
-                            return
+                            continue
                         end
                         task.wait(1.5)
                     else
@@ -2183,7 +2289,7 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                if not AutoLoop or not IsAutoLoopPlaying then return end
+                if not AutoLoop or not IsAutoLoopPlaying then break end
                 
                 local playbackCompleted = false
                 local playbackStart = tick()
@@ -2197,26 +2303,16 @@ function StartAutoLoopAll()
                 
                 SaveHumanoidState()
                 
-                -- FIX: Smart resume untuk auto loop - cek posisi start
+                PlaybackInfo.Text = string.format("Loop %d/%d", CurrentLoopIndex, #RecordingOrder)
+                
+                -- Smart resume untuk auto loop
                 local char = player.Character
                 if char and char:FindFirstChild("HumanoidRootPart") then
                     local currentPos = char.HumanoidRootPart.Position
-                    local firstFramePos = GetFramePosition(recordingToPlay[1])
-                    local distanceToStart = (currentPos - firstFramePos).Magnitude
-                    
-                    -- Jika di area start replay, force start dari frame 1
-                    if distanceToStart < 10 then
-                        currentFrame = 1
-                        playbackStart = tick()
-                        -- Pastikan character di posisi exact start
-                        char.HumanoidRootPart.CFrame = GetFrameCFrame(recordingToPlay[1])
-                    else
-                        -- Kalau tidak, cari frame terdekat
-                        local nearestFrame, frameDistance = FindNearestFrame(recordingToPlay, currentPos)
-                        if frameDistance <= 40 then
-                            currentFrame = math.max(1, nearestFrame - 5)  -- Buffer 5 frame
-                            playbackStart = tick() - (GetFrameTimestamp(recordingToPlay[nearestFrame]) / CurrentSpeed)
-                        end
+                    local nearestFrame, frameDistance = FindNearestFrame(recordingToPlay, currentPos)
+                    if frameDistance <= 40 then
+                        currentFrame = nearestFrame
+                        playbackStart = tick() - (GetFrameTimestamp(recordingToPlay[nearestFrame]) / CurrentSpeed)
                     end
                 end
                 
@@ -2233,6 +2329,7 @@ function StartAutoLoopAll()
                                     RestoreFullUserControl()
                                     task.wait(1.5)
                                     
+                                    -- Tetap lanjut dari recording yang sama, tapi dari awal
                                     currentFrame = 1
                                     playbackStart = tick()
                                     lastPlaybackState = nil
@@ -2240,11 +2337,10 @@ function StartAutoLoopAll()
                                     loopAccumulator = 0
                                     
                                     SaveHumanoidState()
-                                    
-                                    return
+                                    continue
                                 else
                                     task.wait(2)
-                                    return
+                                    continue
                                 end
                             else
                                 local manualRespawnWait = 0
@@ -2277,8 +2373,7 @@ function StartAutoLoopAll()
                                 loopAccumulator = 0
                                 
                                 SaveHumanoidState()
-                                
-                                return
+                                continue
                             end
                         end
                         
@@ -2348,6 +2443,7 @@ function StartAutoLoopAll()
                 if playbackCompleted then
                     PlaySound("Success")
                     
+                    -- FIX: Selalu kembali ke urutan #1 setelah selesai semua recording
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2356,7 +2452,7 @@ function StartAutoLoopAll()
                     task.wait(0.5)
                 else
                     if not AutoLoop or not IsAutoLoopPlaying then
-                        return
+                        break
                     else
                         -- Jika mati/error, tetap increment ke recording berikutnya
                         CurrentLoopIndex = CurrentLoopIndex + 1
@@ -2375,7 +2471,8 @@ function StartAutoLoopAll()
         lastStateChangeTime = 0
         PlayBtnControl.Text = "PLAY"
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        UpdatePlayButtonStatus()
+        PlaybackInfo.Text = "Loop Stopped"
+        PlaybackInfo.TextColor3 = Color3.fromRGB(255, 200, 0)
     end)
 end
 
@@ -2401,7 +2498,8 @@ function StopAutoLoopAll()
     PlaySound("Stop")
     PlayBtnControl.Text = "PLAY"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    UpdatePlayButtonStatus()
+    PlaybackInfo.Text = "Ready"
+    PlaybackInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
 end
 
 function StopPlayback()
@@ -2419,14 +2517,14 @@ function StopPlayback()
     LastPauseRecording = nil
     RestoreFullUserControl()
     
-    pcall(function()
-        local char = player.Character
-        if char then CompleteCharacterReset(char) end
-    end)
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
     
     PlaySound("Stop")
     PlayBtnControl.Text = "PLAY"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    PlaybackInfo.Text = "Stopped"
+    PlaybackInfo.TextColor3 = Color3.fromRGB(255, 100, 100)
     UpdatePlayButtonStatus()
 end
 
@@ -2442,6 +2540,15 @@ PlayBtnControl.MouseButton1Click:Connect(function()
             SmartPlayRecording(40)
         end
     end
+end)
+
+-- HAPUS PAUSE/RESUME SYSTEM - GUNAKAN HANYA SMART REPLAY
+PauseBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PauseBtnControl)
+    -- PAUSE BUTTON TIDAK BERFUNGSI - HANYA SMART REPLAY YANG BEKERJA
+    PlaySound("Error")
+    PlaybackInfo.Text = "Use Smart Play Only"
+    PlaybackInfo.TextColor3 = Color3.fromRGB(255, 200, 0)
 end)
 
 -- Toggle button functions
@@ -2460,7 +2567,6 @@ LoopBtnControl.MouseButton1Click:Connect(function()
         end
         if IsPlaying then
             IsPlaying = false
-            IsPaused = false
             RestoreFullUserControl()
         end
         StartAutoLoopAll()
@@ -2544,7 +2650,6 @@ end)
 RecordBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RecordBtn)
     RecordingStudio.Visible = true
-    MainFrame.Visible = false
 end)
 
 MenuBtn.MouseButton1Click:Connect(function()
@@ -2647,11 +2752,12 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
     if PlaybackInfo then
-        PlaybackInfo.Text = "✓ Script Loaded!"
+        PlaybackInfo.Text = "✓ Script Loaded - Smart Replay Active!"
         PlaybackInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
     end
 end)
 
-print("✅ ByaruL Recorder v2.1 - Restored Successfully!")
-print("📌 Features: Original GUI Restored, Enhanced Auto Loop, Smart Play System")
-print("🎮 Auto Loop now works perfectly with original recording layout!")
+print("✅ ByaruL Recorder v2.1 - Loaded Successfully!")
+print("📌 Features: Smart Replay System, 90 FPS, Auto-Detect Recording")
+print("🎮 Smart Play works within 40 studs radius!")
+print("⚡ Auto Loop with smart resume!")
