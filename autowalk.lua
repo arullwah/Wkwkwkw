@@ -118,7 +118,6 @@ local playbackAccumulator = 0
 local LastPausePosition = nil
 local LastPauseRecording = nil
 local LastPauseFrame = 0
-local NearestRecordingDistance = math.huge
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -746,7 +745,6 @@ end
 
 local function UpdatePlayButtonStatus()
     local nearestRecording, distance = FindNearestRecording(40)
-    NearestRecordingDistance = distance or math.huge
     
     if PlayBtnControl then
         if nearestRecording and distance <= 40 then
@@ -790,8 +788,8 @@ end
 
 -- ========= MAIN ELEGANT FRAME =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(300, 400)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -200)
+MainFrame.Size = UDim2.fromOffset(300, 320)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -854,8 +852,8 @@ CloseCorner.Parent = CloseBtn
 
 -- Content Area
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -10, 1, -38)
-Content.Position = UDim2.new(0, 5, 0, 36)
+Content.Size = UDim2.new(1, -6, 1, -38)
+Content.Position = UDim2.new(0, 3, 0, 36)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
@@ -911,98 +909,68 @@ local function CreateControlBtn(text, x, size, color)
     return btn
 end
 
-local OpenStudioBtn = CreateControlBtn("RECORD", 0, 95, Color3.fromRGB(59, 15, 116))
-local MenuBtn = CreateControlBtn("MENU", 100, 95, Color3.fromRGB(70, 70, 90))
-local PlaybackBtn = CreateControlBtn("PLAY", 200, 95, Color3.fromRGB(59, 15, 116))
+local PlayBtn = CreateControlBtn("PLAY", 0, 95, Color3.fromRGB(59, 15, 116))
+local RecordBtn = CreateControlBtn("REC", 100, 95, Color3.fromRGB(200, 50, 60))
+local MenuBtn = CreateControlBtn("MENU", 200, 95, Color3.fromRGB(70, 70, 90))
 
--- ========= TEXTBOX SECTION =========
-local TextboxSection = Instance.new("Frame")
-TextboxSection.Size = UDim2.new(1, 0, 0, 30)
-TextboxSection.Position = UDim2.new(0, 0, 0, 36)
-TextboxSection.BackgroundTransparency = 1
-TextboxSection.Parent = Content
+-- ========= SAVE SETTINGS SECTION =========
+local SaveSection = Instance.new("Frame")
+SaveSection.Size = UDim2.new(1, 0, 0, 80)
+SaveSection.Position = UDim2.new(0, 0, 0, 40)
+SaveSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SaveSection.BorderSizePixel = 0
+SaveSection.Parent = Content
+
+local SaveCorner = Instance.new("UICorner")
+SaveCorner.CornerRadius = UDim.new(0, 6)
+SaveCorner.Parent = SaveSection
+
+local SaveHeader = Instance.new("TextLabel")
+SaveHeader.Size = UDim2.new(1, -6, 0, 20)
+SaveHeader.Position = UDim2.new(0, 3, 0, 3)
+SaveHeader.BackgroundTransparency = 1
+SaveHeader.Text = "Save Settings"
+SaveHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
+SaveHeader.Font = Enum.Font.GothamBold
+SaveHeader.TextSize = 12
+SaveHeader.TextXAlignment = Enum.TextXAlignment.Left
+SaveHeader.Parent = SaveSection
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.new(1, 0, 1, 0)
+FilenameBox.Size = UDim2.new(1, -6, 0, 22)
+FilenameBox.Position = UDim2.new(0, 3, 0, 26)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = "MyReplays"
-FilenameBox.PlaceholderText = "Custom Filename"
+FilenameBox.PlaceholderText = "Filename"
 FilenameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 FilenameBox.Font = Enum.Font.Gotham
 FilenameBox.TextSize = 11
 FilenameBox.TextXAlignment = Enum.TextXAlignment.Center
 FilenameBox.ClearTextOnFocus = false
-FilenameBox.Parent = TextboxSection
+FilenameBox.Parent = SaveSection
 
 local FilenameCorner = Instance.new("UICorner")
 FilenameCorner.CornerRadius = UDim.new(0, 4)
 FilenameCorner.Parent = FilenameBox
 
--- ========= ACTION BUTTONS SECTION =========
-local ActionSection = Instance.new("Frame")
-ActionSection.Size = UDim2.new(1, 0, 0, 30)
-ActionSection.Position = UDim2.new(0, 0, 0, 72)
-ActionSection.BackgroundTransparency = 1
-ActionSection.Parent = Content
+local SaveButtons = Instance.new("Frame")
+SaveButtons.Size = UDim2.new(1, -6, 0, 22)
+SaveButtons.Position = UDim2.new(0, 3, 0, 53)
+SaveButtons.BackgroundTransparency = 1
+SaveButtons.Parent = SaveSection
 
-local SaveFileBtn = CreateControlBtn("SAVE FILE", 0, 95, Color3.fromRGB(59, 15, 116))
-SaveFileBtn.Parent = ActionSection
-local LoadFileBtn = CreateControlBtn("LOAD FILE", 100, 95, Color3.fromRGB(59, 15, 116))
-LoadFileBtn.Parent = ActionSection
+local SaveFileBtn = CreateControlBtn("SAVE", 0, 95, Color3.fromRGB(59, 15, 116))
+SaveFileBtn.Parent = SaveButtons
+local LoadFileBtn = CreateControlBtn("LOAD", 100, 95, Color3.fromRGB(59, 15, 116))
+LoadFileBtn.Parent = SaveButtons
 local MergeBtn = CreateControlBtn("MERGE", 200, 95, Color3.fromRGB(59, 15, 116))
-MergeBtn.Parent = ActionSection
-
--- ========= SETTINGS SECTION =========
-local SettingsSection = Instance.new("Frame")
-SettingsSection.Size = UDim2.new(1, 0, 0, 30)
-SettingsSection.Position = UDim2.new(0, 0, 0, 108)
-SettingsSection.BackgroundTransparency = 1
-SettingsSection.Parent = Content
-
-local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.fromOffset(95, 30)
-SpeedBox.Position = UDim2.fromOffset(0, 0)
-SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-SpeedBox.BorderSizePixel = 0
-SpeedBox.Text = "1.00"
-SpeedBox.PlaceholderText = "Speed"
-SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-SpeedBox.Font = Enum.Font.GothamBold
-SpeedBox.TextSize = 11
-SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
-SpeedBox.ClearTextOnFocus = false
-SpeedBox.Parent = SettingsSection
-
-local SpeedCorner = Instance.new("UICorner")
-SpeedCorner.CornerRadius = UDim.new(0, 4)
-SpeedCorner.Parent = SpeedBox
-
-local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(95, 30)
-WalkSpeedBox.Position = UDim2.fromOffset(100, 0)
-WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-WalkSpeedBox.BorderSizePixel = 0
-WalkSpeedBox.Text = "16"
-WalkSpeedBox.PlaceholderText = "WalkSpeed"
-WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-WalkSpeedBox.Font = Enum.Font.GothamBold
-WalkSpeedBox.TextSize = 11
-WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
-WalkSpeedBox.ClearTextOnFocus = false
-WalkSpeedBox.Parent = SettingsSection
-
-local WalkSpeedCorner = Instance.new("UICorner")
-WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
-WalkSpeedCorner.Parent = WalkSpeedBox
-
-local PathToggleBtn = CreateControlBtn("SHOW RUTE", 200, 95, Color3.fromRGB(59, 15, 116))
-PathToggleBtn.Parent = SettingsSection
+MergeBtn.Parent = SaveButtons
 
 -- ========= RECORDINGS LIST SECTION =========
 local RecordingsSection = Instance.new("Frame")
-RecordingsSection.Size = UDim2.new(1, 0, 0, 200)
-RecordingsSection.Position = UDim2.new(0, 0, 0, 144)
+RecordingsSection.Size = UDim2.new(1, 0, 0, 150)
+RecordingsSection.Position = UDim2.new(0, 0, 0, 130)
 RecordingsSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 RecordingsSection.BorderSizePixel = 0
 RecordingsSection.Parent = Content
@@ -1019,7 +987,7 @@ RecordingsHeader.Text = "Recordings (0)"
 RecordingsHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
 RecordingsHeader.Font = Enum.Font.GothamBold
 RecordingsHeader.TextSize = 12
-RecordingsHeader.TextXAlignment = Enum.TextXAlignment.Center
+RecordingsHeader.TextXAlignment = Enum.TextXAlignment.Left
 RecordingsHeader.Parent = RecordingsSection
 
 local RecordingsList = Instance.new("ScrollingFrame")
@@ -1114,7 +1082,7 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Playback Control Buttons dengan layout baru
+-- Playback Control Buttons dengan layout original
 local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 150, 25, Color3.fromRGB(59, 15, 116))
 
 -- Row 2: Toggle buttons
@@ -1147,8 +1115,8 @@ InfoCorner.Parent = PlaybackInfo
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(160, 100)
-RecordingStudio.Position = UDim2.new(0.5, -80, 0.5, -50)
+RecordingStudio.Size = UDim2.fromOffset(156, 130)
+RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -65)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -1203,12 +1171,12 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Studio buttons
-local SaveBtn = CreateStudioBtn("SAVE", 5, 5, 70, 20, Color3.fromRGB(59, 15, 116))
-local StartBtn = CreateStudioBtn("RECORD", 79, 5, 70, 20, Color3.fromRGB(200, 50, 60))
-local ResumeBtn = CreateStudioBtn("RESUME", 5, 30, 144, 22, Color3.fromRGB(59, 15, 116))
-local PrevBtn = CreateStudioBtn("◀ PREV", 5, 57, 69, 20, Color3.fromRGB(59, 15, 116))
-local NextBtn = CreateStudioBtn("NEXT ▶", 79, 57, 69, 20, Color3.fromRGB(59, 15, 116))
+-- Studio buttons dengan layout original
+local SaveBtn = CreateStudioBtn("SAVE", 3, 3, 69, 22, Color3.fromRGB(59, 15, 116))
+local StartBtn = CreateStudioBtn("RECORD", 75, 3, 69, 22, Color3.fromRGB(200, 50, 60))
+local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 69, 22, Color3.fromRGB(59, 15, 116))
+local NextBtn = CreateStudioBtn("NEXT ▶", 75, 53, 69, 22, Color3.fromRGB(59, 15, 116))
 
 -- ========= VALIDATION FUNCTIONS =========
 local function ValidateSpeed(speedText)
@@ -1218,43 +1186,6 @@ local function ValidateSpeed(speedText)
     local roundedSpeed = math.floor((speed * 4) + 0.5) / 4
     return true, roundedSpeed
 end
-
-SpeedBox.FocusLost:Connect(function()
-    local success, result = ValidateSpeed(SpeedBox.Text)
-    if success then
-        CurrentSpeed = result
-        SpeedBox.Text = string.format("%.2f", result)
-        PlaySound("Success")
-    else
-        SpeedBox.Text = string.format("%.2f", CurrentSpeed)
-        PlaySound("Error")
-    end
-end)
-
-local function ValidateWalkSpeed(walkSpeedText)
-    local walkSpeed = tonumber(walkSpeedText)
-    if not walkSpeed then return false, "Invalid number" end
-    if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
-    return true, walkSpeed
-end
-
-WalkSpeedBox.FocusLost:Connect(function()
-    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
-    if success then
-        CurrentWalkSpeed = result
-        WalkSpeedBox.Text = tostring(result)
-        pcall(function()
-            local char = player.Character
-            if char and char:FindFirstChildOfClass("Humanoid") then
-                char.Humanoid.WalkSpeed = CurrentWalkSpeed
-            end
-        end)
-        PlaySound("Success")
-    else
-        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
-        PlaySound("Error")
-    end
-end)
 
 -- ========= RECORDING LIST FUNCTIONS =========
 local function MoveRecordingUp(name)
@@ -1292,9 +1223,9 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- Item dengan height yang sesuai
+            -- ✅ Height 95px seperti semula
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 60)
+            item.Size = UDim2.new(1, -6, 0, 95)
             item.Position = UDim2.new(0, 3, 0, yPos)
             item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
             item.Parent = RecordingsList
@@ -1320,7 +1251,7 @@ function UpdateRecordList()
             
             -- Name box
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(0, 120, 0, 18)
+            nameBox.Size = UDim2.new(1, -100, 0, 18)
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
             nameBox.BorderSizePixel = 0
@@ -1339,7 +1270,7 @@ function UpdateRecordList()
             
             -- Info label
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(0, 120, 0, 14)
+            infoLabel.Size = UDim2.new(1, -100, 0, 14)
             infoLabel.Position = UDim2.fromOffset(28, 25)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
@@ -1354,9 +1285,9 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
-            -- Button baris 1: Play & Delete
+            -- ✅ BARIS 1: PLAY & DELETE (Posisi kanan atas)
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(40, 18)
+            playBtn.Size = UDim2.fromOffset(40, 20)
             playBtn.Position = UDim2.new(1, -85, 0, 5)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             playBtn.Text = "Play"
@@ -1370,7 +1301,7 @@ function UpdateRecordList()
             playCorner.Parent = playBtn
             
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(40, 18)
+            delBtn.Size = UDim2.fromOffset(40, 20)
             delBtn.Position = UDim2.new(1, -40, 0, 5)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "Delete"
@@ -1383,29 +1314,30 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- Button baris 2: Move Up & Down
+            -- ✅ BARIS 2: MOVE UP (SEJAJAR dengan Play & Delete)
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(85, 18)
-            upBtn.Position = UDim2.new(1, -85, 0, 26)
+            upBtn.Size = UDim2.fromOffset(85, 22)
+            upBtn.Position = UDim2.new(1, -85, 0, 28)
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
             upBtn.Text = "⬆️ MOVE UP"
             upBtn.TextColor3 = Color3.new(1, 1, 1)
             upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 9
+            upBtn.TextSize = 10
             upBtn.Parent = item
             
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
+            -- ✅ BARIS 3: MOVE DOWN (SEJAJAR dengan button di atasnya)
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(85, 18)
-            downBtn.Position = UDim2.new(1, -85, 0, 47)
+            downBtn.Size = UDim2.fromOffset(85, 22)
+            downBtn.Position = UDim2.new(1, -85, 0, 53)
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
             downBtn.Text = "⬇️ DOWN"
             downBtn.TextColor3 = Color3.new(1, 1, 1)
             downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 9
+            downBtn.TextSize = 10
             downBtn.Parent = item
             
             local downCorner = Instance.new("UICorner")
@@ -1461,7 +1393,7 @@ function UpdateRecordList()
                 end
             end)
             
-            yPos = yPos + 63  -- Spacing antar item
+            yPos = yPos + 100  -- ✅ Spacing antar item
         end
         
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
@@ -1473,7 +1405,7 @@ local function UpdateStudioUI()
     pcall(function()
         if StudioIsRecording then
             StartBtn.Text = "STOP"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
         else
             StartBtn.Text = "RECORD"
             StartBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2175,10 +2107,10 @@ function StartAutoLoopAll()
                 end
             end
         end
+        
+        -- FIX: Ensure movement start untuk menghindari stuck
+        EnsureMovementStart()
     end
-    
-    -- FIX: Ensure movement start untuk menghindari stuck
-    EnsureMovementStart()
     
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2604,15 +2536,15 @@ ShowRuteBtnControl.MouseButton1Click:Connect(function()
 end)
 
 -- ========= MAIN FRAME BUTTONS =========
-OpenStudioBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(OpenStudioBtn)
-    RecordingStudio.Visible = true
-    MainFrame.Visible = false
+PlayBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(PlayBtn)
+    PlaybackControl.Visible = not PlaybackControl.Visible
 end)
 
-PlaybackBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(PlaybackBtn)
-    PlaybackControl.Visible = not PlaybackControl.Visible
+RecordBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(RecordBtn)
+    RecordingStudio.Visible = true
+    MainFrame.Visible = false
 end)
 
 MenuBtn.MouseButton1Click:Connect(function()
@@ -2638,18 +2570,6 @@ end)
 LoadFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoadFileBtn)
     LoadFromObfuscatedJSON()
-end)
-
-PathToggleBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(PathToggleBtn)
-    ShowPaths = not ShowPaths
-    if ShowPaths then
-        PathToggleBtn.Text = "HIDE RUTE"
-        VisualizeAllPaths()
-    else
-        PathToggleBtn.Text = "SHOW RUTE"
-        ClearPathVisualization()
-    end
 end)
 
 MergeBtn.MouseButton1Click:Connect(function()
@@ -2732,6 +2652,6 @@ task.spawn(function()
     end
 end)
 
-print("✅ ByaruL Recorder v2.1 - Enhanced Loaded Successfully!")
-print("📌 Features: Smart Auto Loop, Enhanced State Management, Improved GUI")
-print("🎮 Auto Loop now starts from nearest recording with jump accuracy!")
+print("✅ ByaruL Recorder v2.1 - Restored Successfully!")
+print("📌 Features: Original GUI Restored, Enhanced Auto Loop, Smart Play System")
+print("🎮 Auto Loop now works perfectly with original recording layout!")
