@@ -689,14 +689,14 @@ CloseCorner.Parent = CloseBtn
 
 -- Content Area
 local Content = Instance.new("Frame")
-Content.Size = UDim2.new(1, -20, 1, -40)
-Content.Position = UDim2.new(0, 10, 0, 36)
+Content.Size = UDim2.new(1, -6, 1, -38)
+Content.Position = UDim2.new(0, 3, 0, 36)
 Content.BackgroundTransparency = 1
 Content.Parent = MainFrame
 
 -- ========= CONTROL BUTTONS SECTION =========
 local ControlSection = Instance.new("Frame")
-ControlSection.Size = UDim2.new(1, 0, 0, 40)
+ControlSection.Size = UDim2.new(1, 0, 0, 30)
 ControlSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 ControlSection.BorderSizePixel = 0
 ControlSection.Parent = Content
@@ -706,25 +706,25 @@ ControlCorner.CornerRadius = UDim.new(0, 6)
 ControlCorner.Parent = ControlSection
 
 local ControlButtons = Instance.new("Frame")
-ControlButtons.Size = UDim2.new(1, -20, 1, -10)
-ControlButtons.Position = UDim2.new(0, 10, 0, 5)
+ControlButtons.Size = UDim2.new(1, -6, 1, -6)
+ControlButtons.Position = UDim2.new(0, 3, 0, 3)
 ControlButtons.BackgroundTransparency = 1
 ControlButtons.Parent = ControlSection
 
 local function CreateControlBtn(text, x, size, color)
     local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(size, 30)
+    btn.Size = UDim2.fromOffset(size, 22)
     btn.Position = UDim2.fromOffset(x, 0)
     btn.BackgroundColor3 = color
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.AutoButtonColor = false
     btn.Parent = ControlButtons
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
+    corner.CornerRadius = UDim.new(0, 4)
     corner.Parent = btn
     
     btn.MouseEnter:Connect(function()
@@ -746,14 +746,14 @@ local function CreateControlBtn(text, x, size, color)
     return btn
 end
 
-local PlayBtn = CreateControlBtn("▶️ PLAY", 0, 90, Color3.fromRGB(59, 15, 116))
-local RecordBtn = CreateControlBtn("⏺️ REC", 95, 90, Color3.fromRGB(200, 50, 60))
-local MenuBtn = CreateControlBtn("⚙️ MENU", 190, 90, Color3.fromRGB(70, 70, 90))
+local PlayBtn = CreateControlBtn("PLAY", 0, 95, Color3.fromRGB(59, 15, 116))
+local RecordBtn = CreateControlBtn("REC", 100, 95, Color3.fromRGB(200, 50, 60))
+local MenuBtn = CreateControlBtn("MENU", 200, 95, Color3.fromRGB(70, 70, 90))
 
 -- ========= SAVE SETTINGS SECTION =========
 local SaveSection = Instance.new("Frame")
 SaveSection.Size = UDim2.new(1, 0, 0, 80)
-SaveSection.Position = UDim2.new(0, 0, 0, 50)
+SaveSection.Position = UDim2.new(0, 0, 0, 40)
 SaveSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 SaveSection.BorderSizePixel = 0
 SaveSection.Parent = Content
@@ -763,10 +763,10 @@ SaveCorner.CornerRadius = UDim.new(0, 6)
 SaveCorner.Parent = SaveSection
 
 local SaveHeader = Instance.new("TextLabel")
-SaveHeader.Size = UDim2.new(1, -20, 0, 20)
-SaveHeader.Position = UDim2.new(0, 10, 0, 5)
+SaveHeader.Size = UDim2.new(1, -6, 0, 20)
+SaveHeader.Position = UDim2.new(0, 3, 0, 3)
 SaveHeader.BackgroundTransparency = 1
-SaveHeader.Text = "📂 Save Settings"
+SaveHeader.Text = "Save Settings"
 SaveHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
 SaveHeader.Font = Enum.Font.GothamBold
 SaveHeader.TextSize = 12
@@ -774,8 +774,8 @@ SaveHeader.TextXAlignment = Enum.TextXAlignment.Left
 SaveHeader.Parent = SaveSection
 
 local FilenameBox = Instance.new("TextBox")
-FilenameBox.Size = UDim2.new(1, -20, 0, 25)
-FilenameBox.Position = UDim2.new(0, 10, 0, 30)
+FilenameBox.Size = UDim2.new(1, -6, 0, 22)
+FilenameBox.Position = UDim2.new(0, 3, 0, 26)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = "MyReplays"
@@ -792,22 +792,22 @@ FilenameCorner.CornerRadius = UDim.new(0, 4)
 FilenameCorner.Parent = FilenameBox
 
 local SaveButtons = Instance.new("Frame")
-SaveButtons.Size = UDim2.new(1, -20, 0, 25)
-SaveButtons.Position = UDim2.new(0, 10, 0, 60)
+SaveButtons.Size = UDim2.new(1, -6, 0, 22)
+SaveButtons.Position = UDim2.new(0, 3, 0, 53)
 SaveButtons.BackgroundTransparency = 1
 SaveButtons.Parent = SaveSection
 
-local SaveFileBtn = CreateControlBtn("💾 SAVE", 0, 85, Color3.fromRGB(59, 15, 116))
+local SaveFileBtn = CreateControlBtn("SAVE", 0, 95, Color3.fromRGB(59, 15, 116))
 SaveFileBtn.Parent = SaveButtons
-local LoadFileBtn = CreateControlBtn("📂 LOAD", 90, 85, Color3.fromRGB(59, 15, 116))
+local LoadFileBtn = CreateControlBtn("LOAD", 100, 95, Color3.fromRGB(59, 15, 116))
 LoadFileBtn.Parent = SaveButtons
-local MergeBtn = CreateControlBtn("🔗 MERGE", 180, 85, Color3.fromRGB(59, 15, 116))
+local MergeBtn = CreateControlBtn("MERGE", 200, 95, Color3.fromRGB(59, 15, 116))
 MergeBtn.Parent = SaveButtons
 
 -- ========= RECORDINGS LIST SECTION =========
 local RecordingsSection = Instance.new("Frame")
 RecordingsSection.Size = UDim2.new(1, 0, 0, 150)
-RecordingsSection.Position = UDim2.new(0, 0, 0, 140)
+RecordingsSection.Position = UDim2.new(0, 0, 0, 130)
 RecordingsSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 RecordingsSection.BorderSizePixel = 0
 RecordingsSection.Parent = Content
@@ -817,10 +817,10 @@ RecordingsCorner.CornerRadius = UDim.new(0, 6)
 RecordingsCorner.Parent = RecordingsSection
 
 local RecordingsHeader = Instance.new("TextLabel")
-RecordingsHeader.Size = UDim2.new(1, -20, 0, 20)
-RecordingsHeader.Position = UDim2.new(0, 10, 0, 5)
+RecordingsHeader.Size = UDim2.new(1, -6, 0, 20)
+RecordingsHeader.Position = UDim2.new(0, 3, 0, 3)
 RecordingsHeader.BackgroundTransparency = 1
-RecordingsHeader.Text = "📊 Recordings (0)"
+RecordingsHeader.Text = "Recordings (0)"
 RecordingsHeader.TextColor3 = Color3.fromRGB(255, 255, 255)
 RecordingsHeader.Font = Enum.Font.GothamBold
 RecordingsHeader.TextSize = 12
@@ -828,8 +828,8 @@ RecordingsHeader.TextXAlignment = Enum.TextXAlignment.Left
 RecordingsHeader.Parent = RecordingsSection
 
 local RecordingsList = Instance.new("ScrollingFrame")
-RecordingsList.Size = UDim2.new(1, -20, 1, -30)
-RecordingsList.Position = UDim2.new(0, 10, 0, 25)
+RecordingsList.Size = UDim2.new(1, -6, 1, -26)
+RecordingsList.Position = UDim2.new(0, 3, 0, 23)
 RecordingsList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingsList.BorderSizePixel = 0
 RecordingsList.ScrollBarThickness = 4
@@ -863,8 +863,8 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(300, 180)
-PlaybackControl.Position = UDim2.new(0.5, -150, 0.5, -90)
+PlaybackControl.Size = UDim2.fromOffset(150, 120)
+PlaybackControl.Position = UDim2.new(0.5, -75, 0.5, -60)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
@@ -877,8 +877,8 @@ PlaybackCorner.CornerRadius = UDim.new(0, 8)
 PlaybackCorner.Parent = PlaybackControl
 
 local PlaybackContent = Instance.new("Frame")
-PlaybackContent.Size = UDim2.new(1, -10, 1, -10)
-PlaybackContent.Position = UDim2.new(0, 5, 0, 5)
+PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
+PlaybackContent.Position = UDim2.new(0, 3, 0, 3)
 PlaybackContent.BackgroundTransparency = 1
 PlaybackContent.Parent = PlaybackControl
 
@@ -890,12 +890,12 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.AutoButtonColor = false
     btn.Parent = PlaybackContent
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 5)
+    corner.CornerRadius = UDim.new(0, 4)
     corner.Parent = btn
     
     btn.MouseEnter:Connect(function()
@@ -927,7 +927,7 @@ local function CreateToggleBtn(text, x, y, w, h)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 10
+    btn.TextSize = 9
     btn.AutoButtonColor = false
     btn.Parent = PlaybackContent
     
@@ -939,60 +939,23 @@ local function CreateToggleBtn(text, x, y, w, h)
 end
 
 -- Playback Control Buttons dengan layout yang lebih baik
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 10, 10, 135, 35, Color3.fromRGB(59, 15, 116))
-local PauseBtnControl = CreatePlaybackBtn("PAUSE", 155, 10, 135, 35, Color3.fromRGB(255, 140, 0))
+local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 68, 25, Color3.fromRGB(59, 15, 116))
+local PauseBtnControl = CreatePlaybackBtn("PAUSE", 76, 3, 68, 25, Color3.fromRGB(255, 140, 0))
 
 -- Toggle Buttons dengan layout yang rapi
-local LoopBtnControl = CreateToggleBtn("AutoLoop OFF", 10, 55, 135, 22)
-local JumpBtnControl = CreateToggleBtn("InfiniteJump OFF", 155, 55, 135, 22)
+local LoopBtnControl = CreateToggleBtn("AutoLoop OFF", 3, 33, 68, 18)
+local JumpBtnControl = CreateToggleBtn("InfJump OFF", 76, 33, 68, 18)
 
-local RespawnBtnControl = CreateToggleBtn("AutoRespawn OFF", 10, 82, 135, 22)
-local ShiftLockBtnControl = CreateToggleBtn("ShiftLock OFF", 155, 82, 135, 22)
+local RespawnBtnControl = CreateToggleBtn("AutoRespawn OFF", 3, 56, 68, 18)
+local ShiftLockBtnControl = CreateToggleBtn("ShiftLock OFF", 76, 56, 68, 18)
 
-local ResetBtnControl = CreateToggleBtn("ResetChar OFF", 10, 109, 135, 22)
-local ShowRuteBtnControl = CreateToggleBtn("ShowPath OFF", 155, 109, 135, 22)
-
--- Speed and WalkSpeed Controls
-local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.fromOffset(135, 22)
-SpeedBox.Position = UDim2.fromOffset(10, 136)
-SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-SpeedBox.BorderSizePixel = 0
-SpeedBox.Text = "1.00"
-SpeedBox.PlaceholderText = "Speed"
-SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-SpeedBox.Font = Enum.Font.GothamBold
-SpeedBox.TextSize = 10
-SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
-SpeedBox.ClearTextOnFocus = false
-SpeedBox.Parent = PlaybackContent
-
-local SpeedCorner = Instance.new("UICorner")
-SpeedCorner.CornerRadius = UDim.new(0, 4)
-SpeedCorner.Parent = SpeedBox
-
-local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(135, 22)
-WalkSpeedBox.Position = UDim2.fromOffset(155, 136)
-WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-WalkSpeedBox.BorderSizePixel = 0
-WalkSpeedBox.Text = "16"
-WalkSpeedBox.PlaceholderText = "WalkSpeed"
-WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-WalkSpeedBox.Font = Enum.Font.GothamBold
-WalkSpeedBox.TextSize = 10
-WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
-WalkSpeedBox.ClearTextOnFocus = false
-WalkSpeedBox.Parent = PlaybackContent
-
-local WalkSpeedCorner = Instance.new("UICorner")
-WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
-WalkSpeedCorner.Parent = WalkSpeedBox
+local ResetBtnControl = CreateToggleBtn("ResetChar OFF", 3, 79, 68, 18)
+local ShowRuteBtnControl = CreateToggleBtn("ShowPath OFF", 76, 79, 68, 18)
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(300, 120)
-RecordingStudio.Position = UDim2.new(0.5, -150, 0.5, -60)
+RecordingStudio.Size = UDim2.fromOffset(150, 120)
+RecordingStudio.Position = UDim2.new(0.5, -75, 0.5, -60)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
@@ -1005,8 +968,8 @@ StudioCorner.CornerRadius = UDim.new(0, 8)
 StudioCorner.Parent = RecordingStudio
 
 local StudioContent = Instance.new("Frame")
-StudioContent.Size = UDim2.new(1, -10, 1, -10)
-StudioContent.Position = UDim2.new(0, 5, 0, 5)
+StudioContent.Size = UDim2.new(1, -6, 1, -6)
+StudioContent.Position = UDim2.new(0, 3, 0, 3)
 StudioContent.BackgroundTransparency = 1
 StudioContent.Parent = RecordingStudio
 
@@ -1018,7 +981,7 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     btn.Text = text
     btn.TextColor3 = Color3.new(1, 1, 1)
     btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
+    btn.TextSize = 11
     btn.AutoButtonColor = false
     btn.Parent = StudioContent
     
@@ -1047,13 +1010,50 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
-local SaveBtn = CreateStudioBtn("Save", 10, 10, 135, 25, Color3.fromRGB(59, 15, 116))
-local StartBtn = CreateStudioBtn("● RECORD", 155, 10, 135, 25, Color3.fromRGB(200, 50, 60))
+local SaveBtn = CreateStudioBtn("Save", 3, 3, 68, 20, Color3.fromRGB(59, 15, 116))
+local StartBtn = CreateStudioBtn("RECORD", 76, 3, 68, 20, Color3.fromRGB(200, 50, 60))
 
-local ResumeBtn = CreateStudioBtn("RESUME", 10, 40, 280, 25, Color3.fromRGB(59, 15, 116))
+local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 141, 20, Color3.fromRGB(59, 15, 116))
 
-local PrevBtn = CreateStudioBtn("Prev", 10, 70, 135, 25, Color3.fromRGB(59, 15, 116))
-local NextBtn = CreateStudioBtn("Next", 155, 70, 135, 25, Color3.fromRGB(59, 15, 116))
+local PrevBtn = CreateStudioBtn("Prev", 3, 53, 68, 20, Color3.fromRGB(59, 15, 116))
+local NextBtn = CreateStudioBtn("Next", 76, 53, 68, 20, Color3.fromRGB(59, 15, 116))
+
+-- Speed and WalkSpeed Controls
+local SpeedBox = Instance.new("TextBox")
+SpeedBox.Size = UDim2.fromOffset(68, 18)
+SpeedBox.Position = UDim2.fromOffset(3, 78)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+SpeedBox.BorderSizePixel = 0
+SpeedBox.Text = "1.00"
+SpeedBox.PlaceholderText = "Speed"
+SpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBox.Font = Enum.Font.GothamBold
+SpeedBox.TextSize = 9
+SpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = StudioContent
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 4)
+SpeedCorner.Parent = SpeedBox
+
+local WalkSpeedBox = Instance.new("TextBox")
+WalkSpeedBox.Size = UDim2.fromOffset(68, 18)
+WalkSpeedBox.Position = UDim2.fromOffset(76, 78)
+WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+WalkSpeedBox.BorderSizePixel = 0
+WalkSpeedBox.Text = "16"
+WalkSpeedBox.PlaceholderText = "WalkSpeed"
+WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+WalkSpeedBox.Font = Enum.Font.GothamBold
+WalkSpeedBox.TextSize = 9
+WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
+WalkSpeedBox.ClearTextOnFocus = false
+WalkSpeedBox.Parent = StudioContent
+
+local WalkSpeedCorner = Instance.new("UICorner")
+WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
+WalkSpeedCorner.Parent = WalkSpeedBox
 
 -- ========= VALIDATION FUNCTIONS =========
 local function ValidateSpeed(speedText)
@@ -1129,14 +1129,14 @@ function UpdateRecordList()
         if child:IsA("Frame") then child:Destroy() end
     end
     
-    local yPos = 5
+    local yPos = 3
     for index, name in ipairs(RecordingOrder) do
         local rec = RecordedMovements[name]
         if not rec then continue end
         
         local item = Instance.new("Frame")
-        item.Size = UDim2.new(1, -10, 0, 60)
-        item.Position = UDim2.new(0, 5, 0, yPos)
+        item.Size = UDim2.new(1, -6, 0, 70)
+        item.Position = UDim2.new(0, 3, 0, yPos)
         item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
         item.Parent = RecordingsList
     
@@ -1145,13 +1145,13 @@ function UpdateRecordList()
         corner.Parent = item
         
         local checkBox = Instance.new("TextButton")
-        checkBox.Size = UDim2.fromOffset(20, 20)
-        checkBox.Position = UDim2.fromOffset(8, 8)
+        checkBox.Size = UDim2.fromOffset(18, 18)
+        checkBox.Position = UDim2.fromOffset(5, 5)
         checkBox.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
         checkBox.Text = CheckedRecordings[name] and "✓" or ""
         checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
         checkBox.Font = Enum.Font.GothamBold
-        checkBox.TextSize = 14
+        checkBox.TextSize = 12
         checkBox.Parent = item
         
         local checkCorner = Instance.new("UICorner")
@@ -1159,8 +1159,8 @@ function UpdateRecordList()
         checkCorner.Parent = checkBox
         
         local nameBox = Instance.new("TextBox")
-        nameBox.Size = UDim2.new(1, -100, 0, 20)
-        nameBox.Position = UDim2.fromOffset(35, 8)
+        nameBox.Size = UDim2.new(1, -100, 0, 18)
+        nameBox.Position = UDim2.fromOffset(28, 5)
         nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
         nameBox.BorderSizePixel = 0
         nameBox.Text = checkpointNames[name] or "Checkpoint1"
@@ -1177,14 +1177,14 @@ function UpdateRecordList()
         nameBoxCorner.Parent = nameBox
         
         local infoLabel = Instance.new("TextLabel")
-        infoLabel.Size = UDim2.new(1, -100, 0, 16)
-        infoLabel.Position = UDim2.fromOffset(35, 30)
+        infoLabel.Size = UDim2.new(1, -100, 0, 14)
+        infoLabel.Position = UDim2.fromOffset(28, 25)
         infoLabel.BackgroundTransparency = 1
         if #rec > 0 then
             local totalSeconds = rec[#rec].Timestamp
-            infoLabel.Text = FormatDuration(totalSeconds) .. " • " .. #rec .. " frames"
+            infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
         else
-            infoLabel.Text = "0:00 • 0 frames"
+            infoLabel.Text = "🕐 0:00 📊 0 frames"
         end
         infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
         infoLabel.Font = Enum.Font.GothamBold
@@ -1193,41 +1193,41 @@ function UpdateRecordList()
         infoLabel.Parent = item
         
         local playBtn = Instance.new("TextButton")
-        playBtn.Size = UDim2.fromOffset(40, 20)
-        playBtn.Position = UDim2.new(1, -85, 0, 8)
+        playBtn.Size = UDim2.fromOffset(40, 18)
+        playBtn.Position = UDim2.new(1, -85, 0, 5)
         playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         playBtn.Text = "Play"
         playBtn.TextColor3 = Color3.new(1, 1, 1)
         playBtn.Font = Enum.Font.GothamBold
-        playBtn.TextSize = 10
+        playBtn.TextSize = 9
         playBtn.Parent = item
         
         local playCorner = Instance.new("UICorner")
-        playCorner.CornerRadius = UDim.new(0, 4)
+        playCorner.CornerRadius = UDim.new(0, 3)
         playCorner.Parent = playBtn
         
         local delBtn = Instance.new("TextButton")
-        delBtn.Size = UDim2.fromOffset(40, 20)
-        delBtn.Position = UDim2.new(1, -40, 0, 8)
+        delBtn.Size = UDim2.fromOffset(40, 18)
+        delBtn.Position = UDim2.new(1, -40, 0, 5)
         delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
         delBtn.Text = "Delete"
         delBtn.TextColor3 = Color3.new(1, 1, 1)
         delBtn.Font = Enum.Font.GothamBold
-        delBtn.TextSize = 10
+        delBtn.TextSize = 9
         delBtn.Parent = item
         
         local delCorner = Instance.new("UICorner")
-        delCorner.CornerRadius = UDim.new(0, 4)
+        delCorner.CornerRadius = UDim.new(0, 3)
         delCorner.Parent = delBtn
         
         local upBtn = Instance.new("TextButton")
-        upBtn.Size = UDim2.fromOffset(30, 15)
-        upBtn.Position = UDim2.new(1, -85, 0, 35)
+        upBtn.Size = UDim2.fromOffset(65, 16)
+        upBtn.Position = UDim2.new(1, -85, 0, 28)
         upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
-        upBtn.Text = "↑"
+        upBtn.Text = "⬆️Move Up"
         upBtn.TextColor3 = Color3.new(1, 1, 1)
         upBtn.Font = Enum.Font.GothamBold
-        upBtn.TextSize = 12
+        upBtn.TextSize = 8
         upBtn.Parent = item
         
         local upCorner = Instance.new("UICorner")
@@ -1235,13 +1235,13 @@ function UpdateRecordList()
         upCorner.Parent = upBtn
         
         local downBtn = Instance.new("TextButton")
-        downBtn.Size = UDim2.fromOffset(30, 15)
-        downBtn.Position = UDim2.new(1, -50, 0, 35)
+        downBtn.Size = UDim2.fromOffset(65, 16)
+        downBtn.Position = UDim2.new(1, -15, 0, 28)
         downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
-        downBtn.Text = "↓"
+        downBtn.Text = "⬇️Down"
         downBtn.TextColor3 = Color3.new(1, 1, 1)
         downBtn.Font = Enum.Font.GothamBold
-        downBtn.TextSize = 12
+        downBtn.TextSize = 8
         downBtn.Parent = item
         
         local downCorner = Instance.new("UICorner")
@@ -1249,7 +1249,7 @@ function UpdateRecordList()
         downCorner.Parent = downBtn
         
         -- Update recordings count
-        RecordingsHeader.Text = "📊 Recordings (" .. #RecordingOrder .. ")"
+        RecordingsHeader.Text = "Recordings (" .. #RecordingOrder .. ")"
         
         nameBox.FocusLost:Connect(function()
             local newName = nameBox.Text
@@ -1296,7 +1296,7 @@ function UpdateRecordList()
             end
         end)
         
-        yPos = yPos + 65
+        yPos = yPos + 75
     end
     
     RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
@@ -1361,7 +1361,7 @@ local function StartStudioRecording()
         CurrentTimelineFrame = 0
         TimelinePosition = 0
         
-        StartBtn.Text = "● RECORDING"
+        StartBtn.Text = "RECORDING"
         StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
         
         PlaySound("RecordStart")
@@ -1423,7 +1423,7 @@ local function StopStudioRecording()
             recordConnection = nil
         end
         
-        StartBtn.Text = "● RECORD"
+        StartBtn.Text = "RECORD"
         StartBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
         
         PlaySound("RecordStop")
@@ -1808,30 +1808,6 @@ function PlayRecording(name)
             PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             return
         end
-        
-        if IsPaused then
-            if pauseStartTime == 0 then
-                pauseStartTime = tick()
-                PausedAtFrame = currentPlaybackFrame
-                local char = player.Character
-                if char and char:FindFirstChild("HumanoidRootPart") then
-                    LastPausePosition = char.HumanoidRootPart.Position
-                    LastPauseRecording = recording
-                end
-                RestoreHumanoidState()
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
-                UpdatePauseMarker()
-            end
-            return
-        else
-            if pauseStartTime > 0 then
-                totalPausedDuration = totalPausedDuration + (tick() - pauseStartTime)
-                pauseStartTime = 0
-                UpdatePauseMarker()
-            end
-        end
 
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then
@@ -1906,8 +1882,19 @@ function PlayRecording(name)
                     local moveState = frame.MoveState
                     local stateTime = tick()
                     
-                    -- Only apply cooldown for climbing state
-                    if moveState == "Climbing" then
+                    if moveState == "Jumping" then
+                        if lastPlaybackState ~= "Jumping" then
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                            lastPlaybackState = "Jumping"
+                            lastStateChangeTime = stateTime
+                        end
+                    elseif moveState == "Falling" then
+                        if lastPlaybackState ~= "Falling" then
+                            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                            lastPlaybackState = "Falling"
+                            lastStateChangeTime = stateTime
+                        end
+                    elseif moveState == "Climbing" then
                         if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                             lastPlaybackState = moveState
                             lastStateChangeTime = stateTime
@@ -1915,21 +1902,17 @@ function PlayRecording(name)
                             hum.PlatformStand = false
                             hum.AutoRotate = false
                         end
-                    else
-                        -- No cooldown for jumping and falling for accurate spam
-                        if moveState ~= lastPlaybackState then
+                    elseif moveState == "Swimming" then
+                        if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                             lastPlaybackState = moveState
                             lastStateChangeTime = stateTime
-                            
-                            if moveState == "Jumping" then
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                            elseif moveState == "Falling" then
-                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                            elseif moveState == "Swimming" then
-                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            else
-                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                            end
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        end
+                    else
+                        if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            lastPlaybackState = moveState
+                            lastStateChangeTime = stateTime
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
                         end
                     end
                 end
@@ -2020,8 +2003,6 @@ function StartAutoLoopAll()
             
             local playbackCompleted = false
             local playbackStart = tick()
-            local playbackPausedTime = 0
-            local playbackPauseStart = 0
             local currentFrame = 1
             local deathRetryCount = 0
             local maxDeathRetries = 999999
@@ -2047,8 +2028,6 @@ function StartAutoLoopAll()
                             
                             currentFrame = 1
                             playbackStart = tick()
-                            playbackPausedTime = 0
-                            playbackPauseStart = 0
                             lastPlaybackState = nil
                             lastStateChangeTime = 0
                             loopAccumulator = 0
@@ -2086,8 +2065,6 @@ function StartAutoLoopAll()
                         
                         currentFrame = 1
                         playbackStart = tick()
-                        playbackPausedTime = 0
-                        playbackPauseStart = 0
                         lastPlaybackState = nil
                         lastStateChangeTime = 0
                         loopAccumulator = 0
@@ -2098,100 +2075,85 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                if IsPaused then
-                    if playbackPauseStart == 0 then
-                        playbackPauseStart = tick()
-                        local char = player.Character
-                        if char and char:FindFirstChild("HumanoidRootPart") then
-                            LastPausePosition = char.HumanoidRootPart.Position
-                            LastPauseRecording = recording
-                        end
-                        RestoreHumanoidState()
-                        if ShiftLockEnabled then
-                            ApplyVisibleShiftLock()
-                        end
-                        UpdatePauseMarker()
-                    end
-                    task.wait(0.1)
-                else
-                    if playbackPauseStart > 0 then
-                        playbackPausedTime = playbackPausedTime + (tick() - playbackPauseStart)
-                        playbackPauseStart = 0
-                        UpdatePauseMarker()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then
+                    task.wait(0.5)
+                    break
+                end
+                
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if not hum or not hrp then
+                    task.wait(0.5)
+                    break
+                end
+                
+                -- Fixed timestep for auto-loop
+                local deltaTime = task.wait()
+                loopAccumulator = loopAccumulator + deltaTime
+                
+                while loopAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+                    loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
+                    
+                    local currentTime = tick()
+                    local effectiveTime = (currentTime - playbackStart) * CurrentSpeed
+                    
+                    while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
+                        currentFrame = currentFrame + 1
                     end
                     
-                    local char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then
-                        task.wait(0.5)
+                    if currentFrame >= #recording then
+                        playbackCompleted = true
                         break
                     end
                     
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if not hum or not hrp then
-                        task.wait(0.5)
-                        break
-                    end
-                    
-                    -- Fixed timestep for auto-loop
-                    local deltaTime = task.wait()
-                    loopAccumulator = loopAccumulator + deltaTime
-                    
-                    while loopAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                        loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
-                        
-                        local currentTime = tick()
-                        local effectiveTime = (currentTime - playbackStart - playbackPausedTime) * CurrentSpeed
-                        
-                        while currentFrame < #recording and GetFrameTimestamp(recording[currentFrame + 1]) <= effectiveTime do
-                            currentFrame = currentFrame + 1
-                        end
-                        
-                        if currentFrame >= #recording then
-                            playbackCompleted = true
-                            break
-                        end
-                        
-                        local frame = recording[currentFrame]
-                        if frame then
-                            task.spawn(function()
-                                hrp.CFrame = GetFrameCFrame(frame)
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                    local frame = recording[currentFrame]
+                    if frame then
+                        task.spawn(function()
+                            hrp.CFrame = GetFrameCFrame(frame)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                            
+                            if hum then
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = false
                                 
-                                if hum then
-                                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                    hum.AutoRotate = false
-                                    
-                                    local moveState = frame.MoveState
-                                    local stateTime = tick()
-                                    
-                                    -- Only apply cooldown for climbing state
-                                    if moveState == "Climbing" then
-                                        if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                            lastPlaybackState = moveState
-                                            lastStateChangeTime = stateTime
-                                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                            hum.PlatformStand = false
-                                            hum.AutoRotate = false
-                                        end
-                                    else
-                                        -- No cooldown for jumping and falling for accurate spam
-                                        if moveState ~= lastPlaybackState then
-                                            lastPlaybackState = moveState
-                                            lastStateChangeTime = stateTime
-                                            
-                                            if moveState == "Jumping" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                            elseif moveState == "Falling" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                            elseif moveState == "Swimming" then
-                                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                            else
-                                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                                            end
-                                        end
+                                local moveState = frame.MoveState
+                                local stateTime = tick()
+                                
+                                if moveState == "Jumping" then
+                                    if lastPlaybackState ~= "Jumping" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                        lastPlaybackState = "Jumping"
+                                        lastStateChangeTime = stateTime
+                                    end
+                                elseif moveState == "Falling" then
+                                    if lastPlaybackState ~= "Falling" then
+                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                        lastPlaybackState = "Falling"
+                                        lastStateChangeTime = stateTime
+                                    end
+                                elseif moveState == "Climbing" then
+                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                        lastPlaybackState = moveState
+                                        lastStateChangeTime = stateTime
+                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                        hum.PlatformStand = false
+                                        hum.AutoRotate = false
+                                    end
+                                elseif moveState == "Swimming" then
+                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                        lastPlaybackState = moveState
+                                        lastStateChangeTime = stateTime
+                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                    end
+                                else
+                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                        lastPlaybackState = moveState
+                                        lastStateChangeTime = stateTime
+                                        hum:ChangeState(Enum.HumanoidStateType.Running)
                                     end
                                 end
+                            end
             
                                 if ShiftLockEnabled then
                                     ApplyVisibleShiftLock()
@@ -2411,8 +2373,19 @@ function PausePlayback()
                             local moveState = frame.MoveState
                             local stateTime = tick()
                             
-                            -- Only apply cooldown for climbing state
-                            if moveState == "Climbing" then
+                            if moveState == "Jumping" then
+                                if lastPlaybackState ~= "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    lastPlaybackState = "Jumping"
+                                    lastStateChangeTime = stateTime
+                                end
+                            elseif moveState == "Falling" then
+                                if lastPlaybackState ~= "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                    lastPlaybackState = "Falling"
+                                    lastStateChangeTime = stateTime
+                                end
+                            elseif moveState == "Climbing" then
                                 if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                     lastPlaybackState = moveState
                                     lastStateChangeTime = stateTime
@@ -2420,21 +2393,17 @@ function PausePlayback()
                                     hum.PlatformStand = false
                                     hum.AutoRotate = false
                                 end
-                            else
-                                -- No cooldown for jumping and falling for accurate spam
-                                if moveState ~= lastPlaybackState then
+                            elseif moveState == "Swimming" then
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                     lastPlaybackState = moveState
                                     lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                end
+                            else
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                    lastPlaybackState = moveState
+                                    lastStateChangeTime = stateTime
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
                                 end
                             end
                         end
@@ -2554,8 +2523,19 @@ function PausePlayback()
                             local moveState = frame.MoveState
                             local stateTime = tick()
                             
-                            -- Only apply cooldown for climbing state
-                            if moveState == "Climbing" then
+                            if moveState == "Jumping" then
+                                if lastPlaybackState ~= "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                    lastPlaybackState = "Jumping"
+                                    lastStateChangeTime = stateTime
+                                end
+                            elseif moveState == "Falling" then
+                                if lastPlaybackState ~= "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                    lastPlaybackState = "Falling"
+                                    lastStateChangeTime = stateTime
+                                end
+                            elseif moveState == "Climbing" then
                                 if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                     lastPlaybackState = moveState
                                     lastStateChangeTime = stateTime
@@ -2563,21 +2543,17 @@ function PausePlayback()
                                     hum.PlatformStand = false
                                     hum.AutoRotate = false
                                 end
-                            else
-                                -- No cooldown for jumping and falling for accurate spam
-                                if moveState ~= lastPlaybackState then
+                            elseif moveState == "Swimming" then
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                     lastPlaybackState = moveState
                                     lastStateChangeTime = stateTime
-                                    
-                                    if moveState == "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                    elseif moveState == "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                    elseif moveState == "Swimming" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    else
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                end
+                            else
+                                if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                                    lastPlaybackState = moveState
+                                    lastStateChangeTime = stateTime
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
                                 end
                             end
                         end
@@ -2646,10 +2622,10 @@ JumpBtnControl.MouseButton1Click:Connect(function()
     AnimateButtonClick(JumpBtnControl)
     ToggleInfiniteJump()
     if InfiniteJump then
-        JumpBtnControl.Text = "InfiniteJump ON"
+        JumpBtnControl.Text = "InfJump ON"
         JumpBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
     else
-        JumpBtnControl.Text = "InfiniteJump OFF"
+        JumpBtnControl.Text = "InfJump OFF"
         JumpBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
     end
 end)
