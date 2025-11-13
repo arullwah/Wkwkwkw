@@ -1245,7 +1245,7 @@ function UpdateRecordList()
             
             -- ✅ Height 95px
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 95)
+            item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
             item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
             item.Parent = RecordingsList
