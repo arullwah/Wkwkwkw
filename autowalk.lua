@@ -714,7 +714,7 @@ end
 
 -- ========= MAIN ELEGANT FRAME =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(300, 320)
+MainFrame.Size = UDim2.fromOffset(300, 300)
 MainFrame.Position = UDim2.new(0.5, -150, 0.5, -160)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 MainFrame.BorderSizePixel = 0
@@ -841,7 +841,7 @@ local MenuBtn = CreateControlBtn("MENU", 200, 95, Color3.fromRGB(70, 70, 90))
 
 -- ========= SAVE SETTINGS SECTION =========
 local SaveSection = Instance.new("Frame")
-SaveSection.Size = UDim2.new(1, 0, 0, 80)
+SaveSection.Size = UDim2.new(1, 0, 0, 60)
 SaveSection.Position = UDim2.new(0, 0, 0, 40)
 SaveSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 SaveSection.BorderSizePixel = 0
@@ -853,7 +853,7 @@ SaveCorner.Parent = SaveSection
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.new(1, -6, 0, 22)
-FilenameBox.Position = UDim2.new(0, 3, 0, 26)
+FilenameBox.Position = UDim2.new(0, 3, 0, 5)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = "MyReplays"
@@ -871,7 +871,7 @@ FilenameCorner.Parent = FilenameBox
 
 local SaveButtons = Instance.new("Frame")
 SaveButtons.Size = UDim2.new(1, -6, 0, 22)
-SaveButtons.Position = UDim2.new(0, 3, 0, 53)
+SaveButtons.Position = UDim2.new(0, 3, 0, 32)
 SaveButtons.BackgroundTransparency = 1
 SaveButtons.Parent = SaveSection
 
@@ -884,8 +884,8 @@ MergeBtn.Parent = SaveButtons
 
 -- ========= RECORDINGS LIST SECTION =========
 local RecordingsSection = Instance.new("Frame")
-RecordingsSection.Size = UDim2.new(1, 0, 0, 150)
-RecordingsSection.Position = UDim2.new(0, 0, 0, 130)
+RecordingsSection.Size = UDim2.new(1, 0, 0, 170)
+RecordingsSection.Position = UDim2.new(0, 0, 0, 110)
 RecordingsSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 RecordingsSection.BorderSizePixel = 0
 RecordingsSection.Parent = Content
@@ -895,8 +895,8 @@ RecordingsCorner.CornerRadius = UDim.new(0, 6)
 RecordingsCorner.Parent = RecordingsSection
 
 local RecordingsList = Instance.new("ScrollingFrame")
-RecordingsList.Size = UDim2.new(1, -6, 1, -26)
-RecordingsList.Position = UDim2.new(0, 3, 0, 23)
+RecordingsList.Size = UDim2.new(1, -6, 1, -6)
+RecordingsList.Position = UDim2.new(0, 3, 0, 3)
 RecordingsList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
 RecordingsList.BorderSizePixel = 0
 RecordingsList.ScrollBarThickness = 4
