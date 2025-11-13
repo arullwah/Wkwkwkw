@@ -1243,7 +1243,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ Height 95px
+            -- ✅ Height 60px
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -1412,7 +1412,7 @@ function UpdateRecordList()
                 end
             end)
             
-            yPos = yPos + 100
+            yPos = yPos + 65
         end
         
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
