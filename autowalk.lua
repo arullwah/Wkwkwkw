@@ -2269,10 +2269,7 @@ function StartAutoLoopAll()
     -- Main loop logic
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            -- Check if we should continue
-            if not AutoLoop or not IsAutoLoopPlaying then
-                break
-            end
+            if not AutoLoop or not IsAutoLoopPlaying then break end
             
             -- Find next valid recording
             local recordingToPlay = nil
@@ -2286,7 +2283,6 @@ function StartAutoLoopAll()
                 if recordingToPlay and #recordingToPlay > 0 then
                     break
                 else
-                    -- Skip empty recording
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2295,7 +2291,6 @@ function StartAutoLoopAll()
                 end
             end
             
-            -- All recordings are empty
             if not recordingToPlay or #recordingToPlay == 0 then
                 CurrentLoopIndex = 1
                 task.wait(1)
@@ -2311,24 +2306,20 @@ function StartAutoLoopAll()
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
-                    task.wait(0.5) -- Reduced wait time
+                    task.wait(0.5)
                 else
-                    -- Wait for manual respawn
                     local waitTime = 0
                     local maxWaitTime = 30
                     
                     while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                         waitTime = waitTime + 0.5
-                        
                         if waitTime >= maxWaitTime then
-                            -- Timeout, stop auto loop
                             AutoLoop = false
                             IsAutoLoopPlaying = false
                             AnimateLoopControl(false)
                             PlaySound("Error")
                             break
                         end
-                        
                         task.wait(0.5)
                     end
                     
@@ -2338,6 +2329,16 @@ function StartAutoLoopAll()
             end
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
+            
+            -- ✅ FIX: Force teleport to start of recording
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                hrp.CFrame = GetFrameCFrame(recordingToPlay[1])
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                task.wait(0.15) -- Wait for teleport to complete
+            end
             
             -- Setup for this recording playback
             local playbackCompleted = false
@@ -2351,27 +2352,6 @@ function StartAutoLoopAll()
             
             SaveHumanoidState()
             
-            -- Smart resume - check if we're near the start
-            local char = player.Character
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                local currentPos = char.HumanoidRootPart.Position
-                local nearestFrame, frameDistance = FindNearestFrame(recordingToPlay, currentPos)
-                
-                -- Only use nearest frame if we're very close to the path
-                if frameDistance <= 10 then
-                    currentFrame = nearestFrame
-                    playbackStartTime = tick() - (GetFrameTimestamp(recordingToPlay[nearestFrame]) / CurrentSpeed)
-                else
-                    -- Too far, teleport to start
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        hrp.CFrame = GetFrameCFrame(recordingToPlay[1])
-                        task.wait(0.1)
-                    end
-                end
-            end
-            
-            -- Playback loop for this recording
             IsLoopTransitioning = false
             local deathRetryCount = 0
             local maxDeathRetries = 999
@@ -2390,7 +2370,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
-                            -- Continue from start of SAME recording
+                            -- Restart from beginning
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -2400,7 +2380,6 @@ function StartAutoLoopAll()
                             
                             SaveHumanoidState()
                             
-                            -- Teleport to start
                             local char = player.Character
                             if char and char:FindFirstChild("HumanoidRootPart") then
                                 char.HumanoidRootPart.CFrame = GetFrameCFrame(recordingToPlay[1])
@@ -2413,13 +2392,11 @@ function StartAutoLoopAll()
                             continue
                         end
                     else
-                        -- Wait for manual respawn
                         local manualRespawnWait = 0
                         local maxManualWait = 30
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 0.5
-                            
                             if manualRespawnWait >= maxManualWait then
                                 AutoLoop = false
                                 IsAutoLoopPlaying = false
@@ -2427,7 +2404,6 @@ function StartAutoLoopAll()
                                 PlaySound("Error")
                                 break
                             end
-                            
                             task.wait(0.5)
                         end
                         
@@ -2448,7 +2424,6 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                -- Get character components
                 local char = player.Character
                 if not char or not char:FindFirstChild("HumanoidRootPart") then
                     task.wait(0.5)
@@ -2462,35 +2437,37 @@ function StartAutoLoopAll()
                     break
                 end
                 
-                -- Frame timing
+                -- ✅ FIX: Proper frame timing with speed control
                 local deltaTime = task.wait()
                 loopAccumulator = loopAccumulator + deltaTime
                 
-                while loopAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+                -- ✅ FIX: Process only ONE frame per timestep
+                if loopAccumulator >= PLAYBACK_FIXED_TIMESTEP then
                     loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
                     
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStartTime) * CurrentSpeed
                     
-                    -- Advance frames based on time
+                    -- ✅ FIX: Find target frame WITHOUT advancing too fast
                     local targetFrame = currentFrame
-for i = currentFrame, #recordingToPlay do
-    if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
-        targetFrame = i
-    else
-        break
-    end
-end
-currentFrame = targetFrame
+                    for i = currentFrame, #recordingToPlay do
+                        if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
+                            targetFrame = i
+                        else
+                            break
+                        end
+                    end
+                    
+                    currentFrame = targetFrame
                     
                     if currentFrame >= #recordingToPlay then
                         playbackCompleted = true
-                        break
                     end
                     
-                    local frame = recordingToPlay[currentFrame]
-                    if frame then
-                        task.spawn(function()
+                    if not playbackCompleted then
+                        local frame = recordingToPlay[currentFrame]
+                        if frame then
+                            -- Apply frame immediately (no task.spawn for sync)
                             hrp.CFrame = GetFrameCFrame(frame)
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
@@ -2506,7 +2483,7 @@ currentFrame = targetFrame
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
                             end
-                        end)
+                        end
                     end
                 end
                 
@@ -2524,13 +2501,11 @@ currentFrame = targetFrame
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- FIXED: Move to next recording in sequence
+                -- ✅ FIX: Always move to next recording
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
-                    -- Completed full cycle, restart from #1
                     CurrentLoopIndex = 1
                     
-                    -- Small delay before restarting cycle
                     if AutoLoop and IsAutoLoopPlaying then
                         IsLoopTransitioning = true
                         task.wait(LOOP_TRANSITION_DELAY)
@@ -2538,16 +2513,12 @@ currentFrame = targetFrame
                     end
                 end
                 
-                -- Small transition delay between recordings
-                if AutoLoop and IsAutoLoopPlaying then
-                    task.wait(0.1)
-                end
+                -- ✅ FIX: No delay, immediately continue to next
+                if not AutoLoop or not IsAutoLoopPlaying then break end
             else
-                -- Playback interrupted (death/error)
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
-                    -- Move to next recording
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
