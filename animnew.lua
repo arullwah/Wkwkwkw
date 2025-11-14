@@ -788,10 +788,10 @@ local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
 
--- Header dengan title dan window controls
+-- Header dengan title saja (tanpa tombol RGB)
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 32)
-Header.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+Header.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Header.BorderSizePixel = 0
 Header.Parent = MainFrame
 
@@ -799,21 +799,22 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = Header
 
+-- Title dengan efek pulse di tengah
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -60, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL Recorder"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
-Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
 
+-- Window controls saja (tanpa RGBToggleBtn)
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Size = UDim2.fromOffset(20, 20)
 MinimizeBtn.Position = UDim2.new(1, -45, 0.5, -10)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 90)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 MinimizeBtn.Text = "_"
 MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
 MinimizeBtn.Font = Enum.Font.GothamBold
@@ -2717,6 +2718,7 @@ end)
 -- ========= INITIALIZATION =========
 UpdateRecordList()
 UpdatePlayButtonStatus()
+StartTitlePulse()
 
 -- Auto-update play button status
 task.spawn(function()
