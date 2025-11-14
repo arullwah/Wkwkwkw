@@ -124,6 +124,8 @@ local NearestRecordingDistance = math.huge
 local LoopRetryAttempts = 0
 local MaxLoopRetries = 999
 local IsLoopTransitioning = false
+local IsRecording = false
+local IsPlaying = false
 
 -- ========= RGB PULSE SYSTEM =========
 local titlePulseConnection
