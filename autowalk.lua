@@ -65,7 +65,7 @@ local IsPaused = false
 local IsReversing = false
 local IsForwarding = false
 local IsTimelineMode = false
-local CurrentSpeed = 1
+local CurrentSpeed = 1.0
 local CurrentWalkSpeed = 16
 local RecordedMovements = {}
 local RecordingOrder = {}
@@ -1205,7 +1205,7 @@ StudioInfoCorner.Parent = StudioInfo
 local function ValidateSpeed(speedText)
     local speed = tonumber(speedText)
     if not speed then return false, "Invalid number" end
-    if speed < 0.25 or speed > 30 then return false, "Speed must be between 0.25 and 30" end
+    if speed < 0.25 or speed > 100.0 then return false, "Speed must be between 0.25 and 100.0" end
     local roundedSpeed = math.floor((speed * 4) + 0.5) / 4
     return true, roundedSpeed
 end
@@ -2136,7 +2136,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= IMPROVED AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2159,14 +2159,19 @@ function StartAutoLoopAll()
     
     PlaySound("Play")
     
-    -- Smart detection untuk mulai dari recording terdekat
-    local nearestRecording, distance, nearestName = FindNearestRecording(50)
-    if nearestRecording then
-        CurrentLoopIndex = table.find(RecordingOrder, nearestName) or 1
-        PlaybackInfo.Text = string.format("Smart Loop @ %dm", math.floor(distance))
+    -- SMART LOOP FIX: Gunakan CurrentLoopIndex yang sudah ada, jangan reset ke 1
+    -- Jika belum ada recording yang dipilih, cari yang terdekat
+    if CurrentLoopIndex == 0 or CurrentLoopIndex > #RecordingOrder then
+        local nearestRecording, distance, nearestName = FindNearestRecording(50)
+        if nearestRecording then
+            CurrentLoopIndex = table.find(RecordingOrder, nearestName) or 1
+            PlaybackInfo.Text = string.format("Smart Loop @ %dm", math.floor(distance))
+        else
+            CurrentLoopIndex = 1
+            PlaybackInfo.Text = "Auto Loop Active"
+        end
     else
-        CurrentLoopIndex = 1
-        PlaybackInfo.Text = "Auto Loop Active"
+        PlaybackInfo.Text = string.format("Loop from %d/%d", CurrentLoopIndex, #RecordingOrder)
     end
     
     IsAutoLoopPlaying = true
@@ -2208,34 +2213,41 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Handle character death/respawn
+            -- Handle character death/respawn - FIXED: Jangan matikan loop saat mati
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
                     local success = WaitForRespawn()
                     if not success then
+                        -- Jika respawn gagal, tunggu dan coba lagi
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
                     task.wait(0.5)
                 else
+                    -- Tunggu manual respawn tanpa mematikan loop
                     local waitTime = 0
                     local maxWaitTime = 30
                     
                     while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                         waitTime = waitTime + 0.5
                         if waitTime >= maxWaitTime then
-                            AutoLoop = false
-                            IsAutoLoopPlaying = false
-                            LoopBtnControl.Text = "Loop OFF"
-                            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-                            PlaySound("Error")
+                            -- Timeout setelah 30 detik
                             break
                         end
                         task.wait(0.5)
                     end
                     
                     if not AutoLoop or not IsAutoLoopPlaying then break end
+                    if not IsCharacterReady() then
+                        -- Jika masih belum ready setelah timeout, skip recording ini
+                        CurrentLoopIndex = CurrentLoopIndex + 1
+                        if CurrentLoopIndex > #RecordingOrder then
+                            CurrentLoopIndex = 1
+                        end
+                        task.wait(AUTO_LOOP_RETRY_DELAY)
+                        continue
+                    end
                     task.wait(0.5)
                 end
             end
@@ -2246,7 +2258,8 @@ function StartAutoLoopAll()
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
-                hrp.CFrame = GetFrameCFrame(recordingToPlay[1])
+                local targetCFrame = GetFrameCFrame(recordingToPlay[1])
+                hrp.CFrame = targetCFrame
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 task.wait(0.15)
@@ -2265,11 +2278,11 @@ function StartAutoLoopAll()
             
             IsLoopTransitioning = false
             local deathRetryCount = 0
-            local maxDeathRetries = 999
+            local maxDeathRetries = 3 -- Batasi retry
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
                 
-                -- Handle death during playback
+                -- Handle death during playback - FIXED: Jangan stop loop
                 if not IsCharacterReady() then
                     deathRetryCount = deathRetryCount + 1
                     
@@ -2281,7 +2294,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
-                            -- Restart from beginning
+                            -- Restart dari awal recording yang sama
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -2298,31 +2311,33 @@ function StartAutoLoopAll()
                             
                             continue
                         else
+                            -- Jika respawn gagal, tunggu dan coba lagi
                             task.wait(AUTO_LOOP_RETRY_DELAY)
                             continue
                         end
                     else
+                        -- Tunggu manual respawn
                         local manualRespawnWait = 0
                         local maxManualWait = 30
                         
                         while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                             manualRespawnWait = manualRespawnWait + 0.5
                             if manualRespawnWait >= maxManualWait then
-                                AutoLoop = false
-                                IsAutoLoopPlaying = false
-                                LoopBtnControl.Text = "Loop OFF"
-                                LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-                                PlaySound("Error")
                                 break
                             end
                             task.wait(0.5)
                         end
                         
                         if not AutoLoop or not IsAutoLoopPlaying then break end
+                        if not IsCharacterReady() then
+                            -- Skip recording ini jika masih mati setelah timeout
+                            break
+                        end
                         
                         RestoreFullUserControl()
                         task.wait(0.5)
                         
+                        -- Restart dari awal recording yang sama
                         currentFrame = 1
                         playbackStartTime = tick()
                         lastPlaybackState = nil
@@ -2409,7 +2424,16 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- Move to next recording
+                -- Jika AutoReset aktif, reset karakter
+                if AutoReset then
+                    ResetCharacter()
+                    local success = WaitForRespawn()
+                    if success then
+                        task.wait(0.5)
+                    end
+                end
+                
+                -- Move to next recording - FIXED: Pertahankan urutan
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2424,6 +2448,7 @@ function StartAutoLoopAll()
                 -- Immediately continue to next
                 if not AutoLoop or not IsAutoLoopPlaying then break end
             else
+                -- Jika playback tidak completed (karena mati atau error), lanjut ke recording berikutnya
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
@@ -2720,7 +2745,8 @@ player.CharacterRemoving:Connect(function()
         if StudioIsRecording then
             StopStudioRecording()
         end
-        if IsPlaying or AutoLoop then
+        -- JANGAN stop loop saat karakter mati - biarkan loop tetap berjalan
+        if IsPlaying and not AutoLoop then
             StopPlayback()
         end
     end)
@@ -2748,4 +2774,6 @@ end)
 print("✅ ByaruL Recorder v2.1 - Loaded Successfully!")
 print("📌 Features: Smart Resume, Fixed Layout, File Protection")
 print("🎮 Resume works within 40 studs radius!")
-print("🔄 Improved Auto Loop System with Smart Detection!")
+print("🔄 IMPROVED Auto Loop System - Continues after death!")
+print("⚡ Smart Loop remembers last position!")
+print("🎯 Fixed: Loop continues from last recording, not always from 1!")
