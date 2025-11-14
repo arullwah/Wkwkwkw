@@ -682,7 +682,6 @@ local function FindNearestFrame(recording, position)
 end
 
 -- ========= RGB PULSE SYSTEM =========
-local titlePulseConnection
 
 local function StartTitlePulse()
     if titlePulseConnection then return end
