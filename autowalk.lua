@@ -2012,47 +2012,6 @@ local function VisualizeAllPaths()
 end
 
 -- ========= IMPROVED SMART PLAYBACK SYSTEM =========
-function SmartPlayRecording(maxDistance)
-    if IsPlaying or IsAutoLoopPlaying then return end
-    
-    local char = player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then
-        PlaySound("Error")
-        return
-    end
-
-    local currentPos = char.HumanoidRootPart.Position
-    local bestRecording = nil
-    local bestFrame = 1
-    local bestDistance = math.huge
-    local bestRecordingName = nil
-    
-    for _, recordingName in ipairs(RecordingOrder) do
-        local recording = RecordedMovements[recordingName]
-        if recording and #recording > 0 then
-            local nearestFrame, frameDistance = FindNearestFrame(recording, currentPos)
-            
-            if frameDistance < bestDistance and frameDistance <= (maxDistance or 50) then
-                bestDistance = frameDistance
-                bestRecording = recording
-                bestFrame = nearestFrame
-                bestRecordingName = recordingName
-            end
-        end
-    end
-    
-    if bestRecording then
-        PlayFromSpecificFrame(bestRecording, bestFrame, bestRecordingName)
-    else
-        local firstRecording = RecordingOrder[1] and RecordedMovements[RecordingOrder[1]]
-        if firstRecording then
-            PlayFromSpecificFrame(firstRecording, 1, RecordingOrder[1])
-        else
-            PlaySound("Error")
-        end
-    end
-end
-
 function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2084,7 +2043,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     end
     
     currentPlaybackFrame = startFrame
-    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
+    playbackStartTime = tick()
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
@@ -2151,19 +2110,21 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
             return
         end
 
-        playbackAccumulator = playbackAccumulator + deltaTime
+        -- ✅ FIX: Proper frame advancement
+        playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
         
-        while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+        -- ✅ FIX: Clamp accumulator to prevent runaway
+        if playbackAccumulator > PLAYBACK_FIXED_TIMESTEP * 3 then
+            playbackAccumulator = PLAYBACK_FIXED_TIMESTEP
+        end
+        
+        while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP and IsPlaying do
             playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
-             
-            local currentTime = tick()
-            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
             
-            while currentPlaybackFrame < #recording and GetFrameTimestamp(recording[currentPlaybackFrame + 1]) <= effectiveTime do
-                currentPlaybackFrame = currentPlaybackFrame + 1
-            end
+            -- ✅ FIX: Simple frame advancement - one frame per timestep
+            currentPlaybackFrame = currentPlaybackFrame + 1
 
-            if currentPlaybackFrame >= #recording then
+            if currentPlaybackFrame > #recording then
                 IsPlaying = false
                 if playbackConnection then
                     playbackConnection:Disconnect()
@@ -2199,23 +2160,23 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 return
             end
 
-            task.spawn(function()
-                hrp.CFrame = GetFrameCFrame(frame)
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+            -- ✅ FIX: Apply frame without task.spawn for sync
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+            
+            if hum then
+                -- ✅ FIX: Don't multiply WalkSpeed by CurrentSpeed again
+                hum.WalkSpeed = GetFrameWalkSpeed(frame)
+                hum.AutoRotate = false
                 
-                if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                        hum, frame, lastPlaybackState, lastStateChangeTime
-                    )
-                end
-                
-                if ShiftLockEnabled then
-                    ApplyVisibleShiftLock()
-                end
-            end)
+                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                    hum, frame, lastPlaybackState, lastStateChangeTime
+                )
+            end
+            
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
         end
     end)
     
@@ -2245,7 +2206,6 @@ function StartAutoLoopAll()
         return
     end
     
-    -- Stop any existing playback
     if IsPlaying then
         IsPlaying = false
         if playbackConnection then
@@ -2266,12 +2226,10 @@ function StartAutoLoopAll()
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     
-    -- Main loop logic
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            -- Find next valid recording
             local recordingToPlay = nil
             local recordingNameToPlay = nil
             local searchAttempts = 0
@@ -2297,7 +2255,6 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Handle character death/respawn
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -2330,20 +2287,17 @@ function StartAutoLoopAll()
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            -- ✅ FIX: Force teleport to start of recording
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 hrp.CFrame = GetFrameCFrame(recordingToPlay[1])
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                task.wait(0.15) -- Wait for teleport to complete
+                task.wait(0.15)
             end
             
-            -- Setup for this recording playback
             local playbackCompleted = false
             local currentFrame = 1
-            local playbackStartTime = tick()
             local loopAccumulator = 0
             
             lastPlaybackState = nil
@@ -2358,7 +2312,6 @@ function StartAutoLoopAll()
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
                 
-                -- Handle death during playback
                 if not IsCharacterReady() then
                     deathRetryCount = deathRetryCount + 1
                     
@@ -2370,9 +2323,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
-                            -- Restart from beginning
                             currentFrame = 1
-                            playbackStartTime = tick()
                             lastPlaybackState = nil
                             lastStateChangeTime = 0
                             lastStateChangeRealTime = 0
@@ -2413,7 +2364,6 @@ function StartAutoLoopAll()
                         task.wait(0.5)
                         
                         currentFrame = 1
-                        playbackStartTime = tick()
                         lastPlaybackState = nil
                         lastStateChangeTime = 0
                         lastStateChangeRealTime = 0
@@ -2437,42 +2387,34 @@ function StartAutoLoopAll()
                     break
                 end
                 
-                -- ✅ FIX: Proper frame timing with speed control
+                -- ✅ FIX: Proper frame timing
                 local deltaTime = task.wait()
-                loopAccumulator = loopAccumulator + deltaTime
+                loopAccumulator = loopAccumulator + (deltaTime * CurrentSpeed)
                 
-                -- ✅ FIX: Process only ONE frame per timestep
+                -- ✅ FIX: Clamp accumulator
+                if loopAccumulator > PLAYBACK_FIXED_TIMESTEP * 3 then
+                    loopAccumulator = PLAYBACK_FIXED_TIMESTEP
+                end
+                
                 if loopAccumulator >= PLAYBACK_FIXED_TIMESTEP then
                     loopAccumulator = loopAccumulator - PLAYBACK_FIXED_TIMESTEP
                     
-                    local currentTime = tick()
-                    local effectiveTime = (currentTime - playbackStartTime) * CurrentSpeed
+                    -- ✅ FIX: Simple frame advancement
+                    currentFrame = currentFrame + 1
                     
-                    -- ✅ FIX: Find target frame WITHOUT advancing too fast
-                    local targetFrame = currentFrame
-                    for i = currentFrame, #recordingToPlay do
-                        if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
-                            targetFrame = i
-                        else
-                            break
-                        end
-                    end
-                    
-                    currentFrame = targetFrame
-                    
-                    if currentFrame >= #recordingToPlay then
+                    if currentFrame > #recordingToPlay then
                         playbackCompleted = true
                     end
                     
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
-                            -- Apply frame immediately (no task.spawn for sync)
                             hrp.CFrame = GetFrameCFrame(frame)
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
                             if hum then
-                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                -- ✅ FIX: Don't multiply WalkSpeed
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame)
                                 hum.AutoRotate = false
                                 
                                 lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
@@ -2492,7 +2434,6 @@ function StartAutoLoopAll()
                 end
             end
             
-            -- Cleanup after recording finishes
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2501,7 +2442,6 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- ✅ FIX: Always move to next recording
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2513,7 +2453,6 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                -- ✅ FIX: No delay, immediately continue to next
                 if not AutoLoop or not IsAutoLoopPlaying then break end
             else
                 if not AutoLoop or not IsAutoLoopPlaying then
@@ -2528,7 +2467,6 @@ function StartAutoLoopAll()
             end
         end
         
-        -- Cleanup when loop stops
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
