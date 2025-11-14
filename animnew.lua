@@ -41,107 +41,9 @@ local AUTO_LOOP_RETRY_DELAY = 0.5 -- Delay sebelum retry setelah death
 local ENABLE_FRAME_INTERPOLATION = true
 local INTERPOLATION_FACTOR = 0.3 -- Smoothing factor (0.1 = very smooth, 0.9 = less smooth)
 
--- ========= RGB STROKE SYSTEM =========
-local RGBEffects = {}
-local RGBConnections = {}
+-- ========= RGB PULSE SYSTEM =========
 local RGBEnabled = true
-
-local RGB_CONFIG = {
-    CycleSpeed = 1.5,
-    PulseIntensity = 0.3,
-    PulseBase = 0.7,
-    BaseThickness = 2,
-    GlowThickness = 6,
-    GlowTransparency = 0.85
-}
-
-local function CreateRGBStroke(frame, config)
-    config = config or {}
-    local cycleSpeed = config.CycleSpeed or RGB_CONFIG.CycleSpeed
-    local pulseIntensity = config.PulseIntensity or RGB_CONFIG.PulseIntensity
-    local pulseBase = config.PulseBase or RGB_CONFIG.PulseBase
-    local baseThickness = config.BaseThickness or RGB_CONFIG.BaseThickness
-    local glowThickness = config.GlowThickness or RGB_CONFIG.GlowThickness
-    
-    local rgbData = {
-        Frame = frame,
-        StartTime = tick(),
-        CycleSpeed = cycleSpeed,
-        PulseIntensity = pulseIntensity,
-        PulseBase = pulseBase,
-        BaseThickness = baseThickness,
-        Enabled = true
-    }
-    
-    local stroke = Instance.new("UIStroke")
-    stroke.Thickness = baseThickness
-    stroke.LineJoinMode = Enum.LineJoinMode.Round
-    stroke.Color = Color3.fromHSV(0, 1, 1)
-    stroke.Transparency = 0
-    stroke.Parent = frame
-    
-    rgbData.Stroke = stroke
-    
-    if config.AddGlow then
-        local glow = Instance.new("Frame")
-        glow.Name = "RGBGlow"
-        glow.Size = UDim2.new(1, 12, 1, 12)
-        glow.Position = UDim2.new(0, -6, 0, -6)
-        glow.BackgroundTransparency = 1
-        glow.BorderSizePixel = 0
-        glow.ZIndex = frame.ZIndex - 1
-        glow.Parent = frame.Parent
-        
-        local glowStroke = Instance.new("UIStroke")
-        glowStroke.Thickness = glowThickness
-        glowStroke.LineJoinMode = Enum.LineJoinMode.Round
-        glowStroke.Color = Color3.fromHSV(0, 1, 0.5)
-        glowStroke.Transparency = RGB_CONFIG.GlowTransparency
-        glowStroke.Parent = glow
-        
-        rgbData.Glow = glow
-        rgbData.GlowStroke = glowStroke
-    end
-    
-    table.insert(RGBEffects, rgbData)
-    return rgbData
-end
-
-local function UpdateRGBEffects()
-    if not RGBEnabled then return end
-    
-    local currentTime = tick()
-    
-    for _, rgbData in ipairs(RGBEffects) do
-        if rgbData.Enabled and rgbData.Frame and rgbData.Frame.Parent then
-            local elapsed = currentTime - rgbData.StartTime
-            local hue = (elapsed * rgbData.CycleSpeed) % 1
-            local angle = hue * math.pi * 2
-            local rawPulse = math.sin(angle)
-            local pulse = rgbData.PulseBase + (rawPulse * rgbData.PulseIntensity)
-            
-            local color = Color3.fromHSV(hue, 1, 1)
-            rgbData.Stroke.Color = color
-            rgbData.Stroke.Thickness = rgbData.BaseThickness + (pulse - 0.7) * 2
-            
-            if rgbData.GlowStroke then
-                rgbData.GlowStroke.Color = color
-                rgbData.GlowStroke.Transparency = math.clamp(
-                    RGB_CONFIG.GlowTransparency - (pulse - rgbData.PulseBase) * 0.1, 
-                    0.7, 0.95
-                )
-            end
-        end
-    end
-end
-
-local function ToggleRGBEffects()
-    RGBEnabled = not RGBEnabled
-    return RGBEnabled
-end
-
--- Start RGB update loop
-table.insert(RGBConnections, RunService.RenderStepped:Connect(UpdateRGBEffects))
+local titlePulseConnection
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -265,19 +167,10 @@ local function CleanupConnections()
     if reverseConnection then pcall(function() reverseConnection:Disconnect() end) reverseConnection = nil end
     if forwardConnection then pcall(function() forwardConnection:Disconnect() end) forwardConnection = nil end
     
-    for _, connection in ipairs(RGBConnections) do
-        if connection then
-            pcall(function() connection:Disconnect() end)
-        end
+    if titlePulseConnection then
+        titlePulseConnection:Disconnect()
+        titlePulseConnection = nil
     end
-    RGBConnections = {}
-    
-    for _, rgbData in ipairs(RGBEffects) do
-        if rgbData.Glow and rgbData.Glow.Parent then
-            rgbData.Glow:Destroy()
-        end
-    end
-    RGBEffects = {}
 end
 
 local function PlaySound(soundType)
@@ -953,41 +846,32 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = Header
 
+-- Title dengan efek pulse di tengah
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -60, 1, 0)
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL Recorder"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
-Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
 
--- RGB Pulse Effect untuk Title Text
-local titlePulseConnection
-local function StartTitlePulse()
-    if titlePulseConnection then return end
-    
-    titlePulseConnection = RunService.RenderStepped:Connect(function()
-        if not Title or not Title.Parent then
-            titlePulseConnection:Disconnect()
-            titlePulseConnection = nil
-            return
-        end
-        
-        local elapsed = tick()
-        local hue = (elapsed * 1.5) % 1
-        local angle = hue * math.pi * 2
-        local pulse = 0.7 + (math.sin(angle) * 0.3)
-        
-        local color = Color3.fromHSV(hue, 1, 1)
-        Title.TextColor3 = color
-        Title.TextSize = 14 + (pulse - 0.7) * 4
-    end)
-end
+-- RGB Toggle Button di Header
+local RGBToggleBtn = Instance.new("TextButton")
+RGBToggleBtn.Size = UDim2.fromOffset(80, 20)
+RGBToggleBtn.Position = UDim2.new(0, 5, 0.5, -10)
+RGBToggleBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+RGBToggleBtn.Text = "MAINKAN"
+RGBToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+RGBToggleBtn.Font = Enum.Font.GothamBold
+RGBToggleBtn.TextSize = 10
+RGBToggleBtn.AutoButtonColor = false
+RGBToggleBtn.Parent = Header
 
-StartTitlePulse()
+local RGBToggleCorner = Instance.new("UICorner")
+RGBToggleCorner.CornerRadius = UDim.new(0, 4)
+RGBToggleCorner.Parent = RGBToggleBtn
 
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Size = UDim2.fromOffset(20, 20)
@@ -1016,22 +900,6 @@ CloseBtn.Parent = Header
 local CloseCorner = Instance.new("UICorner")
 CloseCorner.CornerRadius = UDim.new(0, 4)
 CloseCorner.Parent = CloseBtn
-
--- RGB Toggle Button di Header
-local RGBToggleBtn = Instance.new("TextButton")
-RGBToggleBtn.Size = UDim2.fromOffset(60, 20)
-RGBToggleBtn.Position = UDim2.new(1, -140, 0.5, -10)
-RGBToggleBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-RGBToggleBtn.Text = "RGB ON"
-RGBToggleBtn.TextColor3 = Color3.new(1, 1, 1)
-RGBToggleBtn.Font = Enum.Font.GothamBold
-RGBToggleBtn.TextSize = 10
-RGBToggleBtn.AutoButtonColor = false
-RGBToggleBtn.Parent = Header
-
-local RGBToggleCorner = Instance.new("UICorner")
-RGBToggleCorner.CornerRadius = UDim.new(0, 4)
-RGBToggleCorner.Parent = RGBToggleBtn
 
 -- Content Area
 local Content = Instance.new("Frame")
@@ -1396,48 +1264,37 @@ local StudioInfoCorner = Instance.new("UICorner")
 StudioInfoCorner.CornerRadius = UDim.new(0, 4)
 StudioInfoCorner.Parent = StudioInfo
 
--- ========= RGB STROKE UNTUK SEMUA GUI =========
-CreateRGBStroke(MainFrame, {
-    CycleSpeed = 1.2,
-    PulseIntensity = 0.25,
-    AddGlow = true
-})
+-- ========= RGB PULSE EFFECT UNTUK TITLE TEXT =========
+local function StartTitlePulse()
+    if titlePulseConnection then return end
+    
+    titlePulseConnection = RunService.RenderStepped:Connect(function()
+        if not Title or not Title.Parent then
+            if titlePulseConnection then
+                titlePulseConnection:Disconnect()
+                titlePulseConnection = nil
+            end
+            return
+        end
+        
+        if not RGBEnabled then
+            Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+            Title.TextSize = 14
+            return
+        end
+        
+        local elapsed = tick()
+        local hue = (elapsed * 1.5) % 1
+        local angle = hue * math.pi * 2
+        local pulse = 0.7 + (math.sin(angle) * 0.3)
+        
+        local color = Color3.fromHSV(hue, 1, 1)
+        Title.TextColor3 = color
+        Title.TextSize = 14 + (pulse - 0.7) * 4
+    end)
+end
 
-CreateRGBStroke(PlaybackControl, {
-    CycleSpeed = 1.8,
-    PulseIntensity = 0.35,
-    AddGlow = true
-})
-
-CreateRGBStroke(RecordingStudio, {
-    CycleSpeed = 2.0,
-    PulseIntensity = 0.4,
-    AddGlow = true
-})
-
-CreateRGBStroke(PlayBtn, {
-    CycleSpeed = 2.5,
-    PulseIntensity = 0.5,
-    BaseThickness = 1.5
-})
-
-CreateRGBStroke(RecordBtn, {
-    CycleSpeed = 2.2,
-    PulseIntensity = 0.45,
-    BaseThickness = 1.5
-})
-
-CreateRGBStroke(SaveFileBtn, {
-    CycleSpeed = 1.8,
-    PulseIntensity = 0.4,
-    BaseThickness = 1.5
-})
-
-CreateRGBStroke(RGBToggleBtn, {
-    CycleSpeed = 1.5,
-    PulseIntensity = 0.3,
-    BaseThickness = 1.2
-})
+StartTitlePulse()
 
 -- ========= VALIDATION FUNCTIONS =========
 local function ValidateSpeed(speedText)
@@ -1522,6 +1379,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
+            -- ✅ Height 60px
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -1532,6 +1390,7 @@ function UpdateRecordList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            -- Checkbox
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
@@ -1546,6 +1405,7 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
+            -- Name box
             local nameBox = Instance.new("TextBox")
             nameBox.Size = UDim2.new(1, -100, 0, 18)
             nameBox.Position = UDim2.fromOffset(28, 5)
@@ -1564,6 +1424,7 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
+            -- Info label
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -100, 0, 14)
             infoLabel.Position = UDim2.fromOffset(28, 25)
@@ -1580,6 +1441,7 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
+            -- ✅ BARIS 1: PLAY & DELETE (Posisi kanan atas)
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(40, 20)
             playBtn.Position = UDim2.new(1, -85, 0, 5)
@@ -1608,6 +1470,7 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
+            -- ✅ BARIS 2: NAIK & TURUN (ukuran sama dengan play/delete)
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(40, 20)
             upBtn.Position = UDim2.new(1, -85, 0, 30)
@@ -1636,6 +1499,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ========= EVENT HANDLERS =========
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -2977,13 +2841,22 @@ end)
 -- ========= RGB TOGGLE BUTTON EVENT =========
 RGBToggleBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(RGBToggleBtn)
-    local isNowEnabled = ToggleRGBEffects()
-    RGBToggleBtn.Text = isNowEnabled and "RGB ON" or "RGB OFF"
+    RGBEnabled = not RGBEnabled
     
-    if isNowEnabled then
+    if RGBEnabled then
+        RGBToggleBtn.Text = "BERHENTI"
         RGBToggleBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        PlaySound("Toggle")
     else
+        RGBToggleBtn.Text = "MAINKAN"
         RGBToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+        PlaySound("Toggle")
+        
+        -- Reset title ke warna normal
+        if Title then
+            Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+            Title.TextSize = 14
+        end
     end
 end)
 
@@ -3044,7 +2917,7 @@ task.spawn(function()
 end)
 
 print("✅ ByaruL Recorder v2.2 - Enhanced Successfully!")
-print("🎨 RGB Stroke System Integrated!")
+print("🎨 RGB Pulse System - Title Text Only!")
 print("📈 Frame Interpolation Enabled!")
 print("🔄 Smart Auto Loop Fixed!")
 print("⚡ Auto Reset Fixed - Only resets after all loops!")
