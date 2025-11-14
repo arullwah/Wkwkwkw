@@ -11,7 +11,7 @@ wait(1)
 -- ========= CONFIGURATION =========
 local RECORDING_FPS = 60
 local PLAYBACK_FPS = 60
-local MAX_FRAMES = 50000
+local MAX_FRAMES = 40000
 local MIN_DISTANCE_THRESHOLD = 0.005
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
