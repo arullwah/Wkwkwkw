@@ -125,6 +125,9 @@ local LoopRetryAttempts = 0
 local MaxLoopRetries = 999
 local IsLoopTransitioning = false
 
+-- ========= RGB PULSE SYSTEM =========
+local titlePulseConnection
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -676,6 +679,33 @@ local function FindNearestFrame(recording, position)
         end
     end
     return nearestFrame, nearestDistance
+end
+
+-- ========= RGB PULSE SYSTEM =========
+local titlePulseConnection
+
+local function StartTitlePulse()
+    if titlePulseConnection then return end
+    
+    titlePulseConnection = RunService.RenderStepped:Connect(function()
+        if not Title or not Title.Parent then
+            if titlePulseConnection then
+                titlePulseConnection:Disconnect()
+                titlePulseConnection = nil
+            end
+            return
+        end
+        
+        -- SELALU AKTIF - tanpa kondisi toggle
+        local elapsed = tick()
+        local hue = (elapsed * 1.5) % 1
+        local angle = hue * math.pi * 2
+        local pulse = 0.7 + (math.sin(angle) * 0.3)
+        
+        local color = Color3.fromHSV(hue, 1, 1)
+        Title.TextColor3 = color
+        Title.TextSize = 14 + (pulse - 0.7) * 4
+    end)
 end
 
 -- ========= IMPROVED SMART PLAY SYSTEM =========
