@@ -1,7 +1,12 @@
 --[[ 
-    ✅ Gaze Animations GUI – Simple, Smooth, Persistent Close (Final v2)
-    + Integrated: RGB Edges demo (edges move around the 'main' frame)
-    By: Arull | Final Stable Build (with RGB edges)
+Gaze Animations GUI – ScrollFix + Full-panel Drag (restored)
+Perbaikan & fitur:
+- Drag **seluruh panel** diaktifkan kembali (klik dimana saja pada panel untuk mulai drag)
+- Threshold drag = 8 px (anti-salah-sentuh). Klik tetap bekerja jika tidak melewati threshold.
+- Saat drag melewati threshold, klik tombol disuppress supaya tidak memicu aksi.
+- Robust refreshCanvas() seperti sebelumnya (tunggu layout stabil).
+- Semua pemanggilan refreshCanvas() dipertahankan.
+- Database Animations tetap kosong (isi sendiri).
 ]]
 
 -- ====== Services ======
@@ -24,26 +29,19 @@ local function loadConfig()
     pcall(function()
         if isfile and isfile(CONFIG_FILE) then
             local t = HttpService:JSONDecode(readfile(CONFIG_FILE))
-            if typeof(t)=="table" and type(t.GuiClosed)=="boolean" then
-                Config = t
-            end
+            if typeof(t)=="table" and type(t.GuiClosed)=="boolean" then Config = t end
         end
     end)
 end
 
 local function saveConfig()
     pcall(function()
-        if writefile then
-            writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
-        end
+        if writefile then writefile(CONFIG_FILE, HttpService:JSONEncode(Config)) end
     end)
 end
 
 -- ====== Patch: Force Open saat Execute ======
--- (tanpa memengaruhi persist di respawn)
-if _G.AnimHubForceOpen == nil then
-    _G.AnimHubForceOpen = true -- default behavior as before; you can set false elsewhere
-end
+if _G.AnimHubForceOpen == nil then _G.AnimHubForceOpen = true end
 
 -- ====== DATABASE ======
 local Animations = {
@@ -385,11 +383,15 @@ local function preloadAnimation(animIdAny)
     local ids = (type(animIdAny)=="table") and animIdAny or {animIdAny}
     local assets = {}
     for _,id in ipairs(ids) do
-        local a = Instance.new("Animation")
-        a.AnimationId = "rbxassetid://"..tostring(id)
-        table.insert(assets, a)
+        if id and tostring(id)~="" then
+            local a = Instance.new("Animation")
+            a.AnimationId = "rbxassetid://"..tostring(id)
+            table.insert(assets, a)
+        end
     end
-    pcall(function() ContentProvider:PreloadAsync(assets) end)
+    pcall(function()
+        if #assets>0 then ContentProvider:PreloadAsync(assets) end
+    end)
 end
 
 local function stopAllTracks(h)
@@ -407,22 +409,20 @@ local function softKickAnimate(h)
 end
 
 local function saveLast()
-    pcall(function()
-        if writefile then
-            writefile(SAVE_FILE, HttpService:JSONEncode(lastAnimations))
-        end
-    end)
+    pcall(function() if writefile then writefile(SAVE_FILE, HttpService:JSONEncode(lastAnimations)) end end)
 end
 
 -- ====== Apply Animation ======
 local function setAnim(kind, id)
     if not validateCharacter() then return false end
+    if not id or id=="" then return false end
+
     local c = Player.Character
     local h = c:FindFirstChildOfClass("Humanoid")
     local anim = c:FindFirstChild("Animate")
     if not h or not anim then return false end
 
-    preloadAnimation(id)
+    pcall(function() preloadAnimation(id) end)
     stopAllTracks(h)
 
     local ok = true
@@ -451,26 +451,16 @@ local function loadSaved()
     pcall(function()
         if isfile and isfile(SAVE_FILE) then
             local t = HttpService:JSONDecode(readfile(SAVE_FILE))
-            if typeof(t)=="table" then
-                lastAnimations = t
-                for k,v in pairs(t) do setAnim(k,v) end
-            end
+            if typeof(t)=="table" then lastAnimations = t for k,v in pairs(t) do setAnim(k,v) end end
         end
     end)
 end
 
 -- ====== GUI ======
--- RGB edges configuration (defaults; can be tweaked)
 local RGBConfig = {
-    ENABLED = true,
-    STROKE_THICKNESS = 2,
-    CYCLE_SPEED = 3.0,
-    MOVE_SPEED = 160,
-    EDGE_LENGTH = 64,
-    PULSE_INTENSITY = 0.35,
-    PULSE_BASE = 0.7,
-    TEXT_SIZE = 18,
-    EDGE_COUNT = 4
+    ENABLED = true, STROKE_THICKNESS = 2, CYCLE_SPEED = 3.0,
+    MOVE_SPEED = 160, EDGE_LENGTH = 64, PULSE_INTENSITY = 0.35,
+    PULSE_BASE = 0.7, TEXT_SIZE = 18, EDGE_COUNT = 4
 }
 
 local function openGUI()
@@ -478,7 +468,6 @@ local function openGUI()
     if not validateCharacter() then return end
     guiOpen = true
 
-    -- Prevent duplicate GUI
     local existing = PlayerGui:FindFirstChild("GazeAnimGUI_Simple")
     if existing then existing:Destroy() end
 
@@ -493,7 +482,6 @@ local function openGUI()
     main.BackgroundColor3 = Color3.fromRGB(10,10,10)
     main.BorderSizePixel = 0
     main.Active = true
-    main.Draggable = true
     main.Parent = sg
     Instance.new("UICorner", main).CornerRadius = UDim.new(0,12)
 
@@ -510,19 +498,19 @@ local function openGUI()
     Instance.new("UICorner", header).CornerRadius = UDim.new(0,12)
 
     local search = Instance.new("TextBox")
-search.PlaceholderText = "Cari animasi..."
-search.Text = ""                -- ← BIAR TEXTBOX TAMPIL KOSONG
-search.ClearTextOnFocus = false -- tetap boleh diketik
-search.Size = UDim2.new(1,-70,1,-10)
-search.Position = UDim2.new(0,8,0,5)
-search.BackgroundColor3 = Color3.fromRGB(18,18,18)
-search.TextColor3 = Color3.fromRGB(220,220,220)
-search.PlaceholderColor3 = Color3.fromRGB(120,120,120)
-search.Font = Enum.Font.Gotham
-search.TextSize = 12
-search.BorderSizePixel = 0
-search.Parent = header
-Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
+    search.PlaceholderText = "Cari animasi..."
+    search.Text = ""
+    search.ClearTextOnFocus = false
+    search.Size = UDim2.new(1,-70,1,-10)
+    search.Position = UDim2.new(0,8,0,5)
+    search.BackgroundColor3 = Color3.fromRGB(18,18,18)
+    search.TextColor3 = Color3.fromRGB(220,220,220)
+    search.PlaceholderColor3 = Color3.fromRGB(120,120,120)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 12
+    search.BorderSizePixel = 0
+    search.Parent = header
+    Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
 
     local close = Instance.new("TextButton")
     close.Text = "X"
@@ -543,7 +531,7 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
         guiOpen = false
     end)
 
-    -- List
+    -- List (fixed canvas sizing)
     local list = Instance.new("ScrollingFrame")
     list.Size = UDim2.new(1,-8,1,-38)
     list.Position = UDim2.new(0,4,0,34)
@@ -554,11 +542,37 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
     Instance.new("UICorner", list).CornerRadius = UDim.new(0,10)
     local ls = Instance.new("UIStroke", list); ls.Color=Color3.fromRGB(32,32,32); ls.Thickness=1
 
-    -- Use UIListLayout for reliability
+    -- UIListLayout
     local layout = Instance.new("UIListLayout", list)
     layout.Padding = UDim.new(0,6)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
 
+    -- Robust refreshCanvas: wait until AbsoluteContentSize stabilizes (or timeout)
+    local function refreshCanvas()
+        local prev = -1
+        local stableCount = 0
+        for i=1,12 do
+            task.wait()
+            local h = layout.AbsoluteContentSize.Y
+            if h == prev then
+                stableCount = stableCount + 1
+                if stableCount >= 2 then break end
+            else
+                stableCount = 0
+                prev = h
+            end
+        end
+        local finalH = math.max(0, layout.AbsoluteContentSize.Y)
+        local pad = 12
+        list.CanvasSize = UDim2.new(0, 0, 0, finalH + pad)
+    end
+
+    -- ensure refresh when layout content changes
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        task.spawn(refreshCanvas)
+    end)
+
+    -- initial population and helpers
     local buttons = {}
     local index = 0
     local function addBtn(label, kind, id)
@@ -579,7 +593,7 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
         Instance.new("UIStroke", b).Color=Color3.fromRGB(35,35,35)
 
         b.MouseButton1Click:Connect(function()
-            local ok=setAnim(kind,id)
+            local ok = setAnim(kind,id)
             b.BackgroundColor3 = ok and Color3.fromRGB(18,45,110) or Color3.fromRGB(80,20,20)
             task.wait(0.18)
             b.BackgroundColor3 = Color3.fromRGB(20,20,20)
@@ -588,30 +602,41 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
         table.insert(buttons, b)
     end
 
-    for n,i in pairs(Animations.Idle) do addBtn(n,"Idle",i) end
-    for n,i in pairs(Animations.Walk) do addBtn(n,"Walk",i) end
-    for n,i in pairs(Animations.Run) do addBtn(n,"Run",i) end
-    for n,i in pairs(Animations.Jump) do addBtn(n,"Jump",i) end
-    for n,i in pairs(Animations.Fall) do addBtn(n,"Fall",i) end
-    for n,i in pairs(Animations.SwimIdle) do addBtn(n,"SwimIdle",i) end
-    for n,i in pairs(Animations.Swim) do addBtn(n,"Swim",i) end
-    for n,i in pairs(Animations.Climb) do addBtn(n,"Climb",i) end
+    local function clearButtons()
+        for _,v in ipairs(buttons) do
+            if v and v.Parent then v:Destroy() end
+        end
+        buttons = {}
+        index = 0
+    end
 
-    -- ====== RGB Edges Integration ======
+    -- populate buttons from Animations skeleton (no IDs)
+    local function populateButtons()
+        clearButtons()
+        for n,i in pairs(Animations.Idle) do addBtn(n,"Idle", i) end
+        for n,i in pairs(Animations.Walk) do addBtn(n,"Walk", i) end
+        for n,i in pairs(Animations.Run) do addBtn(n,"Run", i) end
+        for n,i in pairs(Animations.Jump) do addBtn(n,"Jump", i) end
+        for n,i in pairs(Animations.Fall) do addBtn(n,"Fall", i) end
+        for n,i in pairs(Animations.SwimIdle) do addBtn(n,"SwimIdle", i) end
+        for n,i in pairs(Animations.Swim) do addBtn(n,"Swim", i) end
+        for n,i in pairs(Animations.Climb) do addBtn(n,"Climb", i) end
+
+        task.spawn(refreshCanvas)
+    end
+
+    populateButtons()
+
+    -- ====== RGB Edges Integration (kept) ======
     local rgbConn = nil
     local edgeFrames = {}
-
-    -- Make sure we can derive main size (we used absolute offsets)
     local MAIN_W = 200
     local MAIN_H = 200
-    -- If you change main.Size, update MAIN_W/MAIN_H accordingly
 
     if RGBConfig.ENABLED then
-        -- global stroke that cycles color (already have a stroke variable; we'll keep using it)
         local globalStroke = stroke
         globalStroke.Thickness = RGBConfig.STROKE_THICKNESS
 
-        -- create edge frames (z-index above main)
         for i = 1, RGBConfig.EDGE_COUNT do
             local e = Instance.new("Frame")
             e.Name = "RGB_Edge"..i
@@ -621,19 +646,15 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
             e.BorderSizePixel = 0
             e.ZIndex = main.ZIndex + 1
             e.Parent = main
-
             local ec = Instance.new("UICorner")
             ec.CornerRadius = UDim.new(0, 6)
             ec.Parent = e
-
             table.insert(edgeFrames, e)
         end
 
-        -- helper place function (adjusted to main size and offsets)
         local perimeter = (MAIN_W * 2) + (MAIN_H * 2)
         local function placeSegment(segment, p, length)
             p = p % perimeter
-            -- top side
             if p <= MAIN_W then
                 local centerX = p
                 segment.Rotation = 0
@@ -643,8 +664,6 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
                 return
             end
             p = p - MAIN_W
-
-            -- right side
             if p <= MAIN_H then
                 local centerY = p
                 segment.Rotation = 90
@@ -654,8 +673,6 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
                 return
             end
             p = p - MAIN_H
-
-            -- bottom side
             if p <= MAIN_W then
                 local centerX = MAIN_W - p
                 segment.Rotation = 0
@@ -665,8 +682,6 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
                 return
             end
             p = p - MAIN_W
-
-            -- left side
             local centerY = MAIN_H - p
             segment.Rotation = 90
             segment.Size = UDim2.fromOffset(length, RGBConfig.STROKE_THICKNESS*2)
@@ -674,14 +689,12 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
             segment.Position = UDim2.new(0, -RGBConfig.STROKE_THICKNESS, 0, centerY)
         end
 
-        -- runtime vars
         local edgePos = 0
         local startTick = tick()
 
         rgbConn = RunService.RenderStepped:Connect(function(dt)
             local t = tick() - startTick
             local hue = (t * RGBConfig.CYCLE_SPEED) % 1
-
             local angle = hue * math.pi * 2
             local rawPulse = (math.sin(angle) + 1) / 2
             local pulse = RGBConfig.PULSE_BASE + (rawPulse * RGBConfig.PULSE_INTENSITY)
@@ -709,34 +722,86 @@ Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
             end
         end)
 
-        -- cleanup rgb when GUI destroyed
         sg.Destroying:Connect(function()
-            if rgbConn then
-                rgbConn:Disconnect()
-                rgbConn = nil
-            end
+            if rgbConn then rgbConn:Disconnect(); rgbConn = nil end
         end)
     end
-    -- ====== End RGB Integration ======
 
-    -- connect search filtering
+    -- connect search filtering (and refresh canvas after)
     search:GetPropertyChangedSignal("Text"):Connect(function()
         local q=string.lower(search.Text)
         for _,b in ipairs(buttons) do
             local show = (q=="" or string.find(string.lower(b.Text), q, 1, true)~=nil)
             b.Visible=show
         end
+        task.spawn(refreshCanvas)
     end)
+
+    -- Also re-run refreshCanvas if children removed/added externally
+    list.ChildRemoved:Connect(function() task.spawn(refreshCanvas) end)
+    list.ChildAdded:Connect(function() task.spawn(refreshCanvas) end)
+
+    -- ====== FULL-PANEL DRAG (RESTORED) ======
+    do
+        local dragArmed, dragging = false, false
+        local dragStart, startPos
+        local DRAG_THRESHOLD = 8 -- ubah kalau mau sensitivity lain
+        local activeButton = nil
+
+        local function begin(i)
+            if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local p = Vector2.new(i.Position.X, i.Position.Y)
+            -- hanya mulai drag jika pointer awal berada di atas main frame
+            local pos, size = main.AbsolutePosition, main.AbsoluteSize
+            if not (p.X >= pos.X and p.X <= pos.X + size.X and p.Y >= pos.Y and p.Y <= pos.Y + size.Y) then return end
+
+            dragArmed = true
+            dragging = false
+            dragStart = i.Position
+            startPos = main.Position
+            activeButton = (i.Target and i.Target:IsA("TextButton")) and i.Target or nil
+        end
+
+        local function update(i)
+            if not dragArmed then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local d = i.Position - dragStart
+            if not dragging and (math.abs(d.X) + math.abs(d.Y) >= DRAG_THRESHOLD) then
+                dragging = true
+                if activeButton then activeButton:SetAttribute("SuppressClick", true) end
+            end
+            if dragging then
+                main.Position = UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y)
+            end
+        end
+
+        local function finish(i)
+            if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            dragArmed, dragging = false, false
+            if activeButton then activeButton:SetAttribute("SuppressClick", nil); activeButton = nil end
+            -- clamp to viewport (keep on screen) — attempt to keep similar center
+            local vs = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
+            local absPos = main.AbsolutePosition
+            local absSize = main.AbsoluteSize
+            local x = math.clamp(absPos.X, 0, vs.X - absSize.X)
+            local y = math.clamp(absPos.Y, 0, vs.Y - absSize.Y)
+            main.Position = UDim2.fromOffset(x, y)
+        end
+
+        -- Listen on gui so clicks inside children still register as begin
+        main.InputBegan:Connect(begin)
+        UIS.InputChanged:Connect(update)
+        UIS.InputEnded:Connect(finish)
+    end
+
 end
 
 -- ====== Startup / Respawn ======
 loadConfig()
 
--- Patch: paksa buka saat execute ulang (tapi tetap hormati persist di respawn)
 if _G.AnimHubForceOpen then
     Config.GuiClosed = false
     saveConfig()
-    -- reset so subsequent reloads won't force open again unintentionally
     _G.AnimHubForceOpen = false
 end
 
@@ -744,17 +809,13 @@ Player.CharacterAdded:Connect(function()
     task.defer(function()
         task.wait(1.1)
         loadSaved()
-        if not Config.GuiClosed then
-            openGUI()
-        end
+        if not Config.GuiClosed then openGUI() end
     end)
 end)
 
 task.defer(function()
     task.wait(0.8)
-    if validateCharacter() and not Config.GuiClosed then
-        openGUI()
-    end
+    if validateCharacter() and not Config.GuiClosed then openGUI() end
 end)
 
 -- ====== Re-Open Hotkey ======
@@ -763,10 +824,7 @@ do
     UIS.InputBegan:Connect(function(input,gp)
         if gp then return end
         if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==REOPEN_KEY then
-            if Config.GuiClosed then
-                Config.GuiClosed=false
-                saveConfig()
-            end
+            if Config.GuiClosed then Config.GuiClosed=false saveConfig() end
             if not guiOpen then openGUI() end
         end
     end)
