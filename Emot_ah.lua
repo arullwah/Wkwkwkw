@@ -1,8 +1,12 @@
 --[[
-  GAZE • EMOTE GUI v3.1 - PERFECT EDITION
-  ✅ Perfect Dragging - No boundary limits (from your working script)
-  ✅ Hide on Click - Mini button toggle GUI
-  ✅ All features intact
+  GAZE • EMOTE GUI v3.1 - EXTERNAL-FIRST EDIT (Final: index-based counter + click sound vol=1)
+  - Click sound (rbxassetid://2865227271) plays once per Play/Save click (volume = 1)
+  - Middle pagination label shows "< Prev   X / TOTAL   emote tersedia   Next >"
+    where X = index of last emote currently displayed (based on external list + current page)
+  - Next/Prev for Emote tab navigates pages normally and updates X accordingly
+  - Saved tab pagination remains independent / unchanged
+  - RGB stroke for main GUI and mini-button
+  By: adapted for Arull (final)
 ]]
 
 -------------------- HARD RESET --------------------
@@ -61,18 +65,21 @@ local function GetReal(id)
     if AnimCache[id] then return AnimCache[id] end
     local ok, objs = pcall(function() return game:GetObjects("rbxassetid://"..tostring(id)) end)
     if ok and objs and #objs>0 then
-        local root = objs[1]
         local found
-        if root:IsA("Animation") and root.AnimationId ~= "" then
-            found = tonumber(root.AnimationId:match("%d+"))
-        else
-            for _,d in ipairs(root:GetDescendants()) do
-                if d:IsA("Animation") and d.AnimationId ~= "" then
-                    found = tonumber(d.AnimationId:match("%d+")); if found then break end
+        for _,root in ipairs(objs) do
+            if root:IsA("Animation") and root.AnimationId ~= "" then
+                found = tonumber(root.AnimationId:match("%d+")) or found
+            else
+                for _,d in ipairs(root:GetDescendants()) do
+                    if d:IsA("Animation") and d.AnimationId ~= "" then
+                        found = tonumber(d.AnimationId:match("%d+")) or found
+                        if found then break end
+                    end
                 end
             end
+            pcall(function() root:Destroy() end)
+            if found then break end
         end
-        for _,o in ipairs(objs) do pcall(function() o:Destroy() end) end
         AnimCache[id] = found or id
         return AnimCache[id]
     end
@@ -156,11 +163,73 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
+-------------------- RGB STROKE CONFIG --------------------
+local RGB_STROKE_ENABLED = true
+local RGB_STROKE_THICKNESS = 2
+local RGB_CYCLE_SPEED = 3.0  -- hue revolutions per second
+
+-------------------- EXTERNAL EMOTE CONFIG (AUTO-ON) --------------------
+local EXTERNAL_URL = "https://raw.githubusercontent.com/7yd7/sniper-Emote/refs/heads/test/EmoteSniper.json"
+local emoteCatalog = {}
+local externalTotal = 0
+local externalPage = 1
+
+-- load external list (async, immediate at start)
+local function loadExternalList()
+    task.spawn(function()
+        local ok, body = pcall(function() return game:HttpGet(EXTERNAL_URL) end)
+        if not ok or not body or body == "" then
+            warn("Failed to fetch external emote list")
+            emoteCatalog = {}
+            externalTotal = 0
+            return
+        end
+        local suc, dec = pcall(function() return HttpService:JSONDecode(body) end)
+        if not suc or not dec or type(dec.data) ~= "table" then
+            warn("External emote list parse failed")
+            emoteCatalog = {}
+            externalTotal = 0
+            return
+        end
+        emoteCatalog = {}
+        for _, item in ipairs(dec.data) do
+            local id = tonumber(item.id)
+            if id and id > 0 then
+                table.insert(emoteCatalog, { id = id, name = item.name or ("Emote_"..tostring(id)) })
+            end
+        end
+        externalTotal = #emoteCatalog
+        externalPage = 1
+        -- safe to render (GUI created earlier)
+        pcall(function() renderEmotePage() end)
+    end)
+end
+
+-------------------- CLICK SOUND --------------------
+local CLICK_SOUND_ID = "rbxassetid://2865227271"
+local CLICK_VOLUME = 1 -- requested final volume
+
+local function playClickSound()
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = CLICK_SOUND_ID
+        s.Volume = CLICK_VOLUME
+        s.PlayOnRemove = false
+        local pg = player:FindFirstChild("PlayerGui") or player:WaitForChild("PlayerGui")
+        s.Parent = pg
+        s:Play()
+        s.Ended:Connect(function()
+            pcall(function() s:Destroy() end)
+        end)
+        task.delay(6, function() if s and s.Parent then pcall(function() s:Destroy() end) end end)
+    end)
+end
+
 -------------------- GUI ROOT ----------------------
 local root = Instance.new("ScreenGui")
 root.Name = "GAZE_EmotePanel"; root.IgnoreGuiInset = true; root.ResetOnSpawn = false; root.Parent = CoreGui
 root.DisplayOrder = 10000
-root.Enabled = false  -- ✅ Start hidden
+root.Enabled = true  -- open by default
 
 local camera = workspace.CurrentCamera
 local vp = camera and camera.ViewportSize or Vector2.new(1920,1080)
@@ -172,9 +241,21 @@ Main.Size = UDim2.fromOffset(math.floor(300*scaleFactor), math.floor(300*scaleFa
 Main.Position = UDim2.new(0.5, -Main.Size.X.Offset/2, 0.5, -Main.Size.Y.Offset/2)
 Main.BackgroundColor3 = Color3.fromRGB(0,0,0)
 Main.Active = true
-Main.Draggable = true  -- ✅ Keep this for main panel
+Main.Draggable = true
 Main.Parent = root
 glossy(Main, 14)
+
+-- RGB stroke (attach to Main)
+local rgbStrokeConn = nil
+local rgbStroke = nil
+local rgbStart = tick()
+if RGB_STROKE_ENABLED then
+    rgbStroke = Instance.new("UIStroke")
+    rgbStroke.Name = "RGBStroke"
+    rgbStroke.Thickness = RGB_STROKE_THICKNESS
+    rgbStroke.LineJoinMode = Enum.LineJoinMode.Round
+    rgbStroke.Parent = Main
+end
 
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1,0,0, math.floor(30*scaleFactor))
@@ -198,33 +279,35 @@ row.Size = UDim2.new(1,-12,0, math.floor(24*scaleFactor))
 row.Position = UDim2.new(0,6,0, math.floor(3*scaleFactor))
 row.BackgroundTransparency = 1; row.Parent = Header
 
-local function mkToggle(txt, state, xoff)
-    local holder = Instance.new("Frame")
-    holder.Size = UDim2.new(0, math.floor(120*scaleFactor), 1, 0)
-    holder.Position = UDim2.new(0, xoff, 0, 0)
-    holder.BackgroundTransparency = 1
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1,-(math.floor(36*scaleFactor)+6),1,0)
-    label.BackgroundTransparency = 1; label.TextColor3 = Color3.new(1,1,1)
-    label.TextScaled = true; label.Font = Enum.Font.Gotham; label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Text = txt; label.Parent = holder
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, math.floor(36*scaleFactor), 1, 0)
-    btn.Position = UDim2.new(1, -math.floor(36*scaleFactor), 0, 0)
-    btn.BackgroundColor3 = state and Color3.fromRGB(0,160,0) or Color3.fromRGB(70,70,70)
-    btn.Text = state and "ON" or "OFF"
-    btn.TextScaled = true; btn.Font = Enum.Font.GothamBold; btn.TextColor3 = Color3.new(1,1,1)
-    btn.Parent = holder; glossy(btn, 8)
-    holder.Parent = row
-    return btn
+local somBtn  -- StopMove toggle
+do
+    local function mkToggle(txt, state, xoff)
+        local holder = Instance.new("Frame")
+        holder.Size = UDim2.new(0, math.floor(120*scaleFactor), 1, 0)
+        holder.Position = UDim2.new(0, xoff, 0, 0)
+        holder.BackgroundTransparency = 1
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1,-(math.floor(36*scaleFactor)+6),1,0)
+        label.BackgroundTransparency = 1; label.TextColor3 = Color3.new(1,1,1)
+        label.TextScaled = true; label.Font = Enum.Font.Gotham; label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Text = txt; label.Parent = holder
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0, math.floor(36*scaleFactor), 1, 0)
+        btn.Position = UDim2.new(1, -math.floor(36*scaleFactor), 0, 0)
+        btn.BackgroundColor3 = state and Color3.fromRGB(0,160,0) or Color3.fromRGB(70,70,70)
+        btn.Text = state and "ON" or "OFF"
+        btn.TextScaled = true; btn.Font = Enum.Font.GothamBold; btn.TextColor3 = Color3.new(1,1,1)
+        btn.Parent = holder; glossy(btn, 8)
+        holder.Parent = row
+        return btn
+    end
+    somBtn = mkToggle("StopMove", true, 0)
+    somBtn.MouseButton1Click:Connect(function()
+        StopOnMove = not StopOnMove
+        somBtn.BackgroundColor3 = StopOnMove and Color3.fromRGB(0,160,0) or Color3.fromRGB(70,70,70)
+        somBtn.Text = StopOnMove and "ON" or "OFF"
+    end)
 end
-
-local somBtn  = mkToggle("StopMove", true, 0)
-somBtn.MouseButton1Click:Connect(function()
-    StopOnMove = not StopOnMove
-    somBtn.BackgroundColor3 = StopOnMove and Color3.fromRGB(0,160,0) or Color3.fromRGB(70,70,70)
-    somBtn.Text = StopOnMove and "ON" or "OFF"
-end)
 
 local TabsBar = Instance.new("Frame")
 TabsBar.Size = UDim2.new(1,-8,0, math.floor(26*scaleFactor))
@@ -256,15 +339,27 @@ BottomBar.Position = UDim2.new(0,4,1,-math.floor(30*scaleFactor))
 BottomBar.BackgroundTransparency = 1
 BottomBar.Parent = Main
 
+-- Pagination controls: Prev | middle label (page / total) | Next
 local btnPrev = Instance.new("TextButton", BottomBar)
-btnPrev.Size = UDim2.new(0.45,-2,1,0)
+btnPrev.Size = UDim2.new(0.28,0,1,0)
 btnPrev.Position = UDim2.new(0,0,0,0)
 btnPrev.BackgroundColor3 = Color3.fromRGB(35,35,35)
 btnPrev.Text="< Prev"; btnPrev.TextScaled=true; btnPrev.Font=Enum.Font.Gotham; btnPrev.TextColor3=Color3.new(1,1,1); glossy(btnPrev,8)
 
+local pageLabel = Instance.new("TextLabel", BottomBar)
+pageLabel.Size = UDim2.new(0.44,0,1,0)
+pageLabel.Position = UDim2.new(0.28,0,0,0)
+pageLabel.BackgroundColor3 = Color3.fromRGB(30,30,30)
+pageLabel.TextScaled = true
+pageLabel.Font = Enum.Font.GothamBold
+pageLabel.TextColor3 = Color3.new(1,1,1)
+pageLabel.Text = "" -- will be set when Emote tab active
+pageLabel.BorderSizePixel = 0
+glossy(pageLabel, 8)
+
 local btnNext = Instance.new("TextButton", BottomBar)
-btnNext.Size = UDim2.new(0.45,-2,1,0)
-btnNext.Position = UDim2.new(0.55,0,0,0)
+btnNext.Size = UDim2.new(0.28,0,1,0)
+btnNext.Position = UDim2.new(0.72,0,0,0)
 btnNext.BackgroundColor3 = Color3.fromRGB(35,35,35)
 btnNext.Text="Next >"; btnNext.TextScaled=true; btnNext.Font=Enum.Font.Gotham; btnNext.TextColor3=Color3.new(1,1,1); glossy(btnNext,8)
 
@@ -286,6 +381,7 @@ local MAX_VISIBLE = 6
 local paneEmote, gridEmote = mkPane(); paneEmote.Parent = Content
 local paneSaved, gridSaved = mkPane(); paneSaved.Parent=Content; paneSaved.Visible=false
 
+-- makeCard: plays click sound on Play and Save actions
 local function makeCard(id, nameText, onPlay, onSaveOrRemove, mode)
     local card = Instance.new("Frame")
     card.Size = UDim2.fromOffset(math.floor(90*scaleFactor), math.floor(120*scaleFactor))
@@ -316,91 +412,86 @@ local function makeCard(id, nameText, onPlay, onSaveOrRemove, mode)
     save.Text = (mode=="remove") and "Remove" or "Save"
     save.TextScaled=true; save.Font=Enum.Font.Gotham; save.TextColor3=Color3.new(1,1,1); glossy(save,6)
     
-    play.MouseButton1Click:Connect(function() onPlay(id) end)
-    save.MouseButton1Click:Connect(function() onSaveOrRemove(id, save) end)
+    play.MouseButton1Click:Connect(function()
+        pcall(onPlay, id)
+        pcall(playClickSound) -- play once per click
+    end)
+    save.MouseButton1Click:Connect(function()
+        pcall(onSaveOrRemove, id, save)
+        pcall(playClickSound) -- play once per click
+    end)
     
     return card
 end
 
 --------------------------------------------------------------
--- CATALOG TAB
+-- CATALOG TAB (external-first)
 --------------------------------------------------------------
-local currentPages = nil
-local currentPageNumber = 1
-
-local function getPages()
-    local params = CatalogSearchParams.new()
-    params.SearchKeyword = ""
-    params.CategoryFilter = Enum.CatalogCategoryFilter.None
-    params.SalesTypeFilter = Enum.SalesTypeFilter.All
-    params.AssetTypes = { Enum.AvatarAssetType.EmoteAnimation }
-    params.IncludeOffSale = true
-    params.SortType = Enum.CatalogSortType.Relevance
-    params.Limit = 30
-    local ok, pages = pcall(function()
-        return AvatarEditorService:SearchCatalog(params)
-    end)
-    return ok and pages or nil
-end
-
-local function fetchPagesTo(targetPage)
-    local pages = getPages()
-    if not pages then return nil end
-    for i = 2, targetPage do
-        if pages.IsFinished then break end
-        local ok = pcall(function() pages:AdvanceToNextPageAsync() end)
-        if not ok then break end
+local function updatePageLabel()
+    if activeTab ~= "emote" then
+        pageLabel.Text = "" -- hide when not Emote tab
+        return
     end
-    return pages
+    local total = externalTotal or 0
+    if total == 0 then
+        pageLabel.Text = "< Prev   0 / 0  emote tersedia   Next >"
+        return
+    end
+    local finish = math.min(externalPage * MAX_VISIBLE, total)
+    pageLabel.Text = string.format("< Prev   %d / %d  emote tersedia   Next >", finish, total)
 end
 
-local function renderEmotePage()
+function renderEmotePage()
     for _,c in ipairs(gridEmote:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
-    
-    if not currentPages then
+
+    if externalTotal == 0 then
         local lbl = Instance.new("TextLabel")
         lbl.Size = UDim2.new(1,0,0, math.floor(22*scaleFactor))
         lbl.Position = UDim2.new(0,0,0.5,-math.floor(11*scaleFactor))
         lbl.BackgroundTransparency = 1
-        lbl.Text = "No catalog data"
+        lbl.Text = "Loading external emotes..."
         lbl.Font = Enum.Font.GothamBold
         lbl.TextScaled = true
         lbl.TextColor3 = Color3.new(1,1,1)
         lbl.Parent = gridEmote
+        updatePageLabel()
         return
     end
-    
-    local list = {}
-    local ok, pageItems = pcall(function() return currentPages:GetCurrentPage() end)
-    if ok and pageItems then list = pageItems end
-    
-    local count = math.min(MAX_VISIBLE, #list)
-    for i=1, count do
-        local it = list[i]
-        local assetId = it.AssetId or it.Id
-        local card = makeCard(assetId, it.Name or getNameOfAsset(assetId),
-            function(id) playEmoteByAssetId(id) end,
-            function(id, btn)
-                local real = GetReal(id)
-                local animIdStr = "rbxassetid://"..tostring(real)
-                for _,s in ipairs(Saved) do
-                    if s.id==id then
-                        btn.Text="Already"; task.delay(0.5,function() if btn then btn.Text="Save" end end)
-                        return
+
+    local total = externalTotal
+    local per = MAX_VISIBLE
+    local pages = math.max(1, math.ceil(total / per))
+    externalPage = math.clamp(externalPage, 1, pages)
+
+    local startIdx = (externalPage-1)*per + 1
+    local finish = math.min(externalPage*per, total)
+
+    for i=startIdx, finish do
+        local it = emoteCatalog[i]
+        if it then
+            local card = makeCard(it.id, it.name or getNameOfAsset(it.id),
+                function(id) playEmoteByAssetId(id) end,
+                function(id, btn)
+                    local animIdStr = "rbxassetid://"..tostring(GetReal(id))
+                    for _,s in ipairs(Saved) do
+                        if s.id==id then
+                            btn.Text="Already"; task.delay(0.5,function() if btn then btn.Text="Save" end end)
+                            return
+                        end
                     end
-                end
-                table.insert(Saved, {id=id, name=(it.Name or getNameOfAsset(id)), AnimationId=animIdStr})
-                saveSaved()
-                btn.Text="Saved!"; btn.BackgroundColor3 = Color3.fromRGB(0,170,90)
-                task.delay(0.4,function() if btn then btn.Text="Save"; btn.BackgroundColor3=Color3.fromRGB(0,90,170) end end)
-            end,
-            "save"
-        )
-        card.Parent = gridEmote
+                    table.insert(Saved, {id=id, name=(it.name or getNameOfAsset(id)), AnimationId=animIdStr})
+                    saveSaved()
+                    btn.Text="Saved!"; btn.BackgroundColor3 = Color3.fromRGB(0,170,90)
+                    task.delay(0.4,function() if btn then btn.Text="Save"; btn.BackgroundColor3=Color3.fromRGB(0,90,170) end end)
+                end,
+                "save"
+            )
+            card.Parent = gridEmote
+        end
     end
-    
-    btnPrev.Visible = (currentPageNumber > 1)
-    btnNext.Visible = (currentPages and not currentPages.IsFinished)
+
+    -- update label (finish index / total)
+    updatePageLabel()
 end
 
 --------------------------------------------------------------
@@ -476,71 +567,116 @@ local function setTab(which)
     else
         renderSavedPage()
     end
+
+    updatePageLabel()
 end
 
 tabEmote.MouseButton1Click:Connect(function() setTab("emote") end)
 tabSaved.MouseButton1Click:Connect(function() setTab("saved") end)
 
--------------------- PAGINATION --------------------
+-------------------- PAGINATION BEHAVIOR (SEPARATE FOR EMOTE / SAVED) --------------------
 btnNext.MouseButton1Click:Connect(function()
-    if activeTab=="emote" then
-        if not currentPages then return end
-        if currentPages.IsFinished then return end
-        
-        local ok = pcall(function()
-            currentPages:AdvanceToNextPageAsync()
-        end)
-        
-        if ok then
-            currentPageNumber = currentPageNumber + 1
-            renderEmotePage()
+    if activeTab == "saved" then
+        -- saved pagination
+        local total = #Saved
+        if total == 0 then return end
+        local maxPage = math.max(1, math.ceil(total / MAX_VISIBLE))
+        if svPage < maxPage then
+            svPage = svPage + 1
         else
-            local targetPage = currentPageNumber + 1
-            local fresh = fetchPagesTo(targetPage)
-            if fresh then
-                currentPages = fresh
-                currentPageNumber = math.min(targetPage, currentPageNumber + 1)
-                renderEmotePage()
-            end
+            svPage = 1
         end
+        renderSavedPage()
+        return
+    end
+
+    -- activeTab == "emote" (external-first)
+    if externalTotal > 0 then
+        local total = externalTotal
+        local per = MAX_VISIBLE
+        local pages = math.max(1, math.ceil(total / per))
+        if externalPage < pages then
+            externalPage = externalPage + 1
+        else
+            externalPage = 1
+        end
+        renderEmotePage()
+        return
+    end
+
+    -- fallback behavior (if external not loaded) - try AvatarEditorService pages (kept for safety)
+    if not currentPages then return end
+    if currentPages.IsFinished then return end
+    
+    local ok = pcall(function()
+        currentPages:AdvanceToNextPageAsync()
+    end)
+    
+    if ok then
+        currentPageNumber = currentPageNumber + 1
+        renderEmotePage()
     else
-        if svPage*MAX_VISIBLE < #Saved then 
-            svPage += 1
-            renderSavedPage()
+        local targetPage = currentPageNumber + 1
+        local fresh = fetchPagesTo(targetPage)
+        if fresh then
+            currentPages = fresh
+            currentPageNumber = math.min(targetPage, currentPageNumber + 1)
+            renderEmotePage()
         end
     end
 end)
 
 btnPrev.MouseButton1Click:Connect(function()
-    if activeTab=="emote" then
-        if not currentPages then return end
-        if currentPageNumber <= 1 then return end
-        
-        local ok = pcall(function()
-            currentPages:AdvanceToPreviousPageAsync()
-        end)
-        
-        if ok then
-            currentPageNumber = math.max(1, currentPageNumber - 1)
-            renderEmotePage()
+    if activeTab == "saved" then
+        -- saved pagination
+        local total = #Saved
+        if total == 0 then return end
+        local maxPage = math.max(1, math.ceil(total / MAX_VISIBLE))
+        if svPage > 1 then
+            svPage = svPage - 1
         else
-            local targetPage = math.max(1, currentPageNumber - 1)
-            local fresh = fetchPagesTo(targetPage)
-            if fresh then
-                currentPages = fresh
-                currentPageNumber = targetPage
-                renderEmotePage()
-            end
+            svPage = maxPage
         end
+        renderSavedPage()
+        return
+    end
+
+    -- activeTab == "emote"
+    if externalTotal > 0 then
+        local total = externalTotal
+        local per = MAX_VISIBLE
+        local pages = math.max(1, math.ceil(total / per))
+        if externalPage > 1 then
+            externalPage = externalPage - 1
+        else
+            externalPage = pages
+        end
+        renderEmotePage()
+        return
+    end
+
+    if not currentPages then return end
+    if currentPageNumber <= 1 then return end
+    
+    local ok = pcall(function()
+        currentPages:AdvanceToPreviousPageAsync()
+    end)
+    
+    if ok then
+        currentPageNumber = math.max(1, currentPageNumber - 1)
+        renderEmotePage()
     else
-        if svPage>1 then 
-            svPage -= 1
-            renderSavedPage()
+        local targetPage = math.max(1, currentPageNumber - 1)
+        local fresh = fetchPagesTo(targetPage)
+        if fresh then
+            currentPages = fresh
+            currentPageNumber = targetPage
+            renderEmotePage()
         end
     end
 end)
 
--------------------- ✅ PERFECT MINI BUTTON (FROM YOUR WORKING SCRIPT) --------------------
+-------------------- MINI BUTTON (toggle & RGB stroke) --------------------
 local toggleGui = Instance.new("ScreenGui")
 toggleGui.Name = "GAZE_Toggle"
 toggleGui.ResetOnSpawn = false
@@ -560,7 +696,14 @@ tBtn.Active = true
 tBtn.BorderSizePixel = 0
 glossy(tBtn, 12)
 
--- ✅ PERFECT DRAGGING SYSTEM (NO BOUNDARIES)
+-- mini stroke
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Name = "MiniStroke"
+miniStroke.Thickness = RGB_STROKE_THICKNESS
+miniStroke.LineJoinMode = Enum.LineJoinMode.Round
+miniStroke.Parent = tBtn
+
+-- dragging
 local dragging = false
 local dragStart = nil
 local startPos = nil
@@ -593,12 +736,10 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ✅ HIDE ON CLICK (TOGGLE GUI)
 tBtn.MouseButton1Click:Connect(function()
     root.Enabled = not root.Enabled
 end)
 
--- ✅ Save position to file
 local function saveBtnPos()
     if not IO_AVAILABLE then return end
     local x = tBtn.AbsolutePosition.X
@@ -609,7 +750,6 @@ local function saveBtnPos()
     end)
 end
 
--- ✅ Load saved position
 pcall(function()
     if IO_AVAILABLE and isfile(POS_FILE) then
         local data = HttpService:JSONDecode(readfile(POS_FILE))
@@ -619,7 +759,6 @@ pcall(function()
     end
 end)
 
--- ✅ Save position when dragging ends
 UserInputService.InputEnded:Connect(function(input)
     if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or 
                      input.UserInputType == Enum.UserInputType.Touch) then
@@ -628,32 +767,61 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- ✅ Re-clamp on viewport change (optional, for safety)
-workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
-    task.defer(function()
-        -- Optional: Add boundary clamping here if needed
+-- RGB stroke animation (both main and mini)
+local rgbConnAll = nil
+if RGB_STROKE_ENABLED then
+    rgbStart = tick()
+    rgbConnAll = RunService.RenderStepped:Connect(function()
+        local hue = ((tick() - rgbStart) * RGB_CYCLE_SPEED) % 1
+        pcall(function()
+            if rgbStroke then rgbStroke.Color = Color3.fromHSV(hue, 1, 1) end
+            if miniStroke then miniStroke.Color = Color3.fromHSV((hue+0.08)%1, 1, 1) end
+        end)
     end)
-end)
-
-if camera then
-    camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-        -- Optional: Re-adjust position on resize
+    root.Destroying:Connect(function()
+        if rgbConnAll then
+            rgbConnAll:Disconnect()
+            rgbConnAll = nil
+        end
     end)
 end
 
 -------------------- INITIAL LOAD -------------------
-task.spawn(function()
-    currentPages = getPages()
-    if currentPages then
-        currentPageNumber = 1
-        renderEmotePage()
-        setTab("emote")
-    else
-        setTab("saved")
-    end
+-- load external immediately
+loadExternalList()
+
+-- try to also prepare AvatarEditorService pages for fallback (non-blocking)
+local function getPages()
+    local ok, pages = pcall(function()
+        local params = CatalogSearchParams.new()
+        params.SearchKeyword = ""
+        params.CategoryFilter = Enum.CatalogCategoryFilter.None
+        params.SalesTypeFilter = Enum.SalesTypeFilter.All
+        params.AssetTypes = { Enum.AvatarAssetType.EmoteAnimation }
+        params.IncludeOffSale = true
+        params.SortType = Enum.CatalogSortType.Relevance
+        params.Limit = 30
+        return AvatarEditorService:SearchCatalog(params)
+    end)
+    return ok and pages or nil
+end
+
+local currentPages = getPages()
+-- initial render (if external not yet loaded, renderEmotePage will show loading)
+renderEmotePage()
+
+-- Prev/Next label initial state (compute from externalPage if externalTotal present)
+updatePageLabel()
+
+tabEmote.MouseButton1Click:Connect(function() setTab("emote") end)
+tabSaved.MouseButton1Click:Connect(function() setTab("saved") end)
+
+-- ensure Saved tab can render saved when toggled
+tabSaved.MouseButton1Click:Connect(function()
+    renderSavedPage()
 end)
 
--- Glossy resize dengan debounce
+-- Glossy resize with debounce
 local resizeDebounce = false
 Main:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
     if resizeDebounce then return end
