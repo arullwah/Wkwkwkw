@@ -1,16 +1,11 @@
 --[[ 
     ✅ Gaze Animations GUI – Simple, Smooth, Persistent Close (Final v2)
-    - Executor/client only
-    - 200x200, draggable
-    - Header: Search + X
-    - Close = disimpan (GUI tidak auto-muncul lagi saat respawn)
-    - Tapi saat execute ulang script, GUI selalu muncul kembali (tanpa hapus file)
-    - Auto-load animasi setelah respawn tetap aktif (tanpa GUI)
-    - Re-open manual tetap bisa pakai tombol "." (Period)
-    By: Arull | Final Stable Build
+    + Integrated: RGB Edges demo (edges move around the 'main' frame)
+    By: Arull | Final Stable Build (with RGB edges)
 ]]
 
 -- ====== Services ======
+local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ContentProvider = game:GetService("ContentProvider")
 local HttpService = game:GetService("HttpService")
@@ -46,7 +41,9 @@ end
 
 -- ====== Patch: Force Open saat Execute ======
 -- (tanpa memengaruhi persist di respawn)
-_G.AnimHubForceOpen = true
+if _G.AnimHubForceOpen == nil then
+    _G.AnimHubForceOpen = true -- default behavior as before; you can set false elsewhere
+end
 
 -- ====== DATABASE ======
 local Animations = {
@@ -429,7 +426,10 @@ local function setAnim(kind, id)
     stopAllTracks(h)
 
     local ok = true
-    if     kind=="Idle"     and anim.idle      then anim.idle.Animation1.AnimationId="rbxassetid://"..id[1]; anim.idle.Animation2.AnimationId="rbxassetid://"..id[2]; lastAnimations.Idle = id
+    if     kind=="Idle"     and anim.idle      then 
+        if type(id)~="table" then ok = false else
+            anim.idle.Animation1.AnimationId="rbxassetid://"..id[1]; anim.idle.Animation2.AnimationId="rbxassetid://"..id[2]; lastAnimations.Idle = id
+        end
     elseif kind=="Walk"     and anim.walk      then anim.walk.WalkAnim.AnimationId   ="rbxassetid://"..id;   lastAnimations.Walk = id
     elseif kind=="Run"      and anim.run       then anim.run.RunAnim.AnimationId     ="rbxassetid://"..id;   lastAnimations.Run  = id
     elseif kind=="Jump"     and anim.jump      then anim.jump.JumpAnim.AnimationId   ="rbxassetid://"..id;   lastAnimations.Jump = id
@@ -460,10 +460,27 @@ local function loadSaved()
 end
 
 -- ====== GUI ======
+-- RGB edges configuration (defaults; can be tweaked)
+local RGBConfig = {
+    ENABLED = true,
+    STROKE_THICKNESS = 2,
+    CYCLE_SPEED = 3.0,
+    MOVE_SPEED = 160,
+    EDGE_LENGTH = 64,
+    PULSE_INTENSITY = 0.35,
+    PULSE_BASE = 0.7,
+    TEXT_SIZE = 18,
+    EDGE_COUNT = 4
+}
+
 local function openGUI()
     if guiOpen or Config.GuiClosed then return end
     if not validateCharacter() then return end
     guiOpen = true
+
+    -- Prevent duplicate GUI
+    local existing = PlayerGui:FindFirstChild("GazeAnimGUI_Simple")
+    if existing then existing:Destroy() end
 
     local sg = Instance.new("ScreenGui")
     sg.Name = "GazeAnimGUI_Simple"
@@ -493,18 +510,19 @@ local function openGUI()
     Instance.new("UICorner", header).CornerRadius = UDim.new(0,12)
 
     local search = Instance.new("TextBox")
-    search.PlaceholderText = "Cari animasi..."
-    search.ClearTextOnFocus = false
-    search.Size = UDim2.new(1,-70,1,-10)
-    search.Position = UDim2.new(0,8,0,5)
-    search.BackgroundColor3 = Color3.fromRGB(18,18,18)
-    search.TextColor3 = Color3.fromRGB(220,220,220)
-    search.PlaceholderColor3 = Color3.fromRGB(120,120,120)
-    search.Font = Enum.Font.Gotham
-    search.TextSize = 12
-    search.BorderSizePixel = 0
-    search.Parent = header
-    Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
+search.PlaceholderText = "Cari animasi..."
+search.Text = ""                -- ← BIAR TEXTBOX TAMPIL KOSONG
+search.ClearTextOnFocus = false -- tetap boleh diketik
+search.Size = UDim2.new(1,-70,1,-10)
+search.Position = UDim2.new(0,8,0,5)
+search.BackgroundColor3 = Color3.fromRGB(18,18,18)
+search.TextColor3 = Color3.fromRGB(220,220,220)
+search.PlaceholderColor3 = Color3.fromRGB(120,120,120)
+search.Font = Enum.Font.Gotham
+search.TextSize = 12
+search.BorderSizePixel = 0
+search.Parent = header
+Instance.new("UICorner", search).CornerRadius = UDim.new(0,8)
 
     local close = Instance.new("TextButton")
     close.Text = "X"
@@ -536,13 +554,18 @@ local function openGUI()
     Instance.new("UICorner", list).CornerRadius = UDim.new(0,10)
     local ls = Instance.new("UIStroke", list); ls.Color=Color3.fromRGB(32,32,32); ls.Thickness=1
 
-    local y=0
-    local buttons = {}
+    -- Use UIListLayout for reliability
+    local layout = Instance.new("UIListLayout", list)
+    layout.Padding = UDim.new(0,6)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
 
+    local buttons = {}
+    local index = 0
     local function addBtn(label, kind, id)
+        index = index + 1
         local b=Instance.new("TextButton")
         b.Size=UDim2.new(1,-8,0,24)
-        b.Position=UDim2.new(0,4,0,y)
+        b.LayoutOrder = index
         b.BackgroundColor3=Color3.fromRGB(20,20,20)
         b.TextColor3=Color3.fromRGB(220,220,220)
         b.Font=Enum.Font.Gotham
@@ -563,7 +586,6 @@ local function openGUI()
         end)
 
         table.insert(buttons, b)
-        y += 26
     end
 
     for n,i in pairs(Animations.Idle) do addBtn(n,"Idle",i) end
@@ -574,20 +596,136 @@ local function openGUI()
     for n,i in pairs(Animations.SwimIdle) do addBtn(n,"SwimIdle",i) end
     for n,i in pairs(Animations.Swim) do addBtn(n,"Swim",i) end
     for n,i in pairs(Animations.Climb) do addBtn(n,"Climb",i) end
-    list.CanvasSize = UDim2.new(0,0,0,y)
 
+    -- ====== RGB Edges Integration ======
+    local rgbConn = nil
+    local edgeFrames = {}
+
+    -- Make sure we can derive main size (we used absolute offsets)
+    local MAIN_W = 200
+    local MAIN_H = 200
+    -- If you change main.Size, update MAIN_W/MAIN_H accordingly
+
+    if RGBConfig.ENABLED then
+        -- global stroke that cycles color (already have a stroke variable; we'll keep using it)
+        local globalStroke = stroke
+        globalStroke.Thickness = RGBConfig.STROKE_THICKNESS
+
+        -- create edge frames (z-index above main)
+        for i = 1, RGBConfig.EDGE_COUNT do
+            local e = Instance.new("Frame")
+            e.Name = "RGB_Edge"..i
+            e.Size = UDim2.fromOffset(RGBConfig.EDGE_LENGTH, RGBConfig.STROKE_THICKNESS*2)
+            e.AnchorPoint = Vector2.new(0.5, 0.5)
+            e.BackgroundColor3 = Color3.fromHSV(0,1,1)
+            e.BorderSizePixel = 0
+            e.ZIndex = main.ZIndex + 1
+            e.Parent = main
+
+            local ec = Instance.new("UICorner")
+            ec.CornerRadius = UDim.new(0, 6)
+            ec.Parent = e
+
+            table.insert(edgeFrames, e)
+        end
+
+        -- helper place function (adjusted to main size and offsets)
+        local perimeter = (MAIN_W * 2) + (MAIN_H * 2)
+        local function placeSegment(segment, p, length)
+            p = p % perimeter
+            -- top side
+            if p <= MAIN_W then
+                local centerX = p
+                segment.Rotation = 0
+                segment.Size = UDim2.fromOffset(length, RGBConfig.STROKE_THICKNESS*2)
+                segment.AnchorPoint = Vector2.new(0.5, 0)
+                segment.Position = UDim2.new(0, centerX, 0, -RGBConfig.STROKE_THICKNESS)
+                return
+            end
+            p = p - MAIN_W
+
+            -- right side
+            if p <= MAIN_H then
+                local centerY = p
+                segment.Rotation = 90
+                segment.Size = UDim2.fromOffset(length, RGBConfig.STROKE_THICKNESS*2)
+                segment.AnchorPoint = Vector2.new(1, 0.5)
+                segment.Position = UDim2.new(0, MAIN_W + RGBConfig.STROKE_THICKNESS, 0, centerY)
+                return
+            end
+            p = p - MAIN_H
+
+            -- bottom side
+            if p <= MAIN_W then
+                local centerX = MAIN_W - p
+                segment.Rotation = 0
+                segment.Size = UDim2.fromOffset(length, RGBConfig.STROKE_THICKNESS*2)
+                segment.AnchorPoint = Vector2.new(0.5, 1)
+                segment.Position = UDim2.new(0, centerX, 0, MAIN_H + RGBConfig.STROKE_THICKNESS)
+                return
+            end
+            p = p - MAIN_W
+
+            -- left side
+            local centerY = MAIN_H - p
+            segment.Rotation = 90
+            segment.Size = UDim2.fromOffset(length, RGBConfig.STROKE_THICKNESS*2)
+            segment.AnchorPoint = Vector2.new(0, 0.5)
+            segment.Position = UDim2.new(0, -RGBConfig.STROKE_THICKNESS, 0, centerY)
+        end
+
+        -- runtime vars
+        local edgePos = 0
+        local startTick = tick()
+
+        rgbConn = RunService.RenderStepped:Connect(function(dt)
+            local t = tick() - startTick
+            local hue = (t * RGBConfig.CYCLE_SPEED) % 1
+
+            local angle = hue * math.pi * 2
+            local rawPulse = (math.sin(angle) + 1) / 2
+            local pulse = RGBConfig.PULSE_BASE + (rawPulse * RGBConfig.PULSE_INTENSITY)
+
+            pcall(function()
+                globalStroke.Color = Color3.fromHSV(hue, 1, 1)
+            end)
+
+            edgePos = (edgePos + RGBConfig.MOVE_SPEED * dt) % perimeter
+
+            for i = 1, #edgeFrames do
+                local offset = perimeter * ((i-1) / RGBConfig.EDGE_COUNT)
+                local pos = (edgePos + offset) % perimeter
+
+                local pieceHue = (hue + (i-1) * 0.04) % 1
+                local c = Color3.fromHSV(pieceHue, 1, 1)
+
+                local dynamicLength = RGBConfig.EDGE_LENGTH * (0.8 + (pulse - RGBConfig.PULSE_BASE) * 0.6)
+                placeSegment(edgeFrames[i], pos, dynamicLength)
+
+                edgeFrames[i].BackgroundColor3 = c
+                edgeFrames[i].Visible = true
+                edgeFrames[i].BackgroundTransparency = 0
+                edgeFrames[i].Size = UDim2.fromOffset(dynamicLength, RGBConfig.STROKE_THICKNESS * (1 + (pulse - RGBConfig.PULSE_BASE) * 1.2))
+            end
+        end)
+
+        -- cleanup rgb when GUI destroyed
+        sg.Destroying:Connect(function()
+            if rgbConn then
+                rgbConn:Disconnect()
+                rgbConn = nil
+            end
+        end)
+    end
+    -- ====== End RGB Integration ======
+
+    -- connect search filtering
     search:GetPropertyChangedSignal("Text"):Connect(function()
         local q=string.lower(search.Text)
-        local pos=0
         for _,b in ipairs(buttons) do
             local show = (q=="" or string.find(string.lower(b.Text), q, 1, true)~=nil)
             b.Visible=show
-            if show then
-                b.Position=UDim2.new(0,4,0,pos)
-                pos += 26
-            end
         end
-        list.CanvasSize = UDim2.new(0,0,0,pos)
     end)
 end
 
@@ -598,6 +736,8 @@ loadConfig()
 if _G.AnimHubForceOpen then
     Config.GuiClosed = false
     saveConfig()
+    -- reset so subsequent reloads won't force open again unintentionally
+    _G.AnimHubForceOpen = false
 end
 
 Player.CharacterAdded:Connect(function()
