@@ -884,9 +884,19 @@ local function StartTitlePulse(titleLabel)
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
     end
-    
+
     if not titleLabel then return end
-    
+
+    -- parameters for a deeper pulse
+    local hueSpeed = 0.25        -- speed of hue rotation
+    local pulseFreq = 4.5        -- how fast the pulse (sin) oscillates
+    local baseSize = 14          -- base text size
+    local sizeAmplitude = 6      -- how much TextSize changes (deeper = larger)
+    local baseScale = 1.0        -- base multiplier for other effects
+    local strokeMin = 0.0        -- min stroke transparency (visible)
+    local strokeMax = 0.9        -- max stroke transparency (hidden)
+    local strokePulseFreq = 2.2  -- slower stroke breathing
+
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
             if not titleLabel or not titleLabel.Parent then
@@ -896,17 +906,37 @@ local function StartTitlePulse(titleLabel)
                 end
                 return
             end
-            
-            local elapsed = tick()
-            local hue = (elapsed * 0.15) % 1
-            local pulse = 0.85 + (math.sin(elapsed * 3) * 0.15)
-            
-            local color = Color3.fromHSV(hue, 1, 1)
+
+            local t = tick()
+
+            -- Hue rotation (color)
+            local hue = (t * hueSpeed) % 1
+            local color = Color3.fromHSV(hue, 1, 1) -- full saturation for vivid colors
             titleLabel.TextColor3 = color
-            titleLabel.TextSize = 14 + (pulse - 0.85) * 3
+
+            -- Stronger sinus pulse for TextSize
+            local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5) -- 0..1
+            local newSize = baseSize + (pulse * sizeAmplitude)
+            -- ensure integer sensible TextSize
+            titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
+
+            -- Subtle scale-like effect via TextStrokeTransparency breathing
+            if titleLabel.TextStrokeTransparency ~= nil then
+                local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5) -- 0..1
+                local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
+                titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
+                -- keep stroke dark for contrast
+                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
+            end
+
+            -- Optional: tiny shadow-like offset using Position jitter (non-intrusive)
+            if titleLabel.Position and typeof(titleLabel.Position) == "UDim2" then
+                local jitter = (math.sin(t * pulseFreq * 0.5) * 2) * (pulse * 0.6) -- small px movement
+                titleLabel.Position = UDim2.new(titleLabel.Position.X.Scale, titleLabel.Position.X.Offset, titleLabel.Position.Y.Scale, titleLabel.Position.Y.Offset + jitter)
+            end
         end)
     end)
-    
+
     AddConnection(titlePulseConnection)
 end
 
@@ -1087,7 +1117,7 @@ end
 
 -- ========= MAIN ELEGANT FRAME (255x300) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(255, 300)
+MainFrame.Size = UDim2.fromOffset(255, 310)
 MainFrame.Position = UDim2.new(0.5, -127.5, 0.5, -150)
 MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.BorderSizePixel = 0
@@ -1112,7 +1142,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL Recorder v3"
+Title.Text = "ByaruL Recorder"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
@@ -1286,7 +1316,7 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(156, 105)
+PlaybackControl.Size = UDim2.fromOffset(156, 120)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 PlaybackControl.BorderSizePixel = 0
@@ -1352,7 +1382,7 @@ local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 105)
+RecordingStudio.Size = UDim2.fromOffset(156, 120)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingStudio.BorderSizePixel = 0
@@ -3011,18 +3041,29 @@ pcall(function()
     end
 end)
 
--- Click handler: toggle MainFrame visibility
+-- FIXED: Click handler hanya toggle MainFrame, tidak affect Playback/Studio
 MiniButton.MouseButton1Click:Connect(function()
-    pcall(AnimateButtonClick, MiniButton)
     pcall(PlaySound, "Click")
-    if MainFrame and typeof(MainFrame.Visible) == "boolean" then
-        local newVis = not MainFrame.Visible
-        MainFrame.Visible = newVis
-        if not newVis then
-            if PlaybackControl then PlaybackControl.Visible = false end
-            if RecordingStudio then RecordingStudio.Visible = false end
-        end
+    
+    -- FIXED: Tidak pakai AnimateButtonClick karena mengubah warna
+    pcall(function()
+        local originalSize = MiniButton.TextSize
+        TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+            TextSize = originalSize * 1.2
+        }):Play()
+        task.wait(0.1)
+        TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+            TextSize = originalSize
+        }):Play()
+    end)
+    
+    -- FIXED: Hanya toggle MainFrame saja
+    if MainFrame then
+        MainFrame.Visible = not MainFrame.Visible
     end
+    
+    -- FIXED: Playback & Studio tetap bisa muncul meskipun MainFrame hidden
+    -- Tidak mengubah visibility mereka
 end)
 
 -- Custom drag + save position on release
@@ -3036,7 +3077,7 @@ MiniButton.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = MiniButton.Position
         input.Changed:Connect(function()
-              if input.UserInputState == Enum.UserInputState.End then
+            if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
                 -- save absolute position if allowed
                 pcall(function()
