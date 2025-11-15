@@ -584,6 +584,7 @@ local function InterpolateFrames(frame1, frame2, alpha)
     }
 end
 
+-- ========= FIXED ANTI-JITTER SYSTEM =========
 local function ApplyFrameReplicated(hrp, hum, frame, nextFrame, alpha)
     if not hrp or not hum then return end
     
@@ -596,24 +597,38 @@ local function ApplyFrameReplicated(hrp, hum, frame, nextFrame, alpha)
     local targetCFrame = GetFrameCFrame(targetFrame)
     local targetVelocity = GetFrameVelocity(targetFrame)
     
-    -- Apply menggunakan physics-based approach untuk network replication
+    -- ✅ FIX: Gunakan approach yang lebih aman tanpa PlatformStand
     hrp.CFrame = targetCFrame
     hrp.AssemblyLinearVelocity = targetVelocity
     hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     
-    -- Lock orientation dengan PlatformStand untuk network consistency
     if hum then
         hum.AutoRotate = false
         
-        -- Gunakan PlatformStand untuk lock orientation yang ter-replicate
+        -- ✅ FIX: HINDARI PlatformStand untuk movement normal
+        -- Hanya gunakan PlatformStand untuk state khusus
         local moveState = targetFrame.MoveState
-        if moveState ~= "Climbing" and moveState ~= "Swimming" then
-            hum.PlatformStand = true
-        else
+        if moveState == "Climbing" or moveState == "Swimming" then
             hum.PlatformStand = false
+        else
+            -- Untuk grounded movement, gunakan approach yang lebih aman
+            hum.PlatformStand = false  -- ✅ UBAH KE FALSE
         end
         
         hum.WalkSpeed = GetFrameWalkSpeed(targetFrame) * CurrentSpeed
+        
+        -- ✅ FIX: Force state change untuk memastikan movement
+        if moveState == "Jumping" then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        elseif moveState == "Falling" then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        elseif moveState == "Climbing" then
+            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        elseif moveState == "Swimming" then
+            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)  -- ✅ PASTIKAN RUNNING STATE
+        end
     end
     
     -- Force network ownership untuk smooth replication
