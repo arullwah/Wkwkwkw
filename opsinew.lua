@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -39,6 +40,7 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = true
+local INTERPOLATION_LOOKAHEAD = 3
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -131,6 +133,7 @@ local IsLoopTransitioning = false
 local titlePulseConnection = nil
 local previousFrameData = nil
 local PathHasBeenUsed = {}
+local PathsHiddenOnce = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -605,20 +608,38 @@ local function CreateMergedReplay()
     pcall(function()
         local mergedFrames = {}
         local totalTimeOffset = 0
+        
         for _, checkpointName in ipairs(RecordingOrder) do
             if not CheckedRecordings[checkpointName] then continue end
             local checkpoint = RecordedMovements[checkpointName]
-            if not checkpoint then continue end
+            if not checkpoint or #checkpoint == 0 then continue end
+            
             if #mergedFrames > 0 and #checkpoint > 0 then
                 local lastFrame = mergedFrames[#mergedFrames]
                 local firstFrame = checkpoint[1]
-                local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, TRANSITION_FRAMES)
+                
+                -- IMPROVED: Smart transition berdasarkan MoveState
+                local transitionCount = TRANSITION_FRAMES
+                local lastState = lastFrame.MoveState
+                local nextState = firstFrame.MoveState
+                
+                -- Jika state sama (lari->lari, climb->climb, dll), kurangi transition agar seamless
+                if lastState == nextState then
+                    if lastState == "Grounded" or lastState == "Climbing" then
+                        transitionCount = 2 -- Hampir instant untuk state stabil
+                    elseif lastState == "Jumping" or lastState == "Falling" then
+                        transitionCount = 4 -- Sedikit lebih smooth untuk state dinamis
+                    end
+                end
+                
+                local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, transitionCount)
                 for _, tFrame in ipairs(transitionFrames) do
                     tFrame.Timestamp = tFrame.Timestamp + totalTimeOffset
                     table.insert(mergedFrames, tFrame)
                 end
-                totalTimeOffset = totalTimeOffset + (TRANSITION_FRAMES * 0.016)
+                totalTimeOffset = totalTimeOffset + (transitionCount * 0.016)
             end
+            
             for frameIndex, frame in ipairs(checkpoint) do
                 local newFrame = {
                     Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
@@ -632,9 +653,10 @@ local function CreateMergedReplay()
                 table.insert(mergedFrames, newFrame)
             end
             if #checkpoint > 0 then
-                totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
+                totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.05
             end
         end
+        
         local mergedName = "merged_" .. os.date("%H%M%S")
         RecordedMovements[mergedName] = mergedFrames
         table.insert(RecordingOrder, mergedName)
@@ -1009,9 +1031,10 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
     end)
 end
 
--- ========= PATH AUTO-HIDE SYSTEM =========
+-- ========= PATH AUTO-HIDE SYSTEM (IMPROVED) =========
 local function CheckIfPathUsed(recordingName)
-    if not CurrentPlayingRecording or not recordingName then return end
+    if not recordingName then return end
+    if not CurrentPlayingRecording then return end
     
     local recording = RecordedMovements[recordingName]
     if not recording or #recording == 0 then return end
@@ -1029,7 +1052,18 @@ local function CheckIfPathUsed(recordingName)
     if distance < 10 and currentPlaybackFrame >= (#recording - 5) then
         PathHasBeenUsed[recordingName] = true
         
-        if PathAutoHide and ShowPaths then
+        -- Cek apakah semua replay sudah dilewati
+        local allPathsUsed = true
+        for _, name in ipairs(RecordingOrder) do
+            if not PathHasBeenUsed[name] then
+                allPathsUsed = false
+                break
+            end
+        end
+        
+        -- Jika semua sudah dilewati, auto-hide path
+        if allPathsUsed and ShowPaths and not PathsHiddenOnce then
+            PathsHiddenOnce = true
             ShowPaths = false
             ClearPathVisualization()
             if ShowRuteBtnControl then
@@ -1084,20 +1118,6 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
 Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
-
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.fromOffset(20, 20)
-MinimizeBtn.Position = UDim2.new(1, -45, 0.5, -10)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-MinimizeBtn.Text = "_"
-MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.TextSize = 14
-MinimizeBtn.Parent = Header
-
-local MinimizeCorner = Instance.new("UICorner")
-MinimizeCorner.CornerRadius = UDim.new(0, 4)
-MinimizeCorner.Parent = MinimizeBtn
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.fromOffset(20, 20)
@@ -1255,9 +1275,9 @@ MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 25
-MiniButton.Visible = false
+MiniButton.Visible = true
 MiniButton.Active = true
-MiniButton.Draggable = true
+MiniButton.Draggable = false
 MiniButton.Parent = ScreenGui
 
 local MiniCorner = Instance.new("UICorner")
@@ -1374,10 +1394,10 @@ local function CreateStudioBtn(text, x, y, w, h, color)
                     math.min(color.R * 255 * 1.2, 255) / 255,
                     math.min(color.G * 255 * 1.2, 255) / 255,
                     math.min(color.B * 255 * 1.2, 255) / 255
-                )
-            }):Play()
-        end)
-    end)
+                   )
+               }):Play()
+           end)
+       end)
     
     btn.MouseLeave:Connect(function()
         task.spawn(function()
@@ -1889,6 +1909,10 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
+            -- IMPROVED: Deteksi state terakhir sebelum resume
+            local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
+            local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
+            
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
@@ -1899,6 +1923,35 @@ local function ResumeStudioRecording()
                 if #StudioCurrentRecording.Frames > 0 then
                     local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
                     StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+                end
+            end
+            
+            -- IMPROVED: Tambahkan frame interpolasi untuk transisi smooth
+            if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local currentPos = hrp.Position
+                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+                
+                -- Jika posisi berbeda, buat interpolasi
+                if (currentPos - lastPos).Magnitude > 0.5 then
+                    for i = 1, INTERPOLATION_LOOKAHEAD do
+                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                        local interpPos = lastPos:Lerp(currentPos, alpha)
+                        
+                        local interpFrame = {
+                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                            LookVector = lastFrame.LookVector,
+                            UpVector = lastFrame.UpVector,
+                            Velocity = lastFrame.Velocity,
+                            MoveState = lastState,
+                            WalkSpeed = lastFrame.WalkSpeed,
+                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            IsInterpolated = true
+                        }
+                        table.insert(StudioCurrentRecording.Frames, interpFrame)
+                    end
+                    
+                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 end
             end
             
@@ -1991,7 +2044,7 @@ SaveBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= SAVE/LOAD SYSTEM =========
+-- ========= SAVE/LOAD SYSTEM (IMPROVED) =========
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2078,11 +2131,11 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
-        CheckedRecordings = {}
-        PathHasBeenUsed = {}
+        -- IMPROVED: Jangan hapus RecordedMovements yang sudah ada, tambahkan saja
+        -- RecordedMovements = {} -- DIHAPUS
+        
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
@@ -2092,7 +2145,10 @@ local function LoadFromObfuscatedJSON()
                 local frames = deobfuscatedData[name]
                 
                 if frames then
+                    -- IMPROVED: Tambahkan ke existing recordings
                     RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
@@ -2495,7 +2551,6 @@ function StartAutoLoopAll()
                     
                     if not AutoLoop or not IsAutoLoopPlaying then break end
                     if not IsCharacterReady() then
-                        -- FIXED: Tidak balik ke #1, tunggu respawn
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
@@ -2693,7 +2748,6 @@ function StartAutoLoopAll()
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
-                    -- FIXED: Jika gagal, tetap increment tapi tidak reset ke #1
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
@@ -2878,6 +2932,7 @@ ShowRuteBtnControl.MouseButton1Click:Connect(function()
     if ShowPaths then
         ShowRuteBtnControl.Text = "Path ON"
         ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        PathsHiddenOnce = false
         VisualizeAllPaths()
     else
         ShowRuteBtnControl.Text = "Path OFF"
@@ -2927,18 +2982,6 @@ MergeBtn.MouseButton1Click:Connect(function()
     CreateMergedReplay()
 end)
 
-MinimizeBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MinimizeBtn)
-    MainFrame.Visible = false
-    MiniButton.Visible = true
-end)
-
-MiniButton.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MiniButton)
-    MainFrame.Visible = true
-    MiniButton.Visible = false
-end)
-
 CloseBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(CloseBtn)
     task.spawn(function()
@@ -2953,6 +2996,77 @@ CloseBtn.MouseButton1Click:Connect(function()
             ScreenGui:Destroy()
         end)
     end)
+end)
+
+-- ========= MINI BUTTON SYSTEM (IMPROVED) =========
+local miniSaveFile = "MiniButtonPos.json"
+
+-- Load saved position
+pcall(function()
+    if hasFileSystem and isfile and isfile(miniSaveFile) then
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
+        if ok and type(data) == "table" and data.x and data.y then
+            MiniButton.Position = UDim2.fromOffset(data.x, data.y)
+        end
+    end
+end)
+
+-- Click handler: toggle MainFrame visibility
+MiniButton.MouseButton1Click:Connect(function()
+    pcall(AnimateButtonClick, MiniButton)
+    pcall(PlaySound, "Click")
+    if MainFrame and typeof(MainFrame.Visible) == "boolean" then
+        local newVis = not MainFrame.Visible
+        MainFrame.Visible = newVis
+        if not newVis then
+            if PlaybackControl then PlaybackControl.Visible = false end
+            if RecordingStudio then RecordingStudio.Visible = false end
+        end
+    end
+end)
+
+-- Custom drag + save position on release
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+MiniButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MiniButton.Position
+        input.Changed:Connect(function()
+              if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                -- save absolute position if allowed
+                pcall(function()
+                    if hasFileSystem and writefile and HttpService then
+                        local absX = MiniButton.AbsolutePosition.X
+                        local absY = MiniButton.AbsolutePosition.Y
+                        writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                    end
+                end)
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not dragStart or not startPos then return end
+
+    local delta = input.Position - dragStart
+    local newX = startPos.X.Offset + delta.X
+    local newY = startPos.Y.Offset + delta.Y
+
+    -- clamp to viewport bounds (protect off-screen)
+    local cam = workspace.CurrentCamera
+    local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
+    newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
+    newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
+
+    MiniButton.Position = UDim2.fromOffset(newX, newY)
 end)
 
 -- ========= INITIALIZATION =========
@@ -3009,3 +3123,4 @@ print("✅ ByaruL Recorder v3.0 - Loaded Successfully!")
 print("📌 90 FPS Optimized | Lag Compensation | Path Auto-Hide")
 print("🎮 Smart Resume | Auto Loop | Anti-Jitter System")
 print("⚡ Clean UI | No Debug Text | Professional Design")
+print("🔧 IMPROVED: Seamless transitions | Smart merge | Persistent mini-button")
