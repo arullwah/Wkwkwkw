@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -31,11 +32,12 @@ local TIMELINE_STEP_SECONDS = 0.1
 local STATE_CHANGE_COOLDOWN = 0.05
 local TRANSITION_FRAMES = 5
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 60 -- 60 FPS fixed untuk playback
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
 local JUMP_VELOCITY_THRESHOLD = 8
 local FALL_VELOCITY_THRESHOLD = -6
-local LOOP_TRANSITION_DELAY = 0.1 -- Delay antara loop cycles
-local AUTO_LOOP_RETRY_DELAY = 0.5 -- Delay sebelum retry setelah death
+local LOOP_TRANSITION_DELAY = 0.1
+local AUTO_LOOP_RETRY_DELAY = 0.5
+local TIME_BYPASS_THRESHOLD = 0.1 -- Threshold untuk bypass jeda waktu
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -124,11 +126,7 @@ local NearestRecordingDistance = math.huge
 local LoopRetryAttempts = 0
 local MaxLoopRetries = 999
 local IsLoopTransitioning = false
-local IsRecording = false
-local IsPlaying = false
-
--- ========= RGB PULSE SYSTEM =========
-local titlePulseConnection
+local titlePulseConnection = nil
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -161,6 +159,7 @@ local function CleanupConnections()
     if jumpConnection then pcall(function() jumpConnection:Disconnect() end) jumpConnection = nil end
     if reverseConnection then pcall(function() reverseConnection:Disconnect() end) reverseConnection = nil end
     if forwardConnection then pcall(function() forwardConnection:Disconnect() end) forwardConnection = nil end
+    if titlePulseConnection then pcall(function() titlePulseConnection:Disconnect() end) titlePulseConnection = nil end
 end
 
 local function PlaySound(soundType)
@@ -683,30 +682,36 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ========= RGB PULSE SYSTEM =========
-
-local function StartTitlePulse()
-    if titlePulseConnection then return end
+-- ========= RGB PULSE SYSTEM (FIXED) =========
+local function StartTitlePulse(titleLabel)
+    if titlePulseConnection then
+        pcall(function() titlePulseConnection:Disconnect() end)
+        titlePulseConnection = nil
+    end
+    
+    if not titleLabel then return end
     
     titlePulseConnection = RunService.RenderStepped:Connect(function()
-        if not Title or not Title.Parent then
-            if titlePulseConnection then
-                titlePulseConnection:Disconnect()
-                titlePulseConnection = nil
+        pcall(function()
+            if not titleLabel or not titleLabel.Parent then
+                if titlePulseConnection then
+                    titlePulseConnection:Disconnect()
+                    titlePulseConnection = nil
+                end
+                return
             end
-            return
-        end
-        
-        -- SELALU AKTIF - tanpa kondisi toggle
-        local elapsed = tick()
-        local hue = (elapsed * 1.5) % 1
-        local angle = hue * math.pi * 2
-        local pulse = 0.7 + (math.sin(angle) * 0.3)
-        
-        local color = Color3.fromHSV(hue, 1, 1)
-        Title.TextColor3 = color
-        Title.TextSize = 14 + (pulse - 0.7) * 4
+            
+            local elapsed = tick()
+            local hue = (elapsed * 0.15) % 1
+            local pulse = 0.85 + (math.sin(elapsed * 3) * 0.15)
+            
+            local color = Color3.fromHSV(hue, 1, 1)
+            titleLabel.TextColor3 = color
+            titleLabel.TextSize = 14 + (pulse - 0.85) * 3
+        end)
     end)
+    
+    AddConnection(titlePulseConnection)
 end
 
 -- ========= IMPROVED SMART PLAY SYSTEM =========
@@ -760,18 +765,15 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     local frameVelocity = GetFrameVelocity(frame)
     local currentTime = tick()
     
-    -- Velocity-based state detection
     local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
     local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
     
-    -- Override state based on velocity
     if isJumpingByVelocity and moveState ~= "Jumping" and moveState ~= "Climbing" then
         moveState = "Jumping"
     elseif isFallingByVelocity and moveState ~= "Falling" and moveState ~= "Climbing" then
         moveState = "Falling"
     end
     
-    -- Apply state change with cooldown
     if moveState ~= lastState then
         if (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
             if moveState == "Jumping" then
@@ -794,6 +796,46 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     return lastState, lastStateTime
 end
 
+-- ========= TIME BYPASS SYSTEM untuk Menghilangkan Jeda =========
+local function NormalizeRecordingTimestamps(recording)
+    if not recording or #recording == 0 then return recording end
+    
+    local normalized = {}
+    local timeOffset = 0
+    local lastValidTimestamp = 0
+    
+    for i, frame in ipairs(recording) do
+        local newFrame = {
+            Position = frame.Position,
+            LookVector = frame.LookVector,
+            UpVector = frame.UpVector,
+            Velocity = frame.Velocity,
+            MoveState = frame.MoveState,
+            WalkSpeed = frame.WalkSpeed,
+            Timestamp = 0
+        }
+        
+        if i == 1 then
+            newFrame.Timestamp = 0
+            lastValidTimestamp = 0
+        else
+            local originalTimeDiff = frame.Timestamp - recording[i-1].Timestamp
+            
+            -- Bypass jeda: jika ada jeda > threshold, kompres jadi minimal
+            if originalTimeDiff > TIME_BYPASS_THRESHOLD then
+                timeOffset = timeOffset + (originalTimeDiff - (1/RECORDING_FPS))
+            end
+            
+            newFrame.Timestamp = frame.Timestamp - timeOffset
+            lastValidTimestamp = newFrame.Timestamp
+        end
+        
+        table.insert(normalized, newFrame)
+    end
+    
+    return normalized
+end
+
 -- ========= ELEGANT GUI SETUP =========
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
@@ -805,11 +847,11 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
--- ========= MAIN ELEGANT FRAME (270x300) =========
+-- ========= MAIN ELEGANT FRAME (270x300) - BLACK THEME =========
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(270, 300)
 MainFrame.Position = UDim2.new(0.5, -135, 0.5, -150)
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
@@ -819,10 +861,10 @@ local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 8)
 MainCorner.Parent = MainFrame
 
--- Header dengan title saja (tanpa tombol RGB)
+-- Header dengan RGB Pulse Title
 local Header = Instance.new("Frame")
 Header.Size = UDim2.new(1, 0, 0, 32)
-Header.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+Header.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 Header.BorderSizePixel = 0
 Header.Parent = MainFrame
 
@@ -830,7 +872,7 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = Header
 
--- Title dengan efek pulse di tengah
+-- Title dengan RGB Pulse Effect
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
@@ -841,7 +883,7 @@ Title.TextSize = 14
 Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
 
--- Window controls saja (tanpa RGBToggleBtn)
+-- Window controls
 local MinimizeBtn = Instance.new("TextButton")
 MinimizeBtn.Size = UDim2.fromOffset(20, 20)
 MinimizeBtn.Position = UDim2.new(1, -45, 0.5, -10)
@@ -880,7 +922,7 @@ Content.Parent = MainFrame
 -- ========= CONTROL BUTTONS SECTION =========
 local ControlSection = Instance.new("Frame")
 ControlSection.Size = UDim2.new(1, 0, 0, 30)
-ControlSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+ControlSection.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 ControlSection.BorderSizePixel = 0
 ControlSection.Parent = Content
 
@@ -937,7 +979,7 @@ local MenuBtn = CreateControlBtn("MENU", 180, 87, Color3.fromRGB(59, 15, 116))
 local SaveSection = Instance.new("Frame")
 SaveSection.Size = UDim2.new(1, 0, 0, 60)
 SaveSection.Position = UDim2.new(0, 0, 0, 36)
-SaveSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SaveSection.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 SaveSection.BorderSizePixel = 0
 SaveSection.Parent = Content
 
@@ -948,7 +990,7 @@ SaveCorner.Parent = SaveSection
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.new(1, -6, 0, 22)
 FilenameBox.Position = UDim2.new(0, 3, 0, 5)
-FilenameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+FilenameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
 FilenameBox.PlaceholderText = "Filename"
@@ -980,7 +1022,7 @@ MergeBtn.Parent = SaveButtons
 local RecordingsSection = Instance.new("Frame")
 RecordingsSection.Size = UDim2.new(1, 0, 0, 170)
 RecordingsSection.Position = UDim2.new(0, 0, 0, 102)
-RecordingsSection.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+RecordingsSection.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingsSection.BorderSizePixel = 0
 RecordingsSection.Parent = Content
 
@@ -991,7 +1033,7 @@ RecordingsCorner.Parent = RecordingsSection
 local RecordingsList = Instance.new("ScrollingFrame")
 RecordingsList.Size = UDim2.new(1, -6, 1, -6)
 RecordingsList.Position = UDim2.new(0, 3, 0, 3)
-RecordingsList.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+RecordingsList.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 RecordingsList.BorderSizePixel = 0
 RecordingsList.ScrollBarThickness = 4
 RecordingsList.ScrollBarImageColor3 = Color3.fromRGB(80, 120, 255)
@@ -1022,11 +1064,11 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- ========= PLAYBACK CONTROL GUI (FIXED LAYOUT) =========
+-- ========= PLAYBACK CONTROL GUI (BLACK THEME) =========
 local PlaybackControl = Instance.new("Frame")
 PlaybackControl.Size = UDim2.fromOffset(156, 130)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -65)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
 PlaybackControl.Draggable = true
@@ -1080,26 +1122,18 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Playback Control Buttons dengan spacing 3px yang PERFECT
 local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 138, 25, Color3.fromRGB(59, 15, 116))
-
--- Row 2: Toggle buttons dengan spacing 3px
 local LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 69, 20, Color3.fromRGB(80, 80, 80))
 local JumpBtnControl = CreatePlaybackBtn("Jump OFF", 75, 31, 69, 20, Color3.fromRGB(80, 80, 80))
-
--- Row 3
 local RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 69, 20, Color3.fromRGB(80, 80, 80))
 local ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 75, 54, 69, 20, Color3.fromRGB(80, 80, 80))
-
--- Row 4
 local ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 69, 20, Color3.fromRGB(80, 80, 80))
 local ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 75, 77, 69, 20, Color3.fromRGB(80, 80, 80))
 
--- Row 5: Info label
 local PlaybackInfo = Instance.new("TextLabel")
 PlaybackInfo.Size = UDim2.new(1, -6, 0, 20)
 PlaybackInfo.Position = UDim2.fromOffset(3, 100)
-PlaybackInfo.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+PlaybackInfo.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 PlaybackInfo.BorderSizePixel = 0
 PlaybackInfo.Text = "Ready"
 PlaybackInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -1111,11 +1145,11 @@ local InfoCorner = Instance.new("UICorner")
 InfoCorner.CornerRadius = UDim.new(0, 4)
 InfoCorner.Parent = PlaybackInfo
 
--- ========= RECORDING STUDIO GUI (FIXED LAYOUT) =========
+-- ========= RECORDING STUDIO GUI (BLACK THEME) =========
 local RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(156, 130)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -65)
-RecordingStudio.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
@@ -1169,22 +1203,16 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
--- Row 1: Save & Record buttons dengan spacing 3px
 local SaveBtn = CreateStudioBtn("SAVE", 3, 3, 69, 22, Color3.fromRGB(59, 15, 116))
 local StartBtn = CreateStudioBtn("START", 75, 3, 69, 22, Color3.fromRGB(59, 15, 116))
-
--- Row 2: Resume button (full width)
 local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-
--- Row 3: Prev & Next buttons
 local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 69, 22, Color3.fromRGB(59, 15, 116))
 local NextBtn = CreateStudioBtn("NEXT ▶", 75, 53, 69, 22, Color3.fromRGB(59, 15, 116))
 
--- Row 4: Speed Controls
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(69, 20)
 SpeedBox.Position = UDim2.fromOffset(3, 78)
-SpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
 SpeedBox.PlaceholderText = "Speed"
@@ -1202,7 +1230,7 @@ SpeedCorner.Parent = SpeedBox
 local WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(69, 20)
 WalkSpeedBox.Position = UDim2.fromOffset(75, 78)
-WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 WalkSpeedBox.BorderSizePixel = 0
 WalkSpeedBox.Text = "16"
 WalkSpeedBox.PlaceholderText = "WalkSpeed"
@@ -1217,11 +1245,10 @@ local WalkSpeedCorner = Instance.new("UICorner")
 WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
 WalkSpeedCorner.Parent = WalkSpeedBox
 
--- Row 5: Info label
 local StudioInfo = Instance.new("TextLabel")
 StudioInfo.Size = UDim2.new(1, -6, 0, 20)
 StudioInfo.Position = UDim2.fromOffset(3, 101)
-StudioInfo.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+StudioInfo.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 StudioInfo.BorderSizePixel = 0
 StudioInfo.Text = "Frame: 0 | Recording: Ready"
 StudioInfo.TextColor3 = Color3.fromRGB(100, 255, 150)
@@ -1316,22 +1343,20 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ Height 60px
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+            item.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
             item.Parent = RecordingsList
         
             local corner = Instance.new("UICorner")
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
-            -- Checkbox
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
-            checkBox.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+            checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
             checkBox.Text = CheckedRecordings[name] and "✓" or ""
             checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
             checkBox.Font = Enum.Font.GothamBold
@@ -1342,11 +1367,10 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
-            -- Name box
             local nameBox = Instance.new("TextBox")
             nameBox.Size = UDim2.new(1, -100, 0, 18)
             nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+            nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             nameBox.BorderSizePixel = 0
             nameBox.Text = checkpointNames[name] or "Checkpoint1"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1361,7 +1385,6 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
-            -- Info label
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -100, 0, 14)
             infoLabel.Position = UDim2.fromOffset(28, 25)
@@ -1378,7 +1401,6 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
-            -- ✅ BARIS 1: PLAY & DELETE (Posisi kanan atas)
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(40, 20)
             playBtn.Position = UDim2.new(1, -85, 0, 5)
@@ -1407,7 +1429,6 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- ✅ BARIS 2: NAIK & TURUN (ukuran sama dengan play/delete)
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(40, 20)
             upBtn.Position = UDim2.new(1, -85, 0, 30)
@@ -1436,7 +1457,6 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
-            -- ========= EVENT HANDLERS =========
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -1749,7 +1769,10 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
-            RecordedMovements[StudioCurrentRecording.Name] = StudioCurrentRecording.Frames
+            -- Normalize timestamps untuk menghilangkan jeda
+            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
+            
+            RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
             checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
             UpdateRecordList()
@@ -1835,7 +1858,7 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "2.1",
+            Version = "2.2",
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
@@ -1968,7 +1991,7 @@ local function VisualizeAllPaths()
     end)
 end
 
--- ========= IMPROVED SMART PLAYBACK SYSTEM =========
+-- ========= IMPROVED SMART PLAYBACK SYSTEM WITH TIME BYPASS =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2033,7 +2056,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     local distance = (currentPos - targetPos).Magnitude
     
-    -- Quick transition to start position
     if distance > 3 then
         local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)}):Play()
@@ -2168,7 +2190,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= FIXED AUTO LOOP SYSTEM =========
+-- ========= FIXED AUTO LOOP SYSTEM WITH TIME BYPASS =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2180,7 +2202,6 @@ function StartAutoLoopAll()
         return
     end
     
-    -- Stop any existing playback
     if IsPlaying then
         IsPlaying = false
         if playbackConnection then
@@ -2191,8 +2212,6 @@ function StartAutoLoopAll()
     
     PlaySound("Play")
     
-    -- SMART LOOP FIX: Gunakan CurrentLoopIndex yang sudah ada, jangan reset ke 1
-    -- Jika belum ada recording yang dipilih, cari yang terdekat
     if CurrentLoopIndex == 0 or CurrentLoopIndex > #RecordingOrder then
         local nearestRecording, distance, nearestName = FindNearestRecording(50)
         if nearestRecording then
@@ -2219,7 +2238,6 @@ function StartAutoLoopAll()
         while AutoLoop and IsAutoLoopPlaying do
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            -- Find next valid recording
             local recordingToPlay = nil
             local recordingNameToPlay = nil
             local searchAttempts = 0
@@ -2245,26 +2263,22 @@ function StartAutoLoopAll()
                 continue
             end
             
-            -- Handle character death/respawn - FIXED: Jangan matikan loop saat mati
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
                     local success = WaitForRespawn()
                     if not success then
-                        -- Jika respawn gagal, tunggu dan coba lagi
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
                     task.wait(0.5)
                 else
-                    -- Tunggu manual respawn tanpa mematikan loop
                     local waitTime = 0
                     local maxWaitTime = 30
                     
                     while not IsCharacterReady() and AutoLoop and IsAutoLoopPlaying do
                         waitTime = waitTime + 0.5
                         if waitTime >= maxWaitTime then
-                            -- Timeout setelah 30 detik
                             break
                         end
                         task.wait(0.5)
@@ -2272,7 +2286,6 @@ function StartAutoLoopAll()
                     
                     if not AutoLoop or not IsAutoLoopPlaying then break end
                     if not IsCharacterReady() then
-                        -- Jika masih belum ready setelah timeout, skip recording ini
                         CurrentLoopIndex = CurrentLoopIndex + 1
                         if CurrentLoopIndex > #RecordingOrder then
                             CurrentLoopIndex = 1
@@ -2286,7 +2299,6 @@ function StartAutoLoopAll()
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
-            -- Force teleport to start of recording
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -2297,7 +2309,6 @@ function StartAutoLoopAll()
                 task.wait(0.15)
             end
             
-            -- Setup for this recording playback
             local playbackCompleted = false
             local currentFrame = 1
             local playbackStartTime = tick()
@@ -2310,11 +2321,10 @@ function StartAutoLoopAll()
             
             IsLoopTransitioning = false
             local deathRetryCount = 0
-            local maxDeathRetries = 3 -- Batasi retry
+            local maxDeathRetries = 3
             
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
                 
-                -- Handle death during playback - FIXED: Jangan stop loop
                 if not IsCharacterReady() then
                     deathRetryCount = deathRetryCount + 1
                     
@@ -2326,7 +2336,6 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
-                            -- Restart dari awal recording yang sama
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -2343,12 +2352,10 @@ function StartAutoLoopAll()
                             
                             continue
                         else
-                            -- Jika respawn gagal, tunggu dan coba lagi
                             task.wait(AUTO_LOOP_RETRY_DELAY)
                             continue
                         end
                     else
-                        -- Tunggu manual respawn
                         local manualRespawnWait = 0
                         local maxManualWait = 30
                         
@@ -2362,14 +2369,12 @@ function StartAutoLoopAll()
                         
                         if not AutoLoop or not IsAutoLoopPlaying then break end
                         if not IsCharacterReady() then
-                            -- Skip recording ini jika masih mati setelah timeout
                             break
                         end
                         
                         RestoreFullUserControl()
                         task.wait(0.5)
                         
-                        -- Restart dari awal recording yang sama
                         currentFrame = 1
                         playbackStartTime = tick()
                         lastPlaybackState = nil
@@ -2394,7 +2399,6 @@ function StartAutoLoopAll()
                     break
                 end
                 
-                -- Fixed timestep for auto-loop
                 local deltaTime = task.wait()
                 loopAccumulator = loopAccumulator + deltaTime
                 
@@ -2404,7 +2408,6 @@ function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStartTime) * CurrentSpeed
                     
-                    -- Find target frame
                     local targetFrame = currentFrame
                     for i = currentFrame, #recordingToPlay do
                         if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
@@ -2423,7 +2426,6 @@ function StartAutoLoopAll()
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
-                            -- Apply frame immediately
                             hrp.CFrame = GetFrameCFrame(frame)
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
@@ -2448,7 +2450,6 @@ function StartAutoLoopAll()
                 end
             end
             
-            -- Cleanup after recording finishes
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2456,7 +2457,6 @@ function StartAutoLoopAll()
             if playbackCompleted then
                 PlaySound("Success")
                 
-                -- Jika AutoReset aktif, reset karakter
                 if AutoReset then
                     ResetCharacter()
                     local success = WaitForRespawn()
@@ -2465,7 +2465,6 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                -- Move to next recording - FIXED: Pertahankan urutan
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -2477,10 +2476,8 @@ function StartAutoLoopAll()
                     end
                 end
                 
-                -- Immediately continue to next
                 if not AutoLoop or not IsAutoLoopPlaying then break end
             else
-                -- Jika playback tidak completed (karena mati atau error), lanjut ke recording berikutnya
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
@@ -2493,7 +2490,6 @@ function StartAutoLoopAll()
             end
         end
         
-        -- Cleanup when loop stops
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
@@ -2749,7 +2745,9 @@ end)
 -- ========= INITIALIZATION =========
 UpdateRecordList()
 UpdatePlayButtonStatus()
-StartTitlePulse()
+
+-- Start RGB Pulse for Title
+StartTitlePulse(Title)
 
 -- Auto-update play button status
 task.spawn(function()
@@ -2778,7 +2776,6 @@ player.CharacterRemoving:Connect(function()
         if StudioIsRecording then
             StopStudioRecording()
         end
-        -- JANGAN stop loop saat karakter mati - biarkan loop tetap berjalan
         if IsPlaying and not AutoLoop then
             StopPlayback()
         end
@@ -2804,9 +2801,9 @@ task.spawn(function()
     end
 end)
 
-print("✅ ByaruL Recorder v2.1 - Loaded Successfully!")
-print("📌 Features: Smart Resume, Fixed Layout, File Protection")
-print("🎮 Resume works within 40 studs radius!")
-print("🔄 IMPROVED Auto Loop System - Continues after death!")
-print("⚡ Smart Loop remembers last position!")
-print("🎯 Fixed: Loop continues from last recording, not always from 1!")
+print("✅ ByaruL Recorder v2.2 - Loaded Successfully!")
+print("📌 Features: RGB Pulse Title, Black Theme, Time Bypass System")
+print("🎮 Smart Resume within 40 studs!")
+print("🔄 Auto Loop continues after death!")
+print("⚡ Time Bypass eliminates recording gaps!")
+print("🎨 Full Black Theme (0,0,0)")
