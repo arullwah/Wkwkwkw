@@ -36,8 +36,9 @@ local TIME_BYPASS_THRESHOLD = 0.15
 local LAG_DETECTION_THRESHOLD = 0.2
 local MAX_LAG_FRAMES_TO_SKIP = 5
 local INTERPOLATE_AFTER_LAG = true
-local ENABLE_FRAME_SMOOTHING = true
+local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
+local USE_VELOCITY_PLAYBACK = true
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -987,38 +988,20 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         if not hrp or not hum then return end
         
         local targetCFrame = GetFrameCFrame(frame)
-        
-        if previousFrame and alpha then
-            local previousCFrame = GetFrameCFrame(previousFrame)
-            targetCFrame = LerpCFrame(previousCFrame, targetCFrame, alpha)
-        end
+        local targetVelocity = GetFrameVelocity(frame)
         
         hrp.CFrame = targetCFrame
-        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyLinearVelocity = targetVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
             local targetWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            if previousFrame and alpha then
-                local previousWalkSpeed = GetFrameWalkSpeed(previousFrame) * CurrentSpeed
-                targetWalkSpeed = previousWalkSpeed + (targetWalkSpeed - previousWalkSpeed) * alpha
-            end
-            
             hum.WalkSpeed = targetWalkSpeed
             hum.AutoRotate = false
             
-            local shouldUpdateState = false
-            if not lastPlaybackState or lastPlaybackState ~= frame.MoveState then
-                if (tick() - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN * 3 then
-                    shouldUpdateState = true
-                end
-            end
-            
-            if shouldUpdateState then
-                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                    hum, frame, lastPlaybackState, lastStateChangeTime
-                )
-            end
+            lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                hum, frame, lastPlaybackState, lastStateChangeTime
+            )
         end
     end)
 end
@@ -2369,7 +2352,31 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 end
 
                 task.spawn(function()
-                    ApplyFrameToCharacterSmooth(frame, previousFrameData, alpha)
+                    local char = player.Character
+                    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                    
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    
+                    if not hrp or not hum then return end
+                    
+                    hrp.CFrame = GetFrameCFrame(frame)
+                    
+                    if USE_VELOCITY_PLAYBACK then
+                        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                    else
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                    end
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    
+                    if hum then
+                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                        hum.AutoRotate = false
+                        
+                        lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
+                            hum, frame, lastPlaybackState, lastStateChangeTime
+                        )
+                    end
                 end)
                 
                 previousFrameData = frame
@@ -2625,7 +2632,12 @@ function StartAutoLoopAll()
                         local frame = recordingToPlay[currentFrame]
                         if frame then
                             hrp.CFrame = GetFrameCFrame(frame)
-                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            
+                            if USE_VELOCITY_PLAYBACK then
+                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                            else
+                                hrp.AssemblyLinearVelocity = Vector3.zero
+                            end
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
                             if hum then
