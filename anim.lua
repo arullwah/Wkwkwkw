@@ -1,12 +1,13 @@
 --[[ 
 Gaze Animations GUI – ScrollFix + Full-panel Drag (restored)
-Perbaikan & fitur:
-- Drag **seluruh panel** diaktifkan kembali (klik dimana saja pada panel untuk mulai drag)
-- Threshold drag = 8 px (anti-salah-sentuh). Klik tetap bekerja jika tidak melewati threshold.
-- Saat drag melewati threshold, klik tombol disuppress supaya tidak memicu aksi.
-- Robust refreshCanvas() seperti sebelumnya (tunggu layout stabil).
-- Semua pemanggilan refreshCanvas() dipertahankan.
-- Database Animations tetap kosong (isi sendiri).
+Perbaikan & fitur (sesuai permintaan):
+- Menyimpan pilihan animasi saat dipilih dan memuat kembali saat respawn.
+- Menutup GUI meng-set preferensi "permanen" (disimpan ke file) sehingga GUI tidak auto-open saat respawn.
+- Mengeksekusi ulang script (run/execute) akan memaksa membuka GUI kembali (override sementara preferensi saved).
+- Tombol close -> permanent-close (disimpan). Namun **jika kamu menjalankan/execute script lagi**, GUI akan terbuka kembali otomatis.
+- Hotkey reopen (`.`) juga bisa membuka GUI kembali tanpa perlu re-execute.
+- Database Animations disediakan sebagai kerangka — ISI SENDIRI nanti.
+- Semua UIStroke / stroke / RGB edges dipertahankan.
 ]]
 
 -- ====== Services ======
@@ -40,10 +41,18 @@ local function saveConfig()
     end)
 end
 
--- ====== Patch: Force Open saat Execute ======
+-- ====== Behavior: Force-open when THIS script is executed ======
+-- Penjelasan singkat:
+-- * Saat script ini dijalankan, kita ingin GUI muncul walau sebelumnya user men-`close` dan menyimpannya.
+-- * Oleh karena itu kita set Config.GuiClosed = false & saveConfig() sekali pada run ini agar GUI terbuka.
+-- * Namun ketika user menekan tombol close, kita tetap menyimpan GuiClosed = true agar respawn berikutnya tidak auto-open.
+local FUNCTIONAL_FORCE_OPEN_ON_RUN = true
+
+-- ====== Patch: (legacy) optional global flag support ======
 if _G.AnimHubForceOpen == nil then _G.AnimHubForceOpen = true end
 
--- ====== DATABASE ======
+-- ====== DATABASE (KERANGKA) ======
+-- Isi tabel berikut dengan animID (string atau {id1,id2} untuk Idle double)
 local Animations = {
     ["Idle"] = {
         ["2016 Animation (mm2)"] = {"387947158", "387947464"},
@@ -524,9 +533,10 @@ local function openGUI()
     close.Parent = header
     Instance.new("UICorner", close).CornerRadius = UDim.new(0,8)
 
+    -- IMPORTANT: close menyimpan preferensi "permanen" (GuiClosed = true)
     close.MouseButton1Click:Connect(function()
         Config.GuiClosed = true
-        saveConfig()
+        saveConfig()            -- simpan preferensi; respawn selanjutnya tidak auto-open
         sg:Destroy()
         guiOpen = false
     end)
@@ -593,6 +603,8 @@ local function openGUI()
         Instance.new("UIStroke", b).Color=Color3.fromRGB(35,35,35)
 
         b.MouseButton1Click:Connect(function()
+            -- suppress click if drag in progress is using attribute (handled in drag)
+            if b:GetAttribute("SuppressClick") then return end
             local ok = setAnim(kind,id)
             b.BackgroundColor3 = ok and Color3.fromRGB(18,45,110) or Color3.fromRGB(80,20,20)
             task.wait(0.18)
@@ -799,7 +811,8 @@ end
 -- ====== Startup / Respawn ======
 loadConfig()
 
-if _G.AnimHubForceOpen then
+-- Force-open on this execution if requested (this makes re-executing the script reopen GUI)
+if FUNCTIONAL_FORCE_OPEN_ON_RUN or _G.AnimHubForceOpen then
     Config.GuiClosed = false
     saveConfig()
     _G.AnimHubForceOpen = false
