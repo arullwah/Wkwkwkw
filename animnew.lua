@@ -18,7 +18,7 @@ if not hasFileSystem then
 end
 
 -- ========= CONFIGURATION =========
-local RECORDING_FPS = 60
+local RECORDING_FPS = 90
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.015
 local VELOCITY_SCALE = 1
