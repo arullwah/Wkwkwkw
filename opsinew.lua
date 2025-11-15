@@ -1293,7 +1293,7 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(165, 105)
+PlaybackControl.Size = UDim2.fromOffset(156, 115)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 PlaybackControl.BorderSizePixel = 0
@@ -1359,7 +1359,7 @@ local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(165, 105)
+RecordingStudio.Size = UDim2.fromOffset(156, 115)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingStudio.BorderSizePixel = 0
