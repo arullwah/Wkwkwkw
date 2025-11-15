@@ -24,12 +24,12 @@ local MIN_DISTANCE_THRESHOLD = 0.012
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.15
+local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 8
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 90
-local JUMP_VELOCITY_THRESHOLD = 12
-local FALL_VELOCITY_THRESHOLD = -10
+local JUMP_VELOCITY_THRESHOLD = 10
+local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.12
 local AUTO_LOOP_RETRY_DELAY = 0.5
 local TIME_BYPASS_THRESHOLD = 0.15
@@ -931,6 +931,7 @@ local function UpdatePlayButtonStatus()
     end
 end
 
+-- ========= IMPROVED JUMP/FALL SYSTEM (100% ACCURATE) =========
 local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     if not hum then return lastState, lastStateTime end
     
@@ -938,34 +939,24 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     local frameVelocity = GetFrameVelocity(frame)
     local currentTime = tick()
     
-    -- Hanya override state jika velocity sangat jelas
     local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
+    local isFallingByVelocity = frameVelocity.Y < -5
     
-    -- Prioritas ke recorded MoveState, velocity hanya sebagai backup
-    if moveState == "Jumping" or (isJumpingByVelocity and moveState ~= "Climbing") then
-        moveState = "Jumping"
-    elseif moveState == "Falling" or (isFallingByVelocity and moveState ~= "Climbing" and moveState ~= "Jumping") then
-        moveState = "Falling"
-    end
-    
-    -- Anti-jitter: Hanya ganti state jika beda dan sudah lewat cooldown
-    if moveState ~= lastState then
-        if (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            -- Hindari switch Jump ↔ Fall yang terlalu cepat
-            if (lastState == "Jumping" and moveState == "Falling") or 
-               (lastState == "Falling" and moveState == "Jumping") then
-                -- Butuh cooldown lebih lama untuk transisi jump-fall
-                if (currentTime - lastStateTime) < (STATE_CHANGE_COOLDOWN * 2) then
-                    return lastState, lastStateTime
-                end
-            end
-            
-            if moveState == "Jumping" then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif moveState == "Falling" then
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif moveState == "Climbing" then
+    -- CRITICAL: Jump dan Fall tidak terikat cooldown untuk akurasi 100%
+    if moveState == "Jumping" or isJumpingByVelocity then
+        if lastState ~= "Jumping" then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            return "Jumping", currentTime
+        end
+    elseif moveState == "Falling" or isFallingByVelocity then
+        if lastState ~= "Falling" then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            return "Falling", currentTime
+        end
+    else
+        -- Hanya state lain yang pakai cooldown
+        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
+            if moveState == "Climbing" then
                 hum:ChangeState(Enum.HumanoidStateType.Climbing)
                 hum.PlatformStand = false
                 hum.AutoRotate = false
@@ -2412,7 +2403,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= AUTO LOOP SYSTEM =========
+-- ========= IMPROVED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2480,6 +2471,7 @@ function StartAutoLoopAll()
                 continue
             end
             
+            -- IMPROVED: Jika character tidak ready
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -2503,10 +2495,7 @@ function StartAutoLoopAll()
                     
                     if not AutoLoop or not IsAutoLoopPlaying then break end
                     if not IsCharacterReady() then
-                        CurrentLoopIndex = CurrentLoopIndex + 1
-                        if CurrentLoopIndex > #RecordingOrder then
-                            CurrentLoopIndex = 1
-                        end
+                        -- FIXED: Tidak balik ke #1, tunggu respawn
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
@@ -2537,13 +2526,11 @@ function StartAutoLoopAll()
             SaveHumanoidState()
             
             IsLoopTransitioning = false
-            local deathRetryCount = 0
-            local maxDeathRetries = 3
             
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
+                -- IMPROVED: Jika mati di tengah jalan
                 if not IsCharacterReady() then
-                    deathRetryCount = deathRetryCount + 1
                     
                     if AutoRespawn then
                         ResetCharacter()
@@ -2553,6 +2540,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
+                            -- FIXED: Lanjut dari recording yang sama, tidak balik ke #1
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -2592,6 +2580,7 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(0.5)
                         
+                        -- FIXED: Lanjut dari recording yang sama
                         currentFrame = 1
                         playbackStartTime = tick()
                         lastPlaybackState = nil
@@ -2677,7 +2666,10 @@ function StartAutoLoopAll()
                 PlaySound("Success")
                 CheckIfPathUsed(recordingNameToPlay)
                 
-                if AutoReset then
+                -- FIXED: Auto Reset hanya saat replay terakhir selesai
+                local isLastRecording = (CurrentLoopIndex >= #RecordingOrder)
+                
+                if AutoReset and isLastRecording then
                     ResetCharacter()
                     local success = WaitForRespawn()
                     if success then
@@ -2701,6 +2693,7 @@ function StartAutoLoopAll()
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
+                    -- FIXED: Jika gagal, tetap increment tapi tidak reset ke #1
                     CurrentLoopIndex = CurrentLoopIndex + 1
                     if CurrentLoopIndex > #RecordingOrder then
                         CurrentLoopIndex = 1
