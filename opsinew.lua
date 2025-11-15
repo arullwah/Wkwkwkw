@@ -24,12 +24,12 @@ local MIN_DISTANCE_THRESHOLD = 0.012
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.08
+local STATE_CHANGE_COOLDOWN = 0.15
 local TRANSITION_FRAMES = 8
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 90
-local JUMP_VELOCITY_THRESHOLD = 8
-local FALL_VELOCITY_THRESHOLD = -6
+local JUMP_VELOCITY_THRESHOLD = 12
+local FALL_VELOCITY_THRESHOLD = -10
 local LOOP_TRANSITION_DELAY = 0.12
 local AUTO_LOOP_RETRY_DELAY = 0.5
 local TIME_BYPASS_THRESHOLD = 0.15
@@ -862,19 +862,9 @@ local function StartTitlePulse(titleLabel)
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
     end
-
+    
     if not titleLabel then return end
-
-    -- parameters for a deeper pulse
-    local hueSpeed = 0.25        -- speed of hue rotation
-    local pulseFreq = 4.5        -- how fast the pulse (sin) oscillates
-    local baseSize = 14          -- base text size
-    local sizeAmplitude = 6      -- how much TextSize changes (deeper = larger)
-    local baseScale = 1.0        -- base multiplier for other effects
-    local strokeMin = 0.0        -- min stroke transparency (visible)
-    local strokeMax = 0.9        -- max stroke transparency (hidden)
-    local strokePulseFreq = 2.2  -- slower stroke breathing
-
+    
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
             if not titleLabel or not titleLabel.Parent then
@@ -884,37 +874,17 @@ local function StartTitlePulse(titleLabel)
                 end
                 return
             end
-
-            local t = tick()
-
-            -- Hue rotation (color)
-            local hue = (t * hueSpeed) % 1
-            local color = Color3.fromHSV(hue, 1, 1) -- full saturation for vivid colors
+            
+            local elapsed = tick()
+            local hue = (elapsed * 0.15) % 1
+            local pulse = 0.85 + (math.sin(elapsed * 3) * 0.15)
+            
+            local color = Color3.fromHSV(hue, 1, 1)
             titleLabel.TextColor3 = color
-
-            -- Stronger sinus pulse for TextSize
-            local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5) -- 0..1
-            local newSize = baseSize + (pulse * sizeAmplitude)
-            -- ensure integer sensible TextSize
-            titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
-
-            -- Subtle scale-like effect via TextStrokeTransparency breathing
-            if titleLabel.TextStrokeTransparency ~= nil then
-                local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5) -- 0..1
-                local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
-                titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
-                -- keep stroke dark for contrast
-                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
-            end
-
-            -- Optional: tiny shadow-like offset using Position jitter (non-intrusive)
-            if titleLabel.Position and typeof(titleLabel.Position) == "UDim2" then
-                local jitter = (math.sin(t * pulseFreq * 0.5) * 2) * (pulse * 0.6) -- small px movement
-                titleLabel.Position = UDim2.new(titleLabel.Position.X.Scale, titleLabel.Position.X.Offset, titleLabel.Position.Y.Scale, titleLabel.Position.Y.Offset + jitter)
-            end
+            titleLabel.TextSize = 14 + (pulse - 0.85) * 3
         end)
     end)
-
+    
     AddConnection(titlePulseConnection)
 end
 
@@ -968,17 +938,29 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     local frameVelocity = GetFrameVelocity(frame)
     local currentTime = tick()
     
+    -- Hanya override state jika velocity sangat jelas
     local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
     local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
     
-    if isJumpingByVelocity and moveState ~= "Jumping" and moveState ~= "Climbing" then
+    -- Prioritas ke recorded MoveState, velocity hanya sebagai backup
+    if moveState == "Jumping" or (isJumpingByVelocity and moveState ~= "Climbing") then
         moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" and moveState ~= "Climbing" then
+    elseif moveState == "Falling" or (isFallingByVelocity and moveState ~= "Climbing" and moveState ~= "Jumping") then
         moveState = "Falling"
     end
     
+    -- Anti-jitter: Hanya ganti state jika beda dan sudah lewat cooldown
     if moveState ~= lastState then
         if (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
+            -- Hindari switch Jump ↔ Fall yang terlalu cepat
+            if (lastState == "Jumping" and moveState == "Falling") or 
+               (lastState == "Falling" and moveState == "Jumping") then
+                -- Butuh cooldown lebih lama untuk transisi jump-fall
+                if (currentTime - lastStateTime) < (STATE_CHANGE_COOLDOWN * 2) then
+                    return lastState, lastStateTime
+                end
+            end
+            
             if moveState == "Jumping" then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
             elseif moveState == "Falling" then
@@ -1105,7 +1087,7 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL Recorder"
+Title.Text = "ByaruL Recorder v3"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
@@ -1293,7 +1275,7 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(156, 115)
+PlaybackControl.Size = UDim2.fromOffset(156, 105)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 PlaybackControl.BorderSizePixel = 0
@@ -1359,7 +1341,7 @@ local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 115)
+RecordingStudio.Size = UDim2.fromOffset(156, 105)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingStudio.BorderSizePixel = 0
@@ -2256,7 +2238,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     PlaySound("Play")
     
-    PlayBtnControl.Text = "PAUSE"
+    PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
