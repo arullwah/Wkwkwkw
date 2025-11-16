@@ -5,7 +5,13 @@ local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
-wait(1)
+
+-- ========= WAIT FOR CHARACTER =========
+repeat task.wait() until player.Character
+repeat task.wait() until player.Character:FindFirstChild("HumanoidRootPart")
+task.wait(0.5)
+
+print("✅ ByaruL Recorder - Starting initialization...")
 
 -- ========= FILE SYSTEM PROTECTION =========
 local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
@@ -2682,15 +2688,22 @@ end
 
 -- ========= GUI CREATION =========
 
+print("🎨 Creating GUI...")
+
 ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
 ScreenGui.ResetOnSpawn = false
-if player:FindFirstChild("PlayerGui") then
-    ScreenGui.Parent = player.PlayerGui
-else
-    wait(2)
-    ScreenGui.Parent = player:WaitForChild("PlayerGui")
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Wait for PlayerGui to be ready
+local playerGui = player:WaitForChild("PlayerGui", 10)
+if not playerGui then
+    warn("❌ PlayerGui not found!")
+    return
 end
+
+ScreenGui.Parent = playerGui
+print("✅ ScreenGui created and parented")
 
 MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(255, 310)
@@ -2699,7 +2712,11 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.ZIndex = 1
 MainFrame.Parent = ScreenGui
+
+print("✅ MainFrame created")
 
 local MainCorner = Instance.new("UICorner")
 MainCorner.CornerRadius = UDim.new(0, 8)
@@ -2880,11 +2897,14 @@ MiniButton.TextSize = 25
 MiniButton.Visible = true
 MiniButton.Active = true
 MiniButton.Draggable = false
+MiniButton.ZIndex = 10
 MiniButton.Parent = ScreenGui
 
 local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
+
+print("✅ MiniButton created")
 
 PlaybackControl = Instance.new("Frame")
 PlaybackControl.Size = UDim2.fromOffset(156, 165)
@@ -2894,7 +2914,10 @@ PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
 PlaybackControl.Draggable = true
 PlaybackControl.Visible = false
+PlaybackControl.ZIndex = 2
 PlaybackControl.Parent = ScreenGui
+
+print("✅ PlaybackControl created")
 
 local PlaybackCorner = Instance.new("UICorner")
 PlaybackCorner.CornerRadius = UDim.new(0, 8)
@@ -3017,7 +3040,10 @@ RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
 RecordingStudio.Visible = false
+RecordingStudio.ZIndex = 2
 RecordingStudio.Parent = ScreenGui
+
+print("✅ RecordingStudio created")
 
 local StudioCorner = Instance.new("UICorner")
 StudioCorner.CornerRadius = UDim.new(0, 8)
@@ -3071,6 +3097,11 @@ StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
 ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
 PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 71, 22, Color3.fromRGB(59, 15, 116))
 RestoreBtn = CreateStudioBtn("RESTORE", 77, 53, 70, 22, Color3.fromRGB(255, 140, 0))
+
+print("✅ Studio buttons created")
+print("✅ All GUI elements created successfully!")
+print("📍 MainFrame Visible:", MainFrame.Visible)
+print("📍 MiniButton Visible:", MiniButton.Visible)
 
 -- ========= VALIDATION FUNCTIONS =========
 
@@ -3411,13 +3442,23 @@ end)
 
 -- ========= INITIALIZATION =========
 
+print("🚀 Starting initialization...")
+
 task.spawn(function()
-    task.wait(1)
+    task.wait(0.5)
+    
+    print("🔧 Initializing systems...")
     
     if PlayBtnControl and Title then
+        print("✅ UI elements verified")
         UpdateRecordList()
         UpdatePlayButtonStatus()
         StartTitlePulse(Title)
+        print("✅ Systems initialized")
+    else
+        warn("⚠️ Some UI elements are missing!")
+        if not PlayBtnControl then warn("  - PlayBtnControl missing") end
+        if not Title then warn("  - Title missing") end
     end
     
     task.spawn(function()
@@ -3430,10 +3471,11 @@ task.spawn(function()
     
     if hasFileSystem then
         task.spawn(function()
-            task.wait(2)
+            task.wait(1)
             pcall(function()
                 local filename = "MyReplays.json"
                 if isfile(filename) then
+                    print("📂 Loading saved file...")
                     LoadFromObfuscatedJSON()
                 end
             end)
@@ -3442,6 +3484,9 @@ task.spawn(function()
     
     PlaySound("Success")
     ShowNotification("✅ ByaruL Recorder v3.1", "Enhanced Edition Loaded!", 3)
+    print("✅✅✅ ByaruL Recorder v3.1 FULLY LOADED! ✅✅✅")
+    print("🎯 MainFrame should be visible now!")
+    print("🎯 MiniButton (A) should be at top-left!")
 end)
 
 player.CharacterRemoving:Connect(function()
