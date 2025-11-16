@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -12,7 +11,6 @@ wait(1)
 local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
 
 if not hasFileSystem then
-    warn("⚠️ File system tidak tersedia. Script akan berjalan tanpa fitur Save/Load.")
     writefile = function() end
     readfile = function() return "" end
     isfile = function() return false end
@@ -164,6 +162,32 @@ local ReverseTargetFrame = 0
 local ReverseCurrentFrame = 0
 local LastSafeFrameBeforeFall = 0
 
+-- ========= UI ELEMENT VARIABLES (DECLARE FIRST) =========
+local ScreenGui
+local MainFrame
+local PlaybackControl
+local RecordingStudio
+local RecordingsList
+local FilenameBox
+local MiniButton
+local Title
+
+-- Button Variables
+local PlayBtnControl
+local LoopBtnControl
+local JumpBtnControl
+local RespawnBtnControl
+local ShiftLockBtnControl
+local ResetBtnControl
+local ShowRuteBtnControl
+local StartBtn
+local SaveBtn
+local ResumeBtn
+local PrevBtn
+local RestoreBtn
+local SpeedBox
+local WalkSpeedBox
+
 -- ========= PATH COLOR SYSTEM =========
 local PATH_COLORS = {
     BrickColor.new("Really red"),
@@ -188,6 +212,8 @@ local SoundEffects = {
     Success = "rbxassetid://2865227271",
     Restore = "rbxassetid://2865227271"
 }
+
+-- ========= HELPER FUNCTIONS =========
 
 local function AddConnection(connection)
     if connection then
@@ -833,11 +859,6 @@ local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
     
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
-    
-    if hadLag then
-        print("⚠️ Lag detected and compensated")
-    end
-    
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
     
     local normalized = {}
@@ -954,17 +975,17 @@ local function FindNearestRecording(maxDistance)
 end
 
 local function UpdatePlayButtonStatus()
+    if not PlayBtnControl then return end
+    
     local nearestRecording, distance = FindNearestRecording(50)
     NearestRecordingDistance = distance or math.huge
     
-    if PlayBtnControl then
-        if nearestRecording and distance <= 50 then
-            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-        else
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-        end
+    if nearestRecording and distance <= 50 then
+        PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+    else
+        PlayBtnControl.Text = "PLAY"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
     end
 end
 
@@ -1106,7 +1127,6 @@ local function SavePreTeleportState()
     end
     
     if lastSafeFrameIndex == 0 then
-        warn("⚠️ No safe frame found for backup!")
         return
     end
     
@@ -1122,10 +1142,6 @@ local function SavePreTeleportState()
     end
     
     LastTeleportSaveTime = currentTime
-    
-    warn("💾 Auto-saved before teleport!")
-    warn("   Safe frames: " .. #PreTeleportRecording.Frames)
-    warn("   Last safe frame: " .. lastSafeFrameIndex)
     
     PlaySound("Success")
 end
@@ -1155,8 +1171,6 @@ local function CheckFallingState(char, hum, hrp)
             local fallDistance = FallStartHeight - currentPos.Y
             
             if fallDistance > MIN_FALL_HEIGHT then
-                warn("⚠️ Large fall detected: " .. math.floor(fallDistance) .. " studs")
-                
                 if LastKnownSafePosition then
                     local horizontalDist = Vector3.new(
                         currentPos.X - LastKnownSafePosition.X,
@@ -1166,7 +1180,6 @@ local function CheckFallingState(char, hum, hrp)
                     
                     if horizontalDist > TELEPORT_DETECTION_DISTANCE then
                         TeleportDetected = true
-                        warn("📍 TELEPORT DETECTED! Distance: " .. math.floor(horizontalDist) .. " studs")
                     end
                 end
             end
@@ -1198,7 +1211,6 @@ end
 
 local function RestorePreTeleportRecording()
     if not PreTeleportRecording then
-        warn("❌ No pre-teleport recording found!")
         ShowNotification("❌ Restore Failed", "No backup available", 2)
         PlaySound("Error")
         return false
@@ -1238,11 +1250,8 @@ local function RestorePreTeleportRecording()
             RecordingMode = "PAUSED"
             IsTimelineMode = true
             
-            UpdateStudioUI()
-            
             ShowNotification("✅ Restore Success!", "Teleported to Frame " .. LastKnownSafeFrame .. "\nPress RESUME to continue", 4)
             
-            warn("✅ Restored to Frame " .. LastKnownSafeFrame .. " / " .. #StudioCurrentRecording.Frames)
             PlaySound("Restore")
             
             RestoreInProgress = false
@@ -1256,10 +1265,6 @@ local function RestorePreTeleportRecording()
 end
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
-
-local function UpdateStudioUI()
-    -- UI Update dihapus karena FrameLabel sudah tidak ada
-end
 
 local function StartStudioRecording()
     if StudioIsRecording then return end
@@ -1292,8 +1297,10 @@ local function StartStudioRecording()
             RecordingMode = "NORMAL"
             RestoreInProgress = false
             
-            StartBtn.Text = "STOP"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            if StartBtn then
+                StartBtn.Text = "STOP"
+                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            end
             
             PlaySound("RecordStart")
             
@@ -1322,7 +1329,6 @@ local function StartStudioRecording()
                             local isTeleport, distance = DetectTeleport(currentPos, lastStudioRecordPos)
                             
                             if isTeleport then
-                                warn("🚨 TELEPORT DETECTED! Distance: " .. math.floor(distance) .. " studs")
                                 TeleportDetected = true
                                 
                                 if AUTO_SAVE_BEFORE_TELEPORT and #StudioCurrentRecording.Frames > 0 then
@@ -1335,8 +1341,10 @@ local function StartStudioRecording()
                                 
                                 PlaySound("Error")
                                 
-                                StartBtn.Text = "STOPPED"
-                                StartBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+                                if StartBtn then
+                                    StartBtn.Text = "STOPPED"
+                                    StartBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+                                end
                                 
                                 return
                             end
@@ -1368,8 +1376,6 @@ local function StartStudioRecording()
                         lastStudioRecordPos = currentPos
                         CurrentTimelineFrame = #StudioCurrentRecording.Frames
                         TimelinePosition = CurrentTimelineFrame
-                        
-                        UpdateStudioUI()
                     end)
                 end)
             end)
@@ -1389,11 +1395,12 @@ local function StopStudioRecording()
                 recordConnection = nil
             end
             
-            StartBtn.Text = "START"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            if StartBtn then
+                StartBtn.Text = "START"
+                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            end
             
             PlaySound("RecordStop")
-            UpdateStudioUI()
         end)
     end)
 end
@@ -1418,7 +1425,6 @@ local function StartSmoothReverse()
             end
             
             if TeleportDetected then
-                warn("⚠️ Teleport detected! Use RESTORE button instead")
                 ShowNotification("⚠️ Cannot PREV", "Teleport detected!\nUse RESTORE button instead", 3)
                 PlaySound("Error")
                 return
@@ -1433,8 +1439,7 @@ local function StartSmoothReverse()
                 local altitudeDrop = LastKnownSafePosition.Y - currentPos.Y
                 
                 if altitudeDrop > ALTITUDE_DROP_THRESHOLD then
-                    warn("⚠️ Altitude drop detected: " .. math.floor(altitudeDrop) .. " studs")
-                    warn("📍 Reversing to last safe point...")
+                    -- Altitude drop detected
                 end
             end
             
@@ -1449,7 +1454,6 @@ local function StartSmoothReverse()
             end
             
             if targetFrame <= 0 then
-                warn("❌ No safe frame found!")
                 ShowNotification("❌ No Safe Point", "No safe position found to reverse to", 2)
                 PlaySound("Error")
                 return
@@ -1535,8 +1539,6 @@ local function StartSmoothReverse()
                     
                     TimelinePosition = frameIndex
                     CurrentTimelineFrame = frameIndex
-                    
-                    UpdateStudioUI()
                 end
             end)
             
@@ -1547,7 +1549,6 @@ end
 
 local function ResumeStudioRecording()
     if not StudioIsRecording then
-        warn("⚠️ Recording not started! Press START first")
         ShowNotification("⚠️ Cannot Resume", "Recording not started", 2)
         PlaySound("Error")
         return
@@ -1556,7 +1557,6 @@ local function ResumeStudioRecording()
     task.spawn(function()
         pcall(function()
             if #StudioCurrentRecording.Frames == 0 then
-                warn("⚠️ No frames to resume from!")
                 ShowNotification("⚠️ Cannot Resume", "No frames recorded", 2)
                 PlaySound("Error")
                 return
@@ -1577,9 +1577,6 @@ local function ResumeStudioRecording()
                     table.insert(newFrames, StudioCurrentRecording.Frames[i])
                 end
                 StudioCurrentRecording.Frames = newFrames
-                
-                warn("✂️ Cut frames after " .. TimelinePosition)
-                warn("   New total: " .. #StudioCurrentRecording.Frames .. " frames")
             end
             
             if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
@@ -1588,9 +1585,6 @@ local function ResumeStudioRecording()
                 local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
                 
                 if (currentPos - lastPos).Magnitude > 1.0 then
-                    warn("📏 Distance from last frame: " .. math.floor((currentPos - lastPos).Magnitude) .. " studs")
-                    warn("🔗 Adding interpolation frames...")
-                    
                     for i = 1, INTERPOLATION_LOOKAHEAD do
                         local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
                         local interpPos = lastPos:Lerp(currentPos, alpha)
@@ -1610,8 +1604,6 @@ local function ResumeStudioRecording()
                     end
                     
                     StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
-                    
-                    warn("✅ Added " .. INTERPOLATION_LOOKAHEAD .. " interpolation frames")
                 end
             end
             
@@ -1626,11 +1618,7 @@ local function ResumeStudioRecording()
                 hum.AutoRotate = true
             end
             
-            UpdateStudioUI()
-            
             ShowNotification("🎬 Recording Resumed", "Continue from Frame " .. #StudioCurrentRecording.Frames, 2)
-            
-            warn("▶️ Recording resumed from frame " .. #StudioCurrentRecording.Frames)
             PlaySound("Success")
         end)
     end)
@@ -1667,11 +1655,10 @@ local function SaveStudioRecording()
             PreTeleportRecording = nil
             TeleportDetected = false
             RecordingMode = "NORMAL"
-            UpdateStudioUI()
             
             wait(1)
-            RecordingStudio.Visible = false
-            MainFrame.Visible = true
+            if RecordingStudio then RecordingStudio.Visible = false end
+            if MainFrame then MainFrame.Visible = true end
         end)
     end)
 end
@@ -1801,8 +1788,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     PlaySound("Play")
     
-    PlayBtnControl.Text = "STOP"
-    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    if PlayBtnControl then
+        PlayBtnControl.Text = "STOP"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    end
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         pcall(function()
@@ -1819,8 +1808,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1837,8 +1828,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1856,8 +1849,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1887,8 +1882,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
@@ -1905,8 +1902,10 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
@@ -1965,8 +1964,10 @@ function StartAutoLoopAll()
     
     if #RecordingOrder == 0 then
         AutoLoop = false
-        LoopBtnControl.Text = "Loop OFF"
-        LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        if LoopBtnControl then
+            LoopBtnControl.Text = "Loop OFF"
+            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
         PlaySound("Error")
         return
     end
@@ -1995,8 +1996,10 @@ function StartAutoLoopAll()
     lastPlaybackState = nil
     lastStateChangeTime = 0
     
-    PlayBtnControl.Text = "STOP"
-    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    if PlayBtnControl then
+        PlayBtnControl.Text = "STOP"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    end
     
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
@@ -2257,8 +2260,10 @@ function StartAutoLoopAll()
         RestoreFullUserControl()
         lastPlaybackState = nil
         lastStateChangeTime = 0
-        PlayBtnControl.Text = "PLAY"
-        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        if PlayBtnControl then
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        end
         UpdatePlayButtonStatus()
     end)
 end
@@ -2289,16 +2294,20 @@ function StopAutoLoopAll()
     end)
     
     PlaySound("Stop")
-    PlayBtnControl.Text = "PLAY"
-    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    if PlayBtnControl then
+        PlayBtnControl.Text = "PLAY"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    end
     UpdatePlayButtonStatus()
 end
 
 function StopPlayback()
     if AutoLoop then
         StopAutoLoopAll()
-        LoopBtnControl.Text = "Loop OFF"
-        LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        if LoopBtnControl then
+            LoopBtnControl.Text = "Loop OFF"
+            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
     end
     
     if not IsPlaying and not IsAutoLoopPlaying then return end
@@ -2327,8 +2336,10 @@ function StopPlayback()
     if char then CompleteCharacterReset(char) end
     
     PlaySound("Stop")
-    PlayBtnControl.Text = "PLAY"
-    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    if PlayBtnControl then
+        PlayBtnControl.Text = "PLAY"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    end
     UpdatePlayButtonStatus()
 end
 
@@ -2481,6 +2492,8 @@ end
 -- ========= UPDATE RECORD LIST =========
 
 function UpdateRecordList()
+    if not RecordingsList then return end
+    
     pcall(function()
         for _, child in pairs(RecordingsList:GetChildren()) do 
             if child:IsA("Frame") then child:Destroy() end
@@ -2669,7 +2682,7 @@ end
 
 -- ========= GUI CREATION =========
 
-local ScreenGui = Instance.new("ScreenGui")
+ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
 ScreenGui.ResetOnSpawn = false
 if player:FindFirstChild("PlayerGui") then
@@ -2679,7 +2692,7 @@ else
     ScreenGui.Parent = player:WaitForChild("PlayerGui")
 end
 
-local MainFrame = Instance.new("Frame")
+MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(255, 310)
 MainFrame.Position = UDim2.new(0.5, -127.5, 0.5, -150)
 MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -2702,7 +2715,7 @@ local HeaderCorner = Instance.new("UICorner")
 HeaderCorner.CornerRadius = UDim.new(0, 8)
 HeaderCorner.Parent = Header
 
-local Title = Instance.new("TextLabel")
+Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "ByaruL Recorder"
@@ -2798,7 +2811,7 @@ local SaveCorner = Instance.new("UICorner")
 SaveCorner.CornerRadius = UDim.new(0, 6)
 SaveCorner.Parent = SaveSection
 
-local FilenameBox = Instance.new("TextBox")
+FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.new(1, -6, 0, 22)
 FilenameBox.Position = UDim2.new(0, 3, 0, 5)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -2840,7 +2853,7 @@ local RecordingsCorner = Instance.new("UICorner")
 RecordingsCorner.CornerRadius = UDim.new(0, 6)
 RecordingsCorner.Parent = RecordingsSection
 
-local RecordingsList = Instance.new("ScrollingFrame")
+RecordingsList = Instance.new("ScrollingFrame")
 RecordingsList.Size = UDim2.new(1, -6, 1, -6)
 RecordingsList.Position = UDim2.new(0, 3, 0, 3)
 RecordingsList.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
@@ -2856,7 +2869,7 @@ local ListCorner = Instance.new("UICorner")
 ListCorner.CornerRadius = UDim.new(0, 4)
 ListCorner.Parent = RecordingsList
 
-local MiniButton = Instance.new("TextButton")
+MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2873,7 +2886,7 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
-local PlaybackControl = Instance.new("Frame")
+PlaybackControl = Instance.new("Frame")
 PlaybackControl.Size = UDim2.fromOffset(156, 165)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -82.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -2930,15 +2943,15 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     return btn
 end
 
-local PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 144, 25, Color3.fromRGB(59, 15, 116))
-local LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 71, 20, Color3.fromRGB(80, 80, 80))
-local JumpBtnControl = CreatePlaybackBtn("Jump OFF", 77, 31, 70, 20, Color3.fromRGB(80, 80, 80))
-local RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
-local ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
-local ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-local ShowRuteBtnControl = CreatePlaybackBtn("Path ON", 77, 77, 70, 20, Color3.fromRGB(40, 180, 80))
+PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 144, 25, Color3.fromRGB(59, 15, 116))
+LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 71, 20, Color3.fromRGB(80, 80, 80))
+JumpBtnControl = CreatePlaybackBtn("Jump OFF", 77, 31, 70, 20, Color3.fromRGB(80, 80, 80))
+RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
+ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
+ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
+ShowRuteBtnControl = CreatePlaybackBtn("Path ON", 77, 77, 70, 20, Color3.fromRGB(40, 180, 80))
 
-local SpeedBox = Instance.new("TextBox")
+SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(71, 20)
 SpeedBox.Position = UDim2.fromOffset(3, 100)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -2956,7 +2969,7 @@ local SpeedCorner = Instance.new("UICorner")
 SpeedCorner.CornerRadius = UDim.new(0, 4)
 SpeedCorner.Parent = SpeedBox
 
-local WalkSpeedBox = Instance.new("TextBox")
+WalkSpeedBox = Instance.new("TextBox")
 WalkSpeedBox.Size = UDim2.fromOffset(70, 20)
 WalkSpeedBox.Position = UDim2.fromOffset(77, 100)
 WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -2996,7 +3009,7 @@ WalkLabel.TextSize = 7
 WalkLabel.TextXAlignment = Enum.TextXAlignment.Center
 WalkLabel.Parent = PlaybackContent
 
-local RecordingStudio = Instance.new("Frame")
+RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(156, 100)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
@@ -3053,11 +3066,11 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     return btn
 end
 
-local SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
-local StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 71, 22, Color3.fromRGB(59, 15, 116))
-local RestoreBtn = CreateStudioBtn("RESTORE", 77, 53, 70, 22, Color3.fromRGB(255, 140, 0))
+SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
+StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
+ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 71, 22, Color3.fromRGB(59, 15, 116))
+RestoreBtn = CreateStudioBtn("RESTORE", 77, 53, 70, 22, Color3.fromRGB(255, 140, 0))
 
 -- ========= VALIDATION FUNCTIONS =========
 
@@ -3120,8 +3133,6 @@ StartBtn.MouseButton1Click:Connect(function()
             
             StartBtn.Text = "START"
             StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            
-            warn("🔄 Recording reset. Ready to start new recording.")
             
         elseif StudioIsRecording then
             StopStudioRecording()
@@ -3400,29 +3411,38 @@ end)
 
 -- ========= INITIALIZATION =========
 
-UpdateRecordList()
-UpdatePlayButtonStatus()
-StartTitlePulse(Title)
-
 task.spawn(function()
-    while task.wait(2) do
-        if not IsPlaying and not IsAutoLoopPlaying then
-            UpdatePlayButtonStatus()
-        end
+    task.wait(1)
+    
+    if PlayBtnControl and Title then
+        UpdateRecordList()
+        UpdatePlayButtonStatus()
+        StartTitlePulse(Title)
     end
-end)
-
-if hasFileSystem then
+    
     task.spawn(function()
-        task.wait(2)
-        pcall(function()
-            local filename = "MyReplays.json"
-            if isfile(filename) then
-                LoadFromObfuscatedJSON()
+        while task.wait(2) do
+            if not IsPlaying and not IsAutoLoopPlaying then
+                UpdatePlayButtonStatus()
             end
-        end)
+        end
     end)
-end
+    
+    if hasFileSystem then
+        task.spawn(function()
+            task.wait(2)
+            pcall(function()
+                local filename = "MyReplays.json"
+                if isfile(filename) then
+                    LoadFromObfuscatedJSON()
+                end
+            end)
+        end)
+    end
+    
+    PlaySound("Success")
+    ShowNotification("✅ ByaruL Recorder v3.1", "Enhanced Edition Loaded!", 3)
+end)
 
 player.CharacterRemoving:Connect(function()
     pcall(function()
@@ -3442,10 +3462,4 @@ game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
             ClearPathVisualization()
         end)
     end
-end)
-
-task.spawn(function()
-    task.wait(1)
-    PlaySound("Success")
-    ShowNotification("✅ ByaruL Recorder v3.1", "Enhanced Edition Loaded!", 3)
 end)
