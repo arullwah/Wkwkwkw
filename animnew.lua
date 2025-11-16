@@ -24,12 +24,12 @@ local MIN_DISTANCE_THRESHOLD = 0.012
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.08
+local STATE_CHANGE_COOLDOWN = 0.05  -- REDUCED untuk responsiveness
 local TRANSITION_FRAMES = 8
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 90
-local JUMP_VELOCITY_THRESHOLD = 8
-local FALL_VELOCITY_THRESHOLD = -6
+local JUMP_VELOCITY_THRESHOLD = 10
+local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.12
 local AUTO_LOOP_RETRY_DELAY = 0.5
 local TIME_BYPASS_THRESHOLD = 0.15
@@ -39,6 +39,16 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = true
+local INTERPOLATION_LOOKAHEAD = 3
+
+-- ========= IMPROVED SMOOTH TRANSITION SYSTEM =========
+local RESUME_BLEND_FRAMES = 12      -- Jumlah frame untuk velocity blending
+local RESUME_POSITION_TOLERANCE = 2 -- Tolerance untuk trigger blending
+local SMOOTH_STOP_TRANSITIONS = true
+local STATE_TRANSITION_FRAMES = 8
+local VELOCITY_BLEND_FRAMES = 12
+local STOP_TRANSITION_LOOKAHEAD = 5
+local MIN_MOVEMENT_THRESHOLD = 0.5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -131,6 +141,189 @@ local IsLoopTransitioning = false
 local titlePulseConnection = nil
 local previousFrameData = nil
 local PathHasBeenUsed = {}
+local PathsHiddenOnce = false
+
+-- ========= IMPROVED VELOCITY BLENDING SYSTEM =========
+local LAST_VELOCITIES = {}  -- Store last few velocities untuk smoothing
+
+local function CalculateResumeVelocity(currentPos, targetPos, currentVel)
+    local distance = (currentPos - targetPos).Magnitude
+    
+    -- Cek apakah perlu blending
+    if distance <= RESUME_POSITION_TOLERANCE then
+        return currentVel  -- Tidak perlu adjustment
+    end
+    
+    -- Hitung frames untuk blending (max RESUME_BLEND_FRAMES)
+    local blendFrames = math.min(RESUME_BLEND_FRAMES, math.ceil(distance / 0.5))
+    local blendTime = blendFrames * (1 / RECORDING_FPS)
+    
+    -- Hitung required velocity
+    local posDifference = targetPos - currentPos
+    local requiredVelocity = posDifference / blendTime
+    
+    -- Blend dengan current velocity untuk smoothness
+    local blendFactor = 0.7
+    local blendedVelocity = currentVel:Lerp(requiredVelocity, blendFactor)
+    
+    return blendedVelocity
+end
+
+local function SmartVelocityApplication(hrp, currentFrame, nextFrame, frameIndex, totalFrames)
+    if not USE_VELOCITY_PLAYBACK then
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        return
+    end
+    
+    -- Store recent velocities untuk averaging
+    table.insert(LAST_VELOCITIES, GetFrameVelocity(currentFrame))
+    if #LAST_VELOCITIES > VELOCITY_BLEND_FRAMES then
+        table.remove(LAST_VELOCITIES, 1)
+    end
+    
+    -- Calculate average velocity untuk smoothness
+    local avgVelocity = Vector3.zero
+    for _, vel in ipairs(LAST_VELOCITIES) do
+        avgVelocity = avgVelocity + vel
+    end
+    avgVelocity = avgVelocity / #LAST_VELOCITIES
+    
+    -- Special handling untuk stop→start transitions
+    local currentVel = GetFrameVelocity(currentFrame)
+    local nextVel = nextFrame and GetFrameVelocity(nextFrame) or currentVel
+    
+    -- Detect stop-to-run transition
+    if currentVel.Magnitude < 1.0 and nextVel.Magnitude > 3.0 then
+        -- Use predictive velocity untuk menghindari "stutter"
+        local predictiveVel = currentVel:Lerp(nextVel, 0.7)
+        hrp.AssemblyLinearVelocity = predictiveVel
+    else
+        -- Normal smoothed velocity
+        hrp.AssemblyLinearVelocity = avgVelocity
+    end
+end
+
+local function EnhancedFrameInterpolation(frames, currentIndex, alpha)
+    local currentFrame = frames[currentIndex]
+    local nextFrame = frames[math.min(currentIndex + 1, #frames)]
+    
+    if not nextFrame then
+        return GetFrameCFrame(currentFrame)
+    end
+    
+    -- Look ahead untuk detect upcoming stops/starts
+    local isApproachingStop = false
+    local isLeavingStop = false
+    
+    for i = 1, STOP_TRANSITION_LOOKAHEAD do
+        local futureFrame = frames[math.min(currentIndex + i, #frames)]
+        if futureFrame then
+            local futureVel = GetFrameVelocity(futureFrame)
+            local currentVel = GetFrameVelocity(currentFrame)
+            
+            -- Detect jika akan berhenti (velocity drop)
+            if currentVel.Magnitude > 2.0 and futureVel.Magnitude < 1.0 then
+                isApproachingStop = true
+            end
+            
+            -- Detect jika akan mulai bergerak lagi
+            if currentVel.Magnitude < 1.0 and futureVel.Magnitude > 2.0 then
+                isLeavingStop = true
+            end
+        end
+    end
+    
+    -- Special interpolation untuk stop transitions
+    if isLeavingStop then
+        -- Saat mulai bergerak lagi, gunakan lebih aggressive interpolation
+        local boostAlpha = math.min(alpha * 1.5, 1.0)
+        return LerpCFrame(
+            GetFrameCFrame(currentFrame),
+            GetFrameCFrame(nextFrame), 
+            boostAlpha
+        )
+    elseif isApproachingStop then
+        -- Saat mendekati stop, lebih gradual
+        local easeAlpha = alpha * 0.7
+        return LerpCFrame(
+            GetFrameCFrame(currentFrame),
+            GetFrameCFrame(nextFrame),
+            easeAlpha  
+        )
+    else
+        -- Normal interpolation
+        return LerpCFrame(
+            GetFrameCFrame(currentFrame),
+            GetFrameCFrame(nextFrame),
+            alpha
+        )
+    end
+end
+
+-- ========= IMPROVED STATE TRANSITION SYSTEM =========
+local function ImprovedProcessHumanoidState(hum, frame, lastState, lastStateTime, previousFrame)
+    local currentTime = tick()
+    local moveState = frame.MoveState
+    local frameVelocity = GetFrameVelocity(frame)
+    
+    -- ✅ EXCEPTION 1: Stop → Immediate Start (No Cooldown)
+    if lastState == "Grounded" and moveState == "Grounded" then
+        local previousVel = previousFrame and GetFrameVelocity(previousFrame) or Vector3.zero
+        local wasStopped = previousVel.Magnitude < MIN_MOVEMENT_THRESHOLD
+        local nowMoving = frameVelocity.Magnitude > 2.0
+        
+        if wasStopped and nowMoving then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            return "Grounded", currentTime  -- Immediate update, no cooldown
+        end
+    end
+    
+    -- ✅ EXCEPTION 2: Same State Velocity Changes (No Cooldown)  
+    if lastState == moveState and moveState == "Grounded" then
+        local previousVel = previousFrame and GetFrameVelocity(previousFrame) or Vector3.zero
+        local lastSpeed = previousVel.Magnitude
+        local currentSpeed = frameVelocity.Magnitude
+        
+        -- Significant speed change dalam state yang sama
+        if math.abs(lastSpeed - currentSpeed) > 5.0 then
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+            return moveState, currentTime  -- No cooldown needed
+        end
+    end
+    
+    -- Original logic untuk state changes yang berbeda
+    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
+    
+    -- CRITICAL: Jump dan Fall tidak terikat cooldown untuk akurasi 100%
+    if moveState == "Jumping" or isJumpingByVelocity then
+        if lastState ~= "Jumping" then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            return "Jumping", currentTime
+        end
+    elseif moveState == "Falling" or isFallingByVelocity then
+        if lastState ~= "Falling" then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            return "Falling", currentTime
+        end
+    else
+        -- Hanya state lain yang pakai cooldown
+        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                hum.AutoRotate = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            return moveState, currentTime
+        end
+    end
+    
+    return lastState, lastStateTime
+end
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -605,20 +798,38 @@ local function CreateMergedReplay()
     pcall(function()
         local mergedFrames = {}
         local totalTimeOffset = 0
+        
         for _, checkpointName in ipairs(RecordingOrder) do
             if not CheckedRecordings[checkpointName] then continue end
             local checkpoint = RecordedMovements[checkpointName]
-            if not checkpoint then continue end
+            if not checkpoint or #checkpoint == 0 then continue end
+            
             if #mergedFrames > 0 and #checkpoint > 0 then
                 local lastFrame = mergedFrames[#mergedFrames]
                 local firstFrame = checkpoint[1]
-                local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, TRANSITION_FRAMES)
+                
+                -- IMPROVED: Smart transition berdasarkan MoveState
+                local transitionCount = TRANSITION_FRAMES
+                local lastState = lastFrame.MoveState
+                local nextState = firstFrame.MoveState
+                
+                -- Jika state sama (lari->lari, climb->climb, dll), kurangi transition agar seamless
+                if lastState == nextState then
+                    if lastState == "Grounded" or lastState == "Climbing" then
+                        transitionCount = 2 -- Hampir instant untuk state stabil
+                    elseif lastState == "Jumping" or lastState == "Falling" then
+                        transitionCount = 4 -- Sedikit lebih smooth untuk state dinamis
+                    end
+                end
+                
+                local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, transitionCount)
                 for _, tFrame in ipairs(transitionFrames) do
                     tFrame.Timestamp = tFrame.Timestamp + totalTimeOffset
                     table.insert(mergedFrames, tFrame)
                 end
-                totalTimeOffset = totalTimeOffset + (TRANSITION_FRAMES * 0.016)
+                totalTimeOffset = totalTimeOffset + (transitionCount * 0.016)
             end
+            
             for frameIndex, frame in ipairs(checkpoint) do
                 local newFrame = {
                     Position = {frame.Position[1], frame.Position[2], frame.Position[3]},
@@ -632,9 +843,10 @@ local function CreateMergedReplay()
                 table.insert(mergedFrames, newFrame)
             end
             if #checkpoint > 0 then
-                totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.1
+                totalTimeOffset = totalTimeOffset + checkpoint[#checkpoint].Timestamp + 0.05
             end
         end
+        
         local mergedName = "merged_" .. os.date("%H%M%S")
         RecordedMovements[mergedName] = mergedFrames
         table.insert(RecordingOrder, mergedName)
@@ -814,7 +1026,7 @@ local function NormalizeRecordingTimestamps(recording)
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
     
     if hadLag then
-        print("⚠️ Lag detected and compensated")
+        print("⚠️ Lag detected")
     end
     
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
@@ -862,9 +1074,19 @@ local function StartTitlePulse(titleLabel)
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
     end
-    
+
     if not titleLabel then return end
-    
+
+    -- parameters for a deeper pulse
+    local hueSpeed = 0.25        -- speed of hue rotation
+    local pulseFreq = 4.5        -- how fast the pulse (sin) oscillates
+    local baseSize = 14          -- base text size
+    local sizeAmplitude = 6      -- how much TextSize changes (deeper = larger)
+    local baseScale = 1.0        -- base multiplier for other effects
+    local strokeMin = 0.0        -- min stroke transparency (visible)
+    local strokeMax = 0.9        -- max stroke transparency (hidden)
+    local strokePulseFreq = 2.2  -- slower stroke breathing
+
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
             if not titleLabel or not titleLabel.Parent then
@@ -874,17 +1096,37 @@ local function StartTitlePulse(titleLabel)
                 end
                 return
             end
-            
-            local elapsed = tick()
-            local hue = (elapsed * 0.15) % 1
-            local pulse = 0.85 + (math.sin(elapsed * 3) * 0.15)
-            
-            local color = Color3.fromHSV(hue, 1, 1)
+
+            local t = tick()
+
+            -- Hue rotation (color)
+            local hue = (t * hueSpeed) % 1
+            local color = Color3.fromHSV(hue, 1, 1) -- full saturation for vivid colors
             titleLabel.TextColor3 = color
-            titleLabel.TextSize = 14 + (pulse - 0.85) * 3
+
+            -- Stronger sinus pulse for TextSize
+            local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5) -- 0..1
+            local newSize = baseSize + (pulse * sizeAmplitude)
+            -- ensure integer sensible TextSize
+            titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
+
+            -- Subtle scale-like effect via TextStrokeTransparency breathing
+            if titleLabel.TextStrokeTransparency ~= nil then
+                local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5) -- 0..1
+                local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
+                titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
+                -- keep stroke dark for contrast
+                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
+            end
+
+            -- Optional: tiny shadow-like offset using Position jitter (non-intrusive)
+            if titleLabel.Position and typeof(titleLabel.Position) == "UDim2" then
+                local jitter = (math.sin(t * pulseFreq * 0.5) * 2) * (pulse * 0.6) -- small px movement
+                titleLabel.Position = UDim2.new(titleLabel.Position.X.Scale, titleLabel.Position.X.Offset, titleLabel.Position.Y.Scale, titleLabel.Position.Y.Offset + jitter)
+            end
         end)
     end)
-    
+
     AddConnection(titlePulseConnection)
 end
 
@@ -931,44 +1173,6 @@ local function UpdatePlayButtonStatus()
     end
 end
 
-local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
-    if not hum then return lastState, lastStateTime end
-    
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
-    
-    if isJumpingByVelocity and moveState ~= "Jumping" and moveState ~= "Climbing" then
-        moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" and moveState ~= "Climbing" then
-        moveState = "Falling"
-    end
-    
-    if moveState ~= lastState then
-        if (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            if moveState == "Jumping" then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif moveState == "Falling" then
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-                hum.AutoRotate = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-            return moveState, currentTime
-        end
-    end
-    
-    return lastState, lastStateTime
-end
-
 local function LerpCFrame(cf1, cf2, alpha)
     return cf1:Lerp(cf2, alpha)
 end
@@ -999,16 +1203,17 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
             hum.WalkSpeed = targetWalkSpeed
             hum.AutoRotate = false
             
-            lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                hum, frame, lastPlaybackState, lastStateChangeTime
+            lastPlaybackState, lastStateChangeTime = ImprovedProcessHumanoidState(
+                hum, frame, lastPlaybackState, lastStateChangeTime, previousFrame
             )
         end
     end)
 end
 
--- ========= PATH AUTO-HIDE SYSTEM =========
+-- ========= PATH AUTO-HIDE SYSTEM (IMPROVED) =========
 local function CheckIfPathUsed(recordingName)
-    if not CurrentPlayingRecording or not recordingName then return end
+    if not recordingName then return end
+    if not CurrentPlayingRecording then return end
     
     local recording = RecordedMovements[recordingName]
     if not recording or #recording == 0 then return end
@@ -1026,7 +1231,18 @@ local function CheckIfPathUsed(recordingName)
     if distance < 10 and currentPlaybackFrame >= (#recording - 5) then
         PathHasBeenUsed[recordingName] = true
         
-        if PathAutoHide and ShowPaths then
+        -- Cek apakah semua replay sudah dilewati
+        local allPathsUsed = true
+        for _, name in ipairs(RecordingOrder) do
+            if not PathHasBeenUsed[name] then
+                allPathsUsed = false
+                break
+            end
+        end
+        
+        -- Jika semua sudah dilewati, auto-hide path
+        if allPathsUsed and ShowPaths and not PathsHiddenOnce then
+            PathsHiddenOnce = true
             ShowPaths = false
             ClearPathVisualization()
             if ShowRuteBtnControl then
@@ -1050,7 +1266,7 @@ end
 
 -- ========= MAIN ELEGANT FRAME (255x300) =========
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(255, 300)
+MainFrame.Size = UDim2.fromOffset(255, 310)
 MainFrame.Position = UDim2.new(0.5, -127.5, 0.5, -150)
 MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.BorderSizePixel = 0
@@ -1075,26 +1291,12 @@ HeaderCorner.Parent = Header
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "ByaruL Recorder v3"
+Title.Text = "ByaruL Recorder"
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 14
 Title.TextXAlignment = Enum.TextXAlignment.Center
 Title.Parent = Header
-
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.fromOffset(20, 20)
-MinimizeBtn.Position = UDim2.new(1, -45, 0.5, -10)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-MinimizeBtn.Text = "_"
-MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.TextSize = 14
-MinimizeBtn.Parent = Header
-
-local MinimizeCorner = Instance.new("UICorner")
-MinimizeCorner.CornerRadius = UDim.new(0, 4)
-MinimizeCorner.Parent = MinimizeBtn
 
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.fromOffset(20, 20)
@@ -1252,9 +1454,9 @@ MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.new(1, 1, 1)
 MiniButton.Font = Enum.Font.GothamBold
 MiniButton.TextSize = 25
-MiniButton.Visible = false
+MiniButton.Visible = true
 MiniButton.Active = true
-MiniButton.Draggable = true
+MiniButton.Draggable = false
 MiniButton.Parent = ScreenGui
 
 local MiniCorner = Instance.new("UICorner")
@@ -1263,7 +1465,7 @@ MiniCorner.Parent = MiniButton
 
 -- ========= PLAYBACK CONTROL GUI =========
 local PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(156, 105)
+PlaybackControl.Size = UDim2.fromOffset(156, 130)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 PlaybackControl.BorderSizePixel = 0
@@ -1329,7 +1531,7 @@ local ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.
 
 -- ========= RECORDING STUDIO GUI =========
 local RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 105)
+RecordingStudio.Size = UDim2.fromOffset(156, 130)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -52.5)
 RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 RecordingStudio.BorderSizePixel = 0
@@ -1371,10 +1573,10 @@ local function CreateStudioBtn(text, x, y, w, h, color)
                     math.min(color.R * 255 * 1.2, 255) / 255,
                     math.min(color.G * 255 * 1.2, 255) / 255,
                     math.min(color.B * 255 * 1.2, 255) / 255
-                )
-            }):Play()
-        end)
-    end)
+                   )
+               }):Play()
+           end)
+       end)
     
     btn.MouseLeave:Connect(function()
         task.spawn(function()
@@ -1886,6 +2088,10 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
+            -- IMPROVED: Deteksi state terakhir sebelum resume
+            local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
+            local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
+            
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
@@ -1896,6 +2102,35 @@ local function ResumeStudioRecording()
                 if #StudioCurrentRecording.Frames > 0 then
                     local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
                     StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+                end
+            end
+            
+            -- IMPROVED: Tambahkan frame interpolasi untuk transisi smooth
+            if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local currentPos = hrp.Position
+                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+                
+                -- Jika posisi berbeda, buat interpolasi
+                if (currentPos - lastPos).Magnitude > 0.5 then
+                    for i = 1, INTERPOLATION_LOOKAHEAD do
+                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                        local interpPos = lastPos:Lerp(currentPos, alpha)
+                        
+                        local interpFrame = {
+                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                            LookVector = lastFrame.LookVector,
+                            UpVector = lastFrame.UpVector,
+                            Velocity = lastFrame.Velocity,
+                            MoveState = lastState,
+                            WalkSpeed = lastFrame.WalkSpeed,
+                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            IsInterpolated = true
+                        }
+                        table.insert(StudioCurrentRecording.Frames, interpFrame)
+                    end
+                    
+                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 end
             end
             
@@ -1988,7 +2223,7 @@ SaveBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
--- ========= SAVE/LOAD SYSTEM =========
+-- ========= IMPROVED SAVE/LOAD SYSTEM =========
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2017,28 +2252,28 @@ local function SaveToObfuscatedJSON()
             Version = "3.0",
             Obfuscated = true,
             Checkpoints = {},
-            RecordingOrder = {},
-            CheckpointNames = {}
+            RecordingOrder = RecordingOrder,  -- SIMPAN SEMUA recording order
+            CheckpointNames = checkpointNames,
+            CheckedRecordings = CheckedRecordings  -- SIMPAN status ceklis
         }
         
+        -- Simpan semua recordings, tidak hanya yang dicentang
         for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] then
-                local frames = RecordedMovements[name]
-                if frames then
-                    local checkpointData = {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
-                    }
-                    table.insert(saveData.Checkpoints, checkpointData)
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                end
+            local frames = RecordedMovements[name]
+            if frames then
+                local checkpointData = {
+                    Name = name,
+                    DisplayName = checkpointNames[name] or "checkpoint",
+                    Frames = frames,
+                    Checked = CheckedRecordings[name] or false
+                }
+                table.insert(saveData.Checkpoints, checkpointData)
             end
         end
         
+        -- Obfuscate semua frames
         local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
+        for _, name in ipairs(RecordingOrder) do
             recordingsToObfuscate[name] = RecordedMovements[name]
         end
         
@@ -2075,24 +2310,42 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        RecordedMovements = {}
-        RecordingOrder = saveData.RecordingOrder or {}
-        checkpointNames = saveData.CheckpointNames or {}
-        CheckedRecordings = {}
-        PathHasBeenUsed = {}
+        -- IMPROVED: Jangan hapus RecordedMovements yang sudah ada, tambahkan saja
+        -- RecordedMovements tetap berisi data sebelumnya
+        
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        local newCheckedRecordings = saveData.CheckedRecordings or {}
+        
+        -- IMPROVED: Merge dengan data yang sudah ada
+        for _, name in ipairs(newRecordingOrder) do
+            if not table.find(RecordingOrder, name) then
+                table.insert(RecordingOrder, name)
+            end
+        end
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
+            for checkpointName, frames in pairs(deobfuscatedData) do
+                RecordedMovements[checkpointName] = frames
+                if newCheckpointNames[checkpointName] then
+                    checkpointNames[checkpointName] = newCheckpointNames[checkpointName]
+                end
+                if newCheckedRecordings[checkpointName] ~= nil then
+                    CheckedRecordings[checkpointName] = newCheckedRecordings[checkpointName]
+                end
+            end
+        else
+            -- Fallback untuk format lama
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 local name = checkpointData.Name
-                local frames = deobfuscatedData[name]
+                local frames = checkpointData.Frames
                 
                 if frames then
                     RecordedMovements[name] = frames
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    CheckedRecordings[name] = newCheckedRecordings[name] or false
                 end
             end
         end
@@ -2138,7 +2391,7 @@ local function VisualizeAllPaths()
     end)
 end
 
--- ========= PLAYBACK SYSTEM =========
+-- ========= IMPROVED PLAYBACK SYSTEM =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2195,6 +2448,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
+    LAST_VELOCITIES = {}  -- Reset velocity blending
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -2204,10 +2458,21 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     local distance = (currentPos - targetPos).Magnitude
     
-    if distance > 3 then
+    -- IMPROVED: Gunakan velocity blending untuk smooth transition
+    if distance > RESUME_POSITION_TOLERANCE then
+        local currentVel = hrp.AssemblyLinearVelocity
+        local blendVelocity = CalculateResumeVelocity(currentPos, targetPos, currentVel)
+        
         local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)}):Play()
+        TweenService:Create(hrp, tweenInfo, {
+            CFrame = GetFrameCFrame(targetFrame)
+        }):Play()
+        
+        -- Apply blended velocity
+        hrp.AssemblyLinearVelocity = blendVelocity
         task.wait(0.15)
+    else
+        hrp.CFrame = GetFrameCFrame(targetFrame)
     end
     
     currentPlaybackFrame = startFrame
@@ -2226,7 +2491,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     PlaySound("Play")
     
-    PlayBtnControl.Text = "STOP"
+    PlayBtnControl.Text = "PAUSE"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
@@ -2360,21 +2625,22 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     
                     if not hrp or not hum then return end
                     
-                    hrp.CFrame = GetFrameCFrame(frame)
+                    -- IMPROVED: Gunakan enhanced interpolation untuk smooth transitions
+                    local nextFrameData = recording[math.min(nextFrame + 1, #recording)]
+                    local targetCFrame = EnhancedFrameInterpolation(recording, nextFrame, alpha)
+                    hrp.CFrame = targetCFrame
                     
-                    if USE_VELOCITY_PLAYBACK then
-                        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                    else
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                    end
+                    -- IMPROVED: Gunakan smart velocity application
+                    SmartVelocityApplication(hrp, frame, nextFrameData, nextFrame, #recording)
                     hrp.AssemblyAngularVelocity = Vector3.zero
                     
                     if hum then
                         hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                         hum.AutoRotate = false
                         
-                        lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                            hum, frame, lastPlaybackState, lastStateChangeTime
+                        -- IMPROVED: Gunakan improved state processing
+                        lastPlaybackState, lastStateChangeTime = ImprovedProcessHumanoidState(
+                            hum, frame, lastPlaybackState, lastStateChangeTime, previousFrameData
                         )
                     end
                 end)
@@ -2400,7 +2666,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= AUTO LOOP SYSTEM =========
+-- ========= IMPROVED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2435,6 +2701,7 @@ function StartAutoLoopAll()
     LoopRetryAttempts = 0
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    LAST_VELOCITIES = {}  -- Reset velocity blending
     
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2468,6 +2735,7 @@ function StartAutoLoopAll()
                 continue
             end
             
+            -- IMPROVED: Jika character tidak ready
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -2491,10 +2759,6 @@ function StartAutoLoopAll()
                     
                     if not AutoLoop or not IsAutoLoopPlaying then break end
                     if not IsCharacterReady() then
-                        CurrentLoopIndex = CurrentLoopIndex + 1
-                        if CurrentLoopIndex > #RecordingOrder then
-                            CurrentLoopIndex = 1
-                        end
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
                     end
@@ -2508,9 +2772,18 @@ function StartAutoLoopAll()
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 local targetCFrame = GetFrameCFrame(recordingToPlay[1])
+                local currentPos = hrp.Position
+                local targetPos = GetFramePosition(recordingToPlay[1])
+                
+                -- IMPROVED: Gunakan velocity blending untuk smooth start
+                local distance = (currentPos - targetPos).Magnitude
+                if distance > RESUME_POSITION_TOLERANCE then
+                    local currentVel = hrp.AssemblyLinearVelocity
+                    local blendVelocity = CalculateResumeVelocity(currentPos, targetPos, currentVel)
+                    hrp.AssemblyLinearVelocity = blendVelocity
+                end
+                
                 hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 task.wait(0.15)
             end
             
@@ -2521,17 +2794,16 @@ function StartAutoLoopAll()
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
+            LAST_VELOCITIES = {}  -- Reset untuk recording baru
             
             SaveHumanoidState()
             
             IsLoopTransitioning = false
-            local deathRetryCount = 0
-            local maxDeathRetries = 3
             
-            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay and deathRetryCount < maxDeathRetries do
+            while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
+                -- IMPROVED: Jika mati di tengah jalan
                 if not IsCharacterReady() then
-                    deathRetryCount = deathRetryCount + 1
                     
                     if AutoRespawn then
                         ResetCharacter()
@@ -2541,11 +2813,13 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
+                            -- FIXED: Lanjut dari recording yang sama, tidak balik ke #1
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
                             lastStateChangeTime = 0
                             loopAccumulator = 0
+                            LAST_VELOCITIES = {}  -- Reset velocity blending
                             
                             SaveHumanoidState()
                             
@@ -2580,11 +2854,13 @@ function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(0.5)
                         
+                        -- FIXED: Lanjut dari recording yang sama
                         currentFrame = 1
                         playbackStartTime = tick()
                         lastPlaybackState = nil
                         lastStateChangeTime = 0
                         loopAccumulator = 0
+                        LAST_VELOCITIES = {}  -- Reset velocity blending
                         
                         SaveHumanoidState()
                         continue
@@ -2631,21 +2907,23 @@ function StartAutoLoopAll()
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
-                            hrp.CFrame = GetFrameCFrame(frame)
+                            -- IMPROVED: Gunakan enhanced interpolation
+                            local nextFrame = recordingToPlay[math.min(currentFrame + 1, #recordingToPlay)]
+                            local targetCFrame = EnhancedFrameInterpolation(recordingToPlay, currentFrame, 0.5)
+                            hrp.CFrame = targetCFrame
                             
-                            if USE_VELOCITY_PLAYBACK then
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                            else
-                                hrp.AssemblyLinearVelocity = Vector3.zero
-                            end
+                            -- IMPROVED: Gunakan smart velocity application
+                            SmartVelocityApplication(hrp, frame, nextFrame, currentFrame, #recordingToPlay)
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
                             if hum then
                                 hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                                 hum.AutoRotate = false
                                 
-                                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                                    hum, frame, lastPlaybackState, lastStateChangeTime
+                                -- IMPROVED: Gunakan improved state processing
+                                local prevFrame = currentFrame > 1 and recordingToPlay[currentFrame - 1] or nil
+                                lastPlaybackState, lastStateChangeTime = ImprovedProcessHumanoidState(
+                                    hum, frame, lastPlaybackState, lastStateChangeTime, prevFrame
                                 )
                             end
                         end
@@ -2660,12 +2938,16 @@ function StartAutoLoopAll()
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = 0
+            LAST_VELOCITIES = {}  -- Reset velocity blending
             
             if playbackCompleted then
                 PlaySound("Success")
                 CheckIfPathUsed(recordingNameToPlay)
                 
-                if AutoReset then
+                -- FIXED: Auto Reset hanya saat replay terakhir selesai
+                local isLastRecording = (CurrentLoopIndex >= #RecordingOrder)
+                
+                if AutoReset and isLastRecording then
                     ResetCharacter()
                     local success = WaitForRespawn()
                     if success then
@@ -2703,6 +2985,7 @@ function StartAutoLoopAll()
         RestoreFullUserControl()
         lastPlaybackState = nil
         lastStateChangeTime = 0
+        LAST_VELOCITIES = {}  -- Reset velocity blending
         PlayBtnControl.Text = "PLAY"
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         UpdatePlayButtonStatus()
@@ -2716,6 +2999,7 @@ function StopAutoLoopAll()
     IsLoopTransitioning = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    LAST_VELOCITIES = {}  -- Reset velocity blending
     
     if loopConnection then
         pcall(function() task.cancel(loopConnection) end)
@@ -2756,6 +3040,7 @@ function StopPlayback()
     lastStateChangeTime = 0
     LastPausePosition = nil
     LastPauseRecording = nil
+    LAST_VELOCITIES = {}  -- Reset velocity blending
     
     if playbackConnection then
         playbackConnection:Disconnect()
@@ -2873,6 +3158,7 @@ ShowRuteBtnControl.MouseButton1Click:Connect(function()
     if ShowPaths then
         ShowRuteBtnControl.Text = "Path ON"
         ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        PathsHiddenOnce = false
         VisualizeAllPaths()
     else
         ShowRuteBtnControl.Text = "Path OFF"
@@ -2922,18 +3208,6 @@ MergeBtn.MouseButton1Click:Connect(function()
     CreateMergedReplay()
 end)
 
-MinimizeBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MinimizeBtn)
-    MainFrame.Visible = false
-    MiniButton.Visible = true
-end)
-
-MiniButton.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MiniButton)
-    MainFrame.Visible = true
-    MiniButton.Visible = false
-end)
-
 CloseBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(CloseBtn)
     task.spawn(function()
@@ -2948,6 +3222,88 @@ CloseBtn.MouseButton1Click:Connect(function()
             ScreenGui:Destroy()
         end)
     end)
+end)
+
+-- ========= MINI BUTTON SYSTEM (IMPROVED) =========
+local miniSaveFile = "MiniButtonPos.json"
+
+-- Load saved position
+pcall(function()
+    if hasFileSystem and isfile and isfile(miniSaveFile) then
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
+        if ok and type(data) == "table" and data.x and data.y then
+            MiniButton.Position = UDim2.fromOffset(data.x, data.y)
+        end
+    end
+end)
+
+-- FIXED: Click handler hanya toggle MainFrame, tidak affect Playback/Studio
+MiniButton.MouseButton1Click:Connect(function()
+    pcall(PlaySound, "Click")
+    
+    -- FIXED: Tidak pakai AnimateButtonClick karena mengubah warna
+    pcall(function()
+        local originalSize = MiniButton.TextSize
+        TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+            TextSize = originalSize * 1.2
+        }):Play()
+        task.wait(0.1)
+        TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+            TextSize = originalSize
+        }):Play()
+    end)
+    
+    -- FIXED: Hanya toggle MainFrame saja
+    if MainFrame then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+    
+    -- FIXED: Playback & Studio tetap bisa muncul meskipun MainFrame hidden
+    -- Tidak mengubah visibility mereka
+end)
+
+-- Custom drag + save position on release
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+MiniButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MiniButton.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                -- save absolute position if allowed
+                pcall(function()
+                    if hasFileSystem and writefile and HttpService then
+                        local absX = MiniButton.AbsolutePosition.X
+                        local absY = MiniButton.AbsolutePosition.Y
+                        writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                    end
+                end)
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not dragStart or not startPos then return end
+
+    local delta = input.Position - dragStart
+    local newX = startPos.X.Offset + delta.X
+    local newY = startPos.Y.Offset + delta.Y
+
+    -- clamp to viewport bounds (protect off-screen)
+    local cam = workspace.CurrentCamera
+    local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
+    newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
+    newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
+
+    MiniButton.Position = UDim2.fromOffset(newX, newY)
 end)
 
 -- ========= INITIALIZATION =========
@@ -2999,8 +3355,3 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
-
-print("✅ ByaruL Recorder v3.0 - Loaded Successfully!")
-print("📌 90 FPS Optimized | Lag Compensation | Path Auto-Hide")
-print("🎮 Smart Resume | Auto Loop | Anti-Jitter System")
-print("⚡ Clean UI | No Debug Text | Professional Design")
