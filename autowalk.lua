@@ -27,7 +27,7 @@ local TIMELINE_STEP_SECONDS = 0.15
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 60  -- ✅ FIXED TIMESTEP DARI v2.1
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
 local JUMP_VELOCITY_THRESHOLD = 10
 local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.12
@@ -120,7 +120,7 @@ local TimelinePosition = 0
 local AutoReset = false
 local CurrentPlayingRecording = nil
 local PausedAtFrame = 0
-local playbackAccumulator = 0  -- ✅ ACCUMULATOR SYSTEM DARI v2.1
+local playbackAccumulator = 0
 local LastPausePosition = nil
 local LastPauseRecording = nil
 local LastPauseFrame = 0
@@ -149,6 +149,27 @@ local SoundEffects = {
     Error = "rbxassetid://7772283448",
     Success = "rbxassetid://2865227271"
 }
+
+-- ========= FORWARD DECLARATIONS =========
+local UpdateRecordList
+local SaveToObfuscatedJSON
+local LoadFromObfuscatedJSON
+local VisualizeAllPaths
+local CreateMergedReplay
+local PlayRecording
+local SmartPlayRecording
+local PlayFromSpecificFrame
+local StartAutoLoopAll
+local StopAutoLoopAll
+local StopPlayback
+local UpdatePlayButtonStatus
+local SaveStudioRecording
+local UpdateStudioUI
+local StartStudioRecording
+local StopStudioRecording
+local StartSmoothReverse
+local StopSmoothReverse
+local ResumeStudioRecording
 
 local function AddConnection(connection)
     table.insert(activeConnections, connection)
@@ -530,7 +551,7 @@ local function CreateSmoothTransition(lastFrame, firstFrame, numFrames)
     return transitionFrames
 end
 
-local function CreateMergedReplay()
+CreateMergedReplay = function()
     if #RecordingOrder < 2 then
         PlaySound("Error")
         return
@@ -595,7 +616,7 @@ end
 local function GetFrameVelocity(frame)
     return frame.Velocity and Vector3.new(
         frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,  -- ✅ Y VELOCITY AKTIF - SMOOTH SYSTEM
+        frame.Velocity[2] * VELOCITY_Y_SCALE,
         frame.Velocity[3] * VELOCITY_SCALE
     ) or Vector3.new(0, 0, 0)
 end
@@ -703,7 +724,7 @@ local function FindNearestRecording(maxDistance)
     return nearestRecording, nearestDistance, nearestName
 end
 
-local function UpdatePlayButtonStatus()
+UpdatePlayButtonStatus = function()
     local nearestRecording, distance = FindNearestRecording(50)
     NearestRecordingDistance = distance or math.huge
     
@@ -1251,7 +1272,7 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
-function UpdateRecordList()
+UpdateRecordList = function()
     pcall(function()
         for _, child in pairs(RecordingsList:GetChildren()) do 
             if child:IsA("Frame") then child:Destroy() end
@@ -1429,7 +1450,7 @@ function UpdateRecordList()
     end)
 end
 
-local function UpdateStudioUI()
+UpdateStudioUI = function()
     pcall(function()
         FrameLabel.Text = string.format("Frames: %d", #StudioCurrentRecording.Frames)
     end)
@@ -1479,7 +1500,7 @@ local function ApplyFrameToCharacter(frame)
     end)
 end
 
-local function StartStudioRecording()
+StartStudioRecording = function()
     if StudioIsRecording then return end
     
     task.spawn(function()
@@ -1561,7 +1582,7 @@ local function StartStudioRecording()
     end)
 end
 
-local function StopStudioRecording()
+StopStudioRecording = function()
     StudioIsRecording = false
     IsTimelineMode = false
     
@@ -1581,7 +1602,7 @@ local function StopStudioRecording()
     end)
 end
 
-local function StartSmoothReverse()
+StartSmoothReverse = function()
     if IsReversing or not StudioIsRecording then
         PlaySound("Error")
         return
@@ -1687,7 +1708,7 @@ local function StartSmoothReverse()
     end)
 end
 
-local function StopSmoothReverse()
+StopSmoothReverse = function()
     IsReversing = false
     
     pcall(function()
@@ -1728,7 +1749,7 @@ local function CreateResumeBlendFrames(lastFrame, currentPos, currentState, numF
     return blendFrames
 end
 
-local function ResumeStudioRecording()
+ResumeStudioRecording = function()
     if not StudioIsRecording then
         PlaySound("Error")
         return
@@ -1802,7 +1823,7 @@ local function ResumeStudioRecording()
     end)
 end
 
-local function SaveStudioRecording()
+SaveStudioRecording = function()
     task.spawn(function()
         pcall(function()
             if #StudioCurrentRecording.Frames == 0 then
@@ -1871,7 +1892,7 @@ SaveBtn.MouseButton1Click:Connect(function()
     end)
 end
 
-local function SaveToObfuscatedJSON()
+SaveToObfuscatedJSON = function()
     if not hasFileSystem then
         PlaySound("Error")
         return
@@ -1949,7 +1970,7 @@ local function SaveToObfuscatedJSON()
     end
 end
 
-local function LoadFromObfuscatedJSON()
+LoadFromObfuscatedJSON = function()
     if not hasFileSystem then
         PlaySound("Error")
         return
@@ -1998,7 +2019,7 @@ local function LoadFromObfuscatedJSON()
     end
 end
 
-local function VisualizeAllPaths()
+VisualizeAllPaths = function()
     ClearPathVisualization()
     
     if not ShowPaths then return end
@@ -2028,7 +2049,7 @@ local function VisualizeAllPaths()
 end
 
 -- ========= SMOOTH PLAYBACK SYSTEM DARI v2.1 =========
-function SmartPlayRecording(maxDistance)
+SmartPlayRecording = function(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
     
     local char = player.Character
@@ -2070,7 +2091,7 @@ function SmartPlayRecording(maxDistance)
 end
 
 -- ========= IMPROVED PLAYBACK FUNCTION DENGAN FIXED TIMESTEP =========
-function PlayFromSpecificFrame(recording, startFrame, recordingName)
+PlayFromSpecificFrame = function(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
     local char = player.Character
@@ -2272,7 +2293,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     UpdatePlayButtonStatus()
 end
 
-function PlayRecording(name)
+PlayRecording = function(name)
     if name then
         local recording = RecordedMovements[name]
         if recording then
@@ -2284,7 +2305,7 @@ function PlayRecording(name)
 end
 
 -- ========= AUTO LOOP SYSTEM DENGAN SMOOTH PLAYBACK =========
-function StartAutoLoopAll()
+StartAutoLoopAll = function()
     if not AutoLoop then return end
     
     if #RecordingOrder == 0 then
@@ -2597,7 +2618,7 @@ function StartAutoLoopAll()
     end)
 end
 
-function StopAutoLoopAll()
+StopAutoLoopAll = function()
     AutoLoop = false
     IsAutoLoopPlaying = false
     IsPlaying = false
@@ -2628,7 +2649,7 @@ function StopAutoLoopAll()
     UpdatePlayButtonStatus()
 end
 
-function StopPlayback()
+StopPlayback = function()
     if AutoLoop then
         StopAutoLoopAll()
         LoopBtnControl.Text = "Loop OFF"
