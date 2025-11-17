@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -27,16 +28,16 @@ local TIMELINE_STEP_SECONDS = 0.15
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 8
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 60 -- 60 FPS untuk playback natural
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
 local JUMP_VELOCITY_THRESHOLD = 10
 local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.12
 local AUTO_LOOP_RETRY_DELAY = 0.5
 
--- ========= SMOOTH RESUME SYSTEM =========
-local USE_VELOCITY_PLAYBACK = true
-local RESUME_BLEND_FRAMES = 12      
-local RESUME_POSITION_TOLERANCE = 2
+-- ========= GAP FILLING CONFIGURATION =========
+local MAX_FRAME_GAP = 0.1 -- Jika gap > 0.1 detik, isi dengan interpolasi
+local INTERPOLATION_STEP = 0.016 -- 60 FPS untuk frame interpolasi
+local MIN_VECTOR_MAGNITUDE = 0.001 -- Threshold untuk SafeUnit
 
 -- ========= SMOOTH REVERSE CONFIGURATION =========
 local REVERSE_FRAME_STEP = 1
@@ -138,6 +139,9 @@ local ReverseTargetFrame = 0
 local ReverseCurrentFrame = 0
 local LastSafeFrameBeforeFall = 0
 
+-- ========= NETWORK REPLICATION FOR SHIFTLOCK =========
+local replicatedShiftLockCFrame = nil
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -149,6 +153,99 @@ local SoundEffects = {
     Error = "rbxassetid://7772283448",
     Success = "rbxassetid://2865227271"
 }
+
+-- ========= UTILITY FUNCTIONS =========
+
+local function SafeUnit(vector)
+    if vector.Magnitude < MIN_VECTOR_MAGNITUDE then
+        return Vector3.new(0, 0, 1) -- Default forward
+    end
+    return vector.Unit
+end
+
+local function SafeUpVector(vector)
+    if vector.Magnitude < MIN_VECTOR_MAGNITUDE then
+        return Vector3.new(0, 1, 0) -- Default up
+    end
+    return vector.Unit
+end
+
+local function LerpFrame(frame1, frame2, alpha)
+    local pos1 = Vector3.new(frame1.Position[1], frame1.Position[2], frame1.Position[3])
+    local pos2 = Vector3.new(frame2.Position[1], frame2.Position[2], frame2.Position[3])
+    local lerpedPos = pos1:Lerp(pos2, alpha)
+    
+    local look1 = Vector3.new(frame1.LookVector[1], frame1.LookVector[2], frame1.LookVector[3])
+    local look2 = Vector3.new(frame2.LookVector[1], frame2.LookVector[2], frame2.LookVector[3])
+    local lerpedLook = SafeUnit(look1:Lerp(look2, alpha))
+    
+    local up1 = Vector3.new(frame1.UpVector[1], frame1.UpVector[2], frame1.UpVector[3])
+    local up2 = Vector3.new(frame2.UpVector[1], frame2.UpVector[2], frame2.UpVector[3])
+    local lerpedUp = SafeUpVector(up1:Lerp(up2, alpha))
+    
+    local vel1 = Vector3.new(frame1.Velocity[1], frame1.Velocity[2], frame1.Velocity[3])
+    local vel2 = Vector3.new(frame2.Velocity[1], frame2.Velocity[2], frame2.Velocity[3])
+    local lerpedVel = vel1:Lerp(vel2, alpha)
+    
+    local ws1 = frame1.WalkSpeed
+    local ws2 = frame2.WalkSpeed
+    local lerpedWS = ws1 + (ws2 - ws1) * alpha
+    
+    local t1 = frame1.Timestamp
+    local t2 = frame2.Timestamp
+    local lerpedTime = t1 + (t2 - t1) * alpha
+    
+    return {
+        Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
+        LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
+        UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
+        Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
+        MoveState = frame1.MoveState,
+        WalkSpeed = lerpedWS,
+        Timestamp = lerpedTime
+    }
+end
+
+local function FillGapsInRecording(frames)
+    if not frames or #frames < 2 then return frames end
+    
+    local filledFrames = {}
+    
+    for i = 1, #frames do
+        table.insert(filledFrames, frames[i])
+        
+        if i < #frames then
+            local currentFrame = frames[i]
+            local nextFrame = frames[i + 1]
+            
+            local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
+            
+            if timeDiff > MAX_FRAME_GAP then
+                local numInterpolations = math.floor(timeDiff / INTERPOLATION_STEP)
+                
+                for j = 1, numInterpolations do
+                    local alpha = j / (numInterpolations + 1)
+                    local interpolatedFrame = LerpFrame(currentFrame, nextFrame, alpha)
+                    table.insert(filledFrames, interpolatedFrame)
+                end
+            end
+        end
+    end
+    
+    return filledFrames
+end
+
+local function CreateSmoothTransitionFrames(fromFrame, toFrame, numFrames)
+    local transitionFrames = {}
+    
+    for i = 1, numFrames do
+        local alpha = i / (numFrames + 1)
+        local frame = LerpFrame(fromFrame, toFrame, alpha)
+        table.insert(transitionFrames, frame)
+    end
+    
+    return transitionFrames
+end
 
 local function AddConnection(connection)
     table.insert(activeConnections, connection)
@@ -248,7 +345,7 @@ local function CompleteCharacterReset(char)
         pcall(function()
             humanoid.PlatformStand = false
             humanoid.AutoRotate = true
-            humanoid.WalkSpeed = CurrentWalkSpeed -- SELALU gunakan CurrentWalkSpeed
+            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -270,7 +367,9 @@ local function ApplyVisibleShiftLock()
             local lookVector = camera.CFrame.LookVector
             local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
             if horizontalLook.Magnitude > 0 then
-                hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
+                local targetCFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
+                hrp.CFrame = targetCFrame
+                replicatedShiftLockCFrame = targetCFrame
             end
         end
     end)
@@ -306,6 +405,7 @@ local function DisableVisibleShiftLock()
             char.Humanoid.AutoRotate = true
         end
         isShiftLockActive = false
+        replicatedShiftLockCFrame = nil
         PlaySound("Toggle")
     end)
 end
@@ -357,7 +457,7 @@ local function SaveHumanoidState()
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
             prePauseAutoRotate = humanoid.AutoRotate
-            prePauseWalkSpeed = humanoid.WalkSpeed -- Simpan walkspeed saat ini
+            prePauseWalkSpeed = humanoid.WalkSpeed
             prePauseJumpPower = humanoid.JumpPower
             prePausePlatformStand = humanoid.PlatformStand
             prePauseSit = humanoid.Sit
@@ -382,7 +482,7 @@ local function RestoreHumanoidState()
                 humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
             else
                 humanoid.AutoRotate = prePauseAutoRotate
-                humanoid.WalkSpeed = prePauseWalkSpeed -- Kembalikan walkspeed yang disimpan
+                humanoid.WalkSpeed = prePauseWalkSpeed
                 humanoid.JumpPower = prePauseJumpPower
                 humanoid.PlatformStand = prePausePlatformStand
                 humanoid.Sit = prePauseSit
@@ -399,7 +499,7 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if humanoid then
             humanoid.AutoRotate = true
-            humanoid.WalkSpeed = CurrentWalkSpeed -- SELALU gunakan CurrentWalkSpeed
+            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
@@ -430,7 +530,7 @@ local function ClearPathVisualization()
     pcall(function()
         for _, part in pairs(PathVisualization) do
             if part and part.Parent then
-                part:Destroy()
+                game:GetService("Debris"):AddItem(part, 0)
             end
         end
         PathVisualization = {}
@@ -499,35 +599,7 @@ local function DeobfuscateRecordingData(obfuscatedData)
 end
 
 local function CreateSmoothTransition(lastFrame, firstFrame, numFrames)
-    local transitionFrames = {}
-    for i = 1, numFrames do
-        local alpha = i / (numFrames + 1)
-        local pos1 = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-        local pos2 = Vector3.new(firstFrame.Position[1], firstFrame.Position[2], firstFrame.Position[3])
-        local lerpedPos = pos1:Lerp(pos2, alpha)
-        local look1 = Vector3.new(lastFrame.LookVector[1], lastFrame.LookVector[2], lastFrame.LookVector[3])
-        local look2 = Vector3.new(firstFrame.LookVector[1], firstFrame.LookVector[2], firstFrame.LookVector[3])
-        local lerpedLook = look1:Lerp(look2, alpha).Unit
-        local up1 = Vector3.new(lastFrame.UpVector[1], lastFrame.UpVector[2], lastFrame.UpVector[3])
-        local up2 = Vector3.new(firstFrame.UpVector[1], firstFrame.UpVector[2], firstFrame.UpVector[3])
-        local lerpedUp = up1:Lerp(up2, alpha).Unit
-        local vel1 = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-        local vel2 = Vector3.new(firstFrame.Velocity[1], firstFrame.Velocity[2], firstFrame.Velocity[3])
-        local lerpedVel = vel1:Lerp(vel2, alpha)
-        local ws1 = lastFrame.WalkSpeed
-        local ws2 = firstFrame.WalkSpeed
-        local lerpedWS = ws1 + (ws2 - ws1) * alpha
-        table.insert(transitionFrames, {
-            Position = {lerpedPos.X, lerpedPos.Y, lerpedPos.Z},
-            LookVector = {lerpedLook.X, lerpedLook.Y, lerpedLook.Z},
-            UpVector = {lerpedUp.X, lerpedUp.Y, lerpedUp.Z},
-            Velocity = {lerpedVel.X, lerpedVel.Y, lerpedVel.Z},
-            MoveState = lastFrame.MoveState,
-            WalkSpeed = lerpedWS,
-            Timestamp = lastFrame.Timestamp + (i * 0.016)
-        })
-    end
-    return transitionFrames
+    return CreateSmoothTransitionFrames(lastFrame, firstFrame, numFrames)
 end
 
 local function CreateMergedReplay()
@@ -585,6 +657,8 @@ local function CreateMergedReplay()
             end
         end
         
+        mergedFrames = FillGapsInRecording(mergedFrames)
+        
         local mergedName = "merged_" .. os.date("%H%M%S")
         RecordedMovements[mergedName] = mergedFrames
         table.insert(RecordingOrder, mergedName)
@@ -596,8 +670,8 @@ end
 
 local function GetFrameCFrame(frame)
     local pos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-    local look = Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3])
-    local up = Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3])
+    local look = SafeUnit(Vector3.new(frame.LookVector[1], frame.LookVector[2], frame.LookVector[3]))
+    local up = SafeUpVector(Vector3.new(frame.UpVector[1], frame.UpVector[2], frame.UpVector[3]))
     return CFrame.lookAt(pos, pos + look, up)
 end
 
@@ -690,7 +764,7 @@ local function FindNearestRecording(maxDistance)
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         return nil, math.huge, nil
     end
-    
+
     local currentPos = char.HumanoidRootPart.Position
     local nearestRecording = nil
     local nearestDistance = math.huge
@@ -1174,7 +1248,7 @@ end
 local SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
 local StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
 local ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 144, 22, Color3.fromRGB(59, 15, 116)) -- Hanya ada PREV button
+local PrevBtn = CreateStudioBtn("◀ PREV", 3, 53, 144, 22, Color3.fromRGB(59, 15, 116))
 
 local FrameLabel = Instance.new("TextLabel")
 FrameLabel.Size = UDim2.fromOffset(144, 20)
@@ -1456,17 +1530,11 @@ local function ApplyFrameToCharacter(frame)
         task.spawn(function()
             local targetCFrame = GetFrameCFrame(frame)
             hrp.CFrame = targetCFrame
-            
-            -- VELOCITY PLAYBACK SYSTEM
-            if USE_VELOCITY_PLAYBACK then
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-            else
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             
             if hum then
-                hum.WalkSpeed = frame.WalkSpeed or CurrentWalkSpeed -- Gunakan walkspeed dari frame
+                hum.WalkSpeed = frame.WalkSpeed or CurrentWalkSpeed
                 hum.AutoRotate = false
                 
                 local moveState = frame.MoveState
@@ -1551,7 +1619,7 @@ local function StartStudioRecording()
                             UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
                             Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
                             MoveState = moveState,
-                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed, -- Simpan walkspeed saat recording
+                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
                             Timestamp = now - StudioCurrentRecording.StartTime
                         })
                         
@@ -1706,36 +1774,6 @@ local function StopSmoothReverse()
     end)
 end
 
-local function CreateResumeBlendFrames(lastFrame, currentPos, currentState, numFrames)
-    local blendFrames = {}
-    local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-    
-    for i = 1, numFrames do
-        local alpha = i / (numFrames + 1)
-        local blendedPos = lastPos:Lerp(currentPos, alpha)
-        
-        -- Smooth velocity transition
-        local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-        local blendedVel = lastVel:Lerp(Vector3.new(0, 0, 0), alpha)
-        
-        -- Smooth walkspeed transition
-        local blendedWS = lastFrame.WalkSpeed + (CurrentWalkSpeed - lastFrame.WalkSpeed) * alpha
-        
-        table.insert(blendFrames, {
-            Position = {blendedPos.X, blendedPos.Y, blendedPos.Z},
-            LookVector = lastFrame.LookVector,
-            UpVector = lastFrame.UpVector,
-            Velocity = {blendedVel.X, blendedVel.Y, blendedVel.Z},
-            MoveState = currentState,
-            WalkSpeed = blendedWS,
-            Timestamp = lastFrame.Timestamp + (i * 0.016),
-            IsBlendFrame = true
-        })
-    end
-    
-    return blendFrames
-end
-
 local function ResumeStudioRecording()
     if not StudioIsRecording then
         PlaySound("Error")
@@ -1758,41 +1796,55 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
-            local currentPos = hrp.Position
-            local currentState = GetCurrentMoveState(hum)
+            local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
+            local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
             
-            -- Potong frames setelah timeline position
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
                     table.insert(newFrames, StudioCurrentRecording.Frames[i])
                 end
                 StudioCurrentRecording.Frames = newFrames
+                
+                if #StudioCurrentRecording.Frames > 0 then
+                    local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                    StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+                end
             end
             
-            -- SMOOTH RESUME SYSTEM - IMPLEMENTASI LENGKAP
             if #StudioCurrentRecording.Frames > 0 then
                 local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local currentPos = hrp.Position
+                local currentCFrame = hrp.CFrame
                 local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+                
                 local distance = (currentPos - lastPos).Magnitude
                 
-                -- Jika dalam tolerance, buat smooth blend
-                if distance <= RESUME_POSITION_TOLERANCE then
-                    local blendFrames = CreateResumeBlendFrames(lastFrame, currentPos, currentState, RESUME_BLEND_FRAMES)
+                if distance > 0.5 then
+                    local currentFrame = {
+                        Position = {currentPos.X, currentPos.Y, currentPos.Z},
+                        LookVector = {currentCFrame.LookVector.X, currentCFrame.LookVector.Y, currentCFrame.LookVector.Z},
+                        UpVector = {currentCFrame.UpVector.X, currentCFrame.UpVector.Y, currentCFrame.UpVector.Z},
+                        Velocity = {0, 0, 0},
+                        MoveState = lastState,
+                        WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
+                        Timestamp = lastFrame.Timestamp + 0.016
+                    }
                     
-                    -- Tambahkan blend frames ke recording
-                    for _, blendFrame in ipairs(blendFrames) do
-                        table.insert(StudioCurrentRecording.Frames, blendFrame)
+                    local numTransitionFrames = math.min(5, math.ceil(distance / 2))
+                    local transitionFrames = CreateSmoothTransitionFrames(lastFrame, currentFrame, numTransitionFrames)
+                    
+                    for _, tFrame in ipairs(transitionFrames) do
+                        table.insert(StudioCurrentRecording.Frames, tFrame)
                     end
                     
-                    print(string.format("✅ Smooth resume: %d blend frames created (distance: %.2f studs)", #blendFrames, distance))
-                else
-                    print(string.format("⚠️  Fresh start: Distance too far (%.2f studs), no blending", distance))
+                    table.insert(StudioCurrentRecording.Frames, currentFrame)
+                    
+                    if #StudioCurrentRecording.Frames > 0 then
+                        local finalFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                        StudioCurrentRecording.StartTime = tick() - finalFrame.Timestamp
+                    end
                 end
-                
-                -- Update start time berdasarkan frame terakhir
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
             end
             
             IsTimelineMode = false
@@ -1821,6 +1873,8 @@ local function SaveStudioRecording()
             if StudioIsRecording then
                 StopStudioRecording()
             end
+            
+            StudioCurrentRecording.Frames = FillGapsInRecording(StudioCurrentRecording.Frames)
             
             RecordedMovements[StudioCurrentRecording.Name] = StudioCurrentRecording.Frames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
@@ -1899,8 +1953,9 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "3.1",
+            Version = "3.2",
             Obfuscated = true,
+            GapFilled = true,
             Checkpoints = {},
             RecordingOrder = {},
             CheckpointNames = {}
@@ -1911,10 +1966,12 @@ local function SaveToObfuscatedJSON()
                 if CheckedRecordings[name] then
                     local frames = RecordedMovements[name]
                     if frames then
+                        local filledFrames = FillGapsInRecording(frames)
+                        
                         local checkpointData = {
                             Name = name,
                             DisplayName = checkpointNames[name] or "checkpoint",
-                            Frames = frames
+                            Frames = filledFrames
                         }
                         table.insert(saveData.Checkpoints, checkpointData)
                         table.insert(saveData.RecordingOrder, name)
@@ -1926,10 +1983,12 @@ local function SaveToObfuscatedJSON()
             for _, name in ipairs(RecordingOrder) do
                 local frames = RecordedMovements[name]
                 if frames then
+                    local filledFrames = FillGapsInRecording(frames)
+                    
                     local checkpointData = {
                         Name = name,
                         DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
+                        Frames = filledFrames
                     }
                     table.insert(saveData.Checkpoints, checkpointData)
                     table.insert(saveData.RecordingOrder, name)
@@ -1939,8 +1998,8 @@ local function SaveToObfuscatedJSON()
         end
         
         local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
+        for _, checkpoint in ipairs(saveData.Checkpoints) do
+            recordingsToObfuscate[checkpoint.Name] = checkpoint.Frames
         end
         
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
@@ -1987,6 +2046,10 @@ local function LoadFromObfuscatedJSON()
                 local frames = deobfuscatedData[name]
                 
                 if frames then
+                    if not saveData.GapFilled then
+                        frames = FillGapsInRecording(frames)
+                    end
+                    
                     RecordedMovements[name] = frames
                     checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
                     
@@ -2085,6 +2148,8 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end
 
+    recording = FillGapsInRecording(recording)
+    
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
@@ -2101,9 +2166,11 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     local distance = (currentPos - targetPos).Magnitude
     
     if distance > 3 then
-        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)}):Play()
-        task.wait(0.15)
+        local tweenInfo = TweenInfo.new(math.min(0.3, distance / 20), Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)})
+        tween:Play()
+        tween.Completed:Wait()
+        task.wait(0.1)
     end
     
     currentPlaybackFrame = startFrame
@@ -2241,16 +2308,14 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     
                     if not hrp or not hum then return end
                     
-                    -- NATURAL PLAYBACK DENGAN VELOCITY
-                    hrp.CFrame = GetFrameCFrame(frame)
-                    
-                    -- VELOCITY PLAYBACK SYSTEM
-                    if USE_VELOCITY_PLAYBACK then
-                        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                    else
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                    end
+                    local targetCFrame = GetFrameCFrame(frame)
+                    hrp.CFrame = targetCFrame
+                    hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                     hrp.AssemblyAngularVelocity = Vector3.zero
+                    
+                    if ShiftLockEnabled and replicatedShiftLockCFrame then
+                        hrp.CFrame = replicatedShiftLockCFrame
+                    end
                     
                     if hum then
                         hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
@@ -2350,6 +2415,8 @@ function StartAutoLoopAll()
                 continue
             end
             
+            recordingToPlay = FillGapsInRecording(recordingToPlay)
+            
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -2386,10 +2453,21 @@ function StartAutoLoopAll()
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 local targetCFrame = GetFrameCFrame(recordingToPlay[1])
-                hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                task.wait(0.15)
+                
+                local distance = (hrp.Position - targetCFrame.Position).Magnitude
+                
+                if distance > 3 then
+                    local tweenInfo = TweenInfo.new(math.min(0.3, distance / 20), Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+                    tween:Play()
+                    tween.Completed:Wait()
+                    task.wait(0.1)
+                else
+                    hrp.CFrame = targetCFrame
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    task.wait(0.1)
+                end
             end
             
             local playbackCompleted = false
@@ -2426,8 +2504,20 @@ function StartAutoLoopAll()
                             
                             local char = player.Character
                             if char and char:FindFirstChild("HumanoidRootPart") then
-                                char.HumanoidRootPart.CFrame = GetFrameCFrame(recordingToPlay[1])
-                                task.wait(0.1)
+                                local targetCFrame = GetFrameCFrame(recordingToPlay[1])
+                                local hrp = char.HumanoidRootPart
+                                local distance = (hrp.Position - targetCFrame.Position).Magnitude
+                                
+                                if distance > 3 then
+                                    local tweenInfo = TweenInfo.new(math.min(0.3, distance / 20), Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                                    local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+                                    tween:Play()
+                                    tween.Completed:Wait()
+                                    task.wait(0.1)
+                                else
+                                    hrp.CFrame = targetCFrame
+                                    task.wait(0.1)
+                                end
                             end
                             
                             continue
@@ -2462,7 +2552,6 @@ function StartAutoLoopAll()
                         loopAccumulator = 0
                         
                         SaveHumanoidState()
-                        
                         continue
                     end
                 end
@@ -2507,16 +2596,14 @@ function StartAutoLoopAll()
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
-                            -- NATURAL PLAYBACK DENGAN VELOCITY
-                            hrp.CFrame = GetFrameCFrame(frame)
-                            
-                            -- VELOCITY PLAYBACK SYSTEM
-                            if USE_VELOCITY_PLAYBACK then
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                            else
-                                hrp.AssemblyLinearVelocity = Vector3.zero
-                            end
+                            local targetCFrame = GetFrameCFrame(frame)
+                            hrp.CFrame = targetCFrame
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             hrp.AssemblyAngularVelocity = Vector3.zero
+                            
+                            if ShiftLockEnabled and replicatedShiftLockCFrame then
+                                hrp.CFrame = replicatedShiftLockCFrame
+                            end
                             
                             if hum then
                                 hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
@@ -2752,11 +2839,11 @@ ShowRuteBtnControl.MouseButton1Click:Connect(function()
     if ShowPaths then
         ShowRuteBtnControl.Text = "Path ON"
         ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-        VisualizeAllPaths() -- PATH SELALU MUNCUL SAAT DI AKTIFKAN
+        VisualizeAllPaths()
     else
         ShowRuteBtnControl.Text = "Path OFF"
         ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-        ClearPathVisualization() -- PATH HILANG SEMPURNA SAAT DI NONAKTIFKAN
+        ClearPathVisualization()
     end
 end)
 
@@ -2942,11 +3029,9 @@ task.spawn(function()
     PlaySound("Success")
 end)
 
-print("✅ ByaruL Recorder v3.1 - Ultimate Smooth Edition Loaded!")
-print("📌 120 FPS Recording | Natural Playback System")
-print("🎮 Velocity Playback: " .. tostring(USE_VELOCITY_PLAYBACK))
-print("🔄 Resume Blend Frames: " .. tostring(RESUME_BLEND_FRAMES))
-print("🎯 Position Tolerance: " .. tostring(RESUME_POSITION_TOLERANCE) .. " studs")
-print("💾 Smart WalkSpeed Saving | Ultimate Smooth Resume System")
-print("⚡ Path Visualization Fixed | Clean Transitions")
-print("🔧 All ByaruL Systems: ACTIVE ✓")
+print("✅ ByaruL Recorder v3.2 - Smooth Playback Edition Loaded!")
+print("📌 Gap-Filling System Active | No More Jittery Playback")
+print("🎮 Interpolation: Position, Rotation, Velocity, WalkSpeed")
+print("💾 SafeUnit Protection | Smooth Resume System")
+print("⚡ ShiftLock Network Replication | Perfect Transitions")
+print("🔧 All ByaruL Systems: ENHANCED ✓")
