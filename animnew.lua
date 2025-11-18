@@ -2103,17 +2103,15 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 local stateTime = tick()
                 
                 if moveState == "Jumping" then
-                    if lastPlaybackState ~= "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        lastPlaybackState = "Jumping"
-                        lastStateChangeTime = stateTime
-                    end
+    -- ⭐⭐ SIMPLE & CONSISTENT: Always trigger jump animation
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    lastPlaybackState = "Jumping"
+    lastStateChangeTime = stateTime
                 elseif moveState == "Falling" then
-                    if lastPlaybackState ~= "Falling" then
-                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        lastPlaybackState = "Falling"
-                        lastStateChangeTime = stateTime
-                    end
+    -- ⭐⭐ CONSISTENT FALL ANIMATION
+    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    lastPlaybackState = "Falling" 
+    lastStateChangeTime = stateTime
                 elseif moveState == "Climbing" then
                     if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                         lastPlaybackState = moveState
@@ -2398,18 +2396,16 @@ function StartAutoLoopAll()
                                 local moveState = frame.MoveState
                                 local stateTime = tick()
                                 
-                                if moveState == "Jumping" then
-                                    if lastPlaybackState ~= "Jumping" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                        lastPlaybackState = "Jumping"
-                                        lastStateChangeTime = stateTime
-                                    end
-                                elseif moveState == "Falling" then
-                                    if lastPlaybackState ~= "Falling" then
-                                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                        lastPlaybackState = "Falling"
-                                        lastStateChangeTime = stateTime
-                                    end
+                        if moveState == "Jumping" then
+    -- ⭐⭐ SIMPLE & CONSISTENT: Always trigger jump animation
+    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    lastPlaybackState = "Jumping"
+    lastStateChangeTime = stateTime
+                      elseif moveState == "Falling" then
+    -- ⭐⭐ CONSISTENT FALL ANIMATION
+    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    lastPlaybackState = "Falling" 
+    lastStateChangeTime = stateTime
                                 elseif moveState == "Climbing" then
                                     if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                                         lastPlaybackState = moveState
