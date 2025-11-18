@@ -1590,60 +1590,63 @@ local function StartStudioRecording()
             
             PlaySound("RecordStart")
             
-            if recordConnection then
-    pcall(function() recordConnection:Disconnect() end)
-    recordConnection = nil
-end
-
-recordConnection = RunService.Heartbeat:Connect(function(dt)
-    pcall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-            return
-        end
-
-        if IsTimelineMode then return end
-
-        local now = tick()
-        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-
-        local hrp = char.HumanoidRootPart
-        local hum = char:FindFirstChildOfClass("Humanoid")
-
-        local currentPos = hrp.Position
-        local currentVelocity = hrp.AssemblyLinearVelocity
-
-        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-            lastStudioRecordTime = now
-            return
-        end
-
-        local moveState = GetCurrentMoveState(hum)
-
-        if moveState == "Grounded" or moveState == "Running" or moveState == "Climbing" then
-            LastSafeFrameBeforeFall = #StudioCurrentRecording.Frames
-        end
-
-        local cf = hrp.CFrame
-        table.insert(StudioCurrentRecording.Frames, {
-            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-            MoveState = moveState,
-            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
-            Timestamp = now - StudioCurrentRecording.StartTime
-        })
-
-        lastStudioRecordTime = now
-        lastStudioRecordPos = currentPos
-        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-        TimelinePosition = CurrentTimelineFrame
-
-        UpdateStudioUI()
+            recordConnection = RunService.Heartbeat:Connect(function()
+                task.spawn(function()
+                    pcall(function()
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                            return
+                        end
+                        
+                        local hrp = char.HumanoidRootPart
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        
+                        if IsTimelineMode then
+                            return
+                        end
+                        
+                        local now = tick()
+                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                        
+                        local currentPos = hrp.Position
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        
+                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                            lastStudioRecordTime = now
+                            return
+                        end
+                        
+                        local moveState = GetCurrentMoveState(hum)
+                        
+                        -- Track safe frames (not falling)
+                        if moveState == "Grounded" or moveState == "Running" or moveState == "Climbing" then
+                            LastSafeFrameBeforeFall = #StudioCurrentRecording.Frames
+                        end
+                        
+                        local cf = hrp.CFrame
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                            MoveState = moveState,
+                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
+                            Timestamp = now - StudioCurrentRecording.StartTime
+                        })
+                        
+                        lastStudioRecordTime = now
+                        lastStudioRecordPos = currentPos
+                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                        TimelinePosition = CurrentTimelineFrame
+                        
+                        UpdateStudioUI()
+                    end)
+                end)
+            end)
+            AddConnection(recordConnection)
+        end)
     end)
-end)
-AddConnection(recordConnection)
+end
 
 local function StopStudioRecording()
     StudioIsRecording = false
@@ -1800,11 +1803,11 @@ local function SaveToObfuscatedJSON()
         PlaySound("Error")
         return
     end
-
+    
     local filename = FilenameBox.Text
     if filename == "" then filename = "MyReplays" end
     filename = filename .. ".json"
-
+    
     local hasCheckedRecordings = false
     for name, checked in pairs(CheckedRecordings) do
         if checked then
@@ -1812,7 +1815,7 @@ local function SaveToObfuscatedJSON()
             break
         end
     end
-
+    
     local success, err = pcall(function()
         local saveData = {
             Version = "3.3H",
@@ -1821,43 +1824,53 @@ local function SaveToObfuscatedJSON()
             RecordingOrder = {},
             CheckpointNames = {}
         }
-
-        -- only save metadata into Checkpoints (no raw Frames)
+        
         if hasCheckedRecordings then
             for _, name in ipairs(RecordingOrder) do
                 if CheckedRecordings[name] then
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                    table.insert(saveData.Checkpoints, {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint"
-                    })
+                    local frames = RecordedMovements[name]
+                    if frames then
+                        local checkpointData = {
+                            Name = name,
+                            DisplayName = checkpointNames[name] or "checkpoint",
+                            Frames = frames
+                        }
+                        table.insert(saveData.Checkpoints, checkpointData)
+                        table.insert(saveData.RecordingOrder, name)
+                        saveData.CheckpointNames[name] = checkpointNames[name]
+                    end
                 end
             end
         else
             for _, name in ipairs(RecordingOrder) do
-                table.insert(saveData.RecordingOrder, name)
-                saveData.CheckpointNames[name] = checkpointNames[name]
-                table.insert(saveData.Checkpoints, {
-                    Name = name,
-                    DisplayName = checkpointNames[name] or "checkpoint"
-                })
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
             end
         end
-
+        
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
             recordingsToObfuscate[name] = RecordedMovements[name]
         end
-
+        
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
-
+        
         local jsonString = HttpService:JSONEncode(saveData)
+        
         writefile(filename, jsonString)
         PlaySound("Success")
     end)
-
+    
     if not success then
         PlaySound("Error")
     end
@@ -2033,175 +2046,104 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     -- ========= v2.1 STYLE PLAYBACK (PURE, NO FILTERING!) =========
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        pcall(function()
-            if not IsPlaying then
-                playbackConnection:Disconnect()
-                RestoreFullUserControl()
-                
-                if wasShiftLockEnabled and not ShiftLockEnabled then
-                    ShiftLockEnabled = true
-                    EnableVisibleShiftLock()
-                end
-                
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                UpdatePlayButtonStatus()
-                return
-            end
+    pcall(function()
+        if not IsPlaying then
+            playbackConnection:Disconnect()
+            return
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            IsPlaying = false
+            return
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hum or not hrp then
+            IsPlaying = false
+            return
+        end
+
+        -- Fixed timestep accumulator
+        playbackAccumulator = playbackAccumulator + deltaTime
+        
+        while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP and IsPlaying do
+            playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
             
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
+            local currentTime = tick()
+            local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            
+            -- Advance frames
+            local nextFrame = currentPlaybackFrame
+            while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
+                nextFrame = nextFrame + 1
+            end
+
+            if nextFrame >= #recording then
                 IsPlaying = false
-                if wasShiftLockEnabled and not ShiftLockEnabled then
-                    ShiftLockEnabled = true
-                    EnableVisibleShiftLock()
-                end
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                UpdatePlayButtonStatus()
-                return
+                break
             end
-            
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then
+
+            local frame = recording[nextFrame]
+            if not frame then
                 IsPlaying = false
-                if wasShiftLockEnabled and not ShiftLockEnabled then
-                    ShiftLockEnabled = true
-                    EnableVisibleShiftLock()
-                end
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                UpdatePlayButtonStatus()
-                return
+                break
             end
 
-            -- Fixed timestep accumulator (v2.1 style)
-            playbackAccumulator = playbackAccumulator + deltaTime
+            -- ⭐⭐ LANGSUNG APPLY TANPA TASK.SPAWN ⭐⭐
+            hrp.CFrame = GetFrameCFrame(frame)
+            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
-            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
-                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            if hum then
+                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                hum.AutoRotate = false
                 
-                -- Advance frames until we catch up with time
-                local nextFrame = currentPlaybackFrame
-                while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
-                    nextFrame = nextFrame + 1
-                end
-
-                if nextFrame >= #recording then
-                    IsPlaying = false
-                    if wasShiftLockEnabled and not ShiftLockEnabled then
-                        ShiftLockEnabled = true
-                        EnableVisibleShiftLock()
-                    end
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    PlaySound("Success")
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                    UpdatePlayButtonStatus()
-                    return
-                end
-
-                local frame = recording[nextFrame]
-                if not frame then
-                    IsPlaying = false
-                    if wasShiftLockEnabled and not ShiftLockEnabled then
-                        ShiftLockEnabled = true
-                        EnableVisibleShiftLock()
-                    end
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                    UpdatePlayButtonStatus()
-                    return
-                end
-
-                -- ⭐ PURE v2.1 STYLE APPLICATION - NO FILTERING! ⭐
-                task.spawn(function()
-                    local char = player.Character
-                    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-                    
-                    local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    
-                    if not hrp or not hum then return end
-                    
-                    -- Direct CFrame + Velocity application (NO checks, NO filtering!)
-                    hrp.CFrame = GetFrameCFrame(frame)
-                    hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                    
-                    -- Simple state management (v2.1 style)
-                    if hum then
-                        hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                        hum.AutoRotate = false
-                        
-                        local moveState = frame.MoveState
-                        local stateTime = tick()
-                        
-                        if moveState == "Jumping" then
-                            if lastPlaybackState ~= "Jumping" then
-                                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                lastPlaybackState = "Jumping"
-                                lastStateChangeTime = stateTime
-                            end
-                        elseif moveState == "Falling" then
-                            if lastPlaybackState ~= "Falling" then
-                                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                lastPlaybackState = "Falling"
-                                lastStateChangeTime = stateTime
-                            end
-                        elseif moveState == "Climbing" then
-                            if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                lastPlaybackState = moveState
-                                lastStateChangeTime = stateTime
-                                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                hum.PlatformStand = false
-                                hum.AutoRotate = false
-                            end
-                        elseif moveState == "Swimming" then
-                            if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                lastPlaybackState = moveState
-                                lastStateChangeTime = stateTime
-                                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            end
-                        else
-                            if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                lastPlaybackState = moveState
-                                lastStateChangeTime = stateTime
-                                hum:ChangeState(Enum.HumanoidStateType.Running)
-                            end
-                        end
-                    end
-                    
-                    if ShiftLockEnabled then
-                        ApplyVisibleShiftLock()
-                    end
-                end)
+                local moveState = frame.MoveState
+                local stateTime = tick()
                 
-                currentPlaybackFrame = nextFrame
+                if moveState == "Jumping" then
+                    if lastPlaybackState ~= "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        lastPlaybackState = "Jumping"
+                        lastStateChangeTime = stateTime
+                    end
+                elseif moveState == "Falling" then
+                    if lastPlaybackState ~= "Falling" then
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        lastPlaybackState = "Falling"
+                        lastStateChangeTime = stateTime
+                    end
+                elseif moveState == "Climbing" then
+                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                        lastPlaybackState = moveState
+                        lastStateChangeTime = stateTime
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                    end
+                elseif moveState == "Swimming" then
+                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                        lastPlaybackState = moveState
+                        lastStateChangeTime = stateTime
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    end
+                else
+                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                        lastPlaybackState = moveState
+                        lastStateChangeTime = stateTime
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
             end
-        end)
+            
+            if ShiftLockEnabled then
+                ApplyVisibleShiftLock()
+            end
+            
+            currentPlaybackFrame = nextFrame
+        end
     end)
+end)
     
     AddConnection(playbackConnection)
     UpdatePlayButtonStatus()
