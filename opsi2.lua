@@ -748,29 +748,14 @@ end
 local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     if not hum then return lastState, lastStateTime end
     
-    -- ✅ FIX: Jika blend frame, paksa ke Running state
-    if frame.IsBlendFrame then
-        if hum:GetState() ~= Enum.HumanoidStateType.Running then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-        return "Grounded", tick()
-    end
-    
     local moveState = frame.MoveState
     local frameVelocity = GetFrameVelocity(frame)
     local currentTime = tick()
     
     local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
+    local isFallingByVelocity = frameVelocity.Y < -5
     
-    if moveState == "Climbing" then
-        if lastState ~= "Climbing" then
-            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-            hum.PlatformStand = false
-            hum.AutoRotate = false
-            return "Climbing", currentTime
-        end
-    elseif moveState == "Jumping" or isJumpingByVelocity then
+    if moveState == "Jumping" or isJumpingByVelocity then
         if lastState ~= "Jumping" then
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
             return "Jumping", currentTime
@@ -780,15 +765,17 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
             hum:ChangeState(Enum.HumanoidStateType.Freefall)
             return "Falling", currentTime
         end
-    elseif moveState == "Swimming" then
-        if lastState ~= "Swimming" then
-            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            return "Swimming", currentTime
-        end
     else
         if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-            hum.PlatformStand = false  -- ✅ FIX: Safety reset
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                hum.AutoRotate = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
             return moveState, currentTime
         end
     end
@@ -1815,62 +1802,56 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
-            -- ✅ FIX: RESET HUMANOID STATE SEBELUM RESUME
-            if hum then
-                hum.PlatformStand = false
-                hum.Sit = false
-                hum.AutoRotate = true
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
+            local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
+            local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
             
-            if hrp then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-            end
-            
-            task.wait(0.1)  -- ✅ Beri waktu state settle
-            
-            local currentPos = hrp.Position
-            local currentState = GetCurrentMoveState(hum)
-            
-            -- Potong frames setelah timeline position
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
                     table.insert(newFrames, StudioCurrentRecording.Frames[i])
                 end
                 StudioCurrentRecording.Frames = newFrames
+                
+                if #StudioCurrentRecording.Frames > 0 then
+                    local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                    StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+                end
             end
             
-            -- SMOOTH RESUME SYSTEM
-            if #StudioCurrentRecording.Frames > 0 then
+            if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
                 local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local currentPos = hrp.Position
                 local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-                local distance = (currentPos - lastPos).Magnitude
                 
-                -- ✅ FIX: Paksa state ke Grounded untuk resume
-                local safeResumeState = "Grounded"
-                local blendFrames = CreateResumeBlendFrames(lastFrame, currentPos, safeResumeState, RESUME_BLEND_FRAMES)
-                
-                for _, blendFrame in ipairs(blendFrames) do
-                    table.insert(StudioCurrentRecording.Frames, blendFrame)
+                if (currentPos - lastPos).Magnitude > 0.5 then
+                    for i = 1, INTERPOLATION_LOOKAHEAD do
+                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                        local interpPos = lastPos:Lerp(currentPos, alpha)
+                        
+                        local interpFrame = {
+                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                            LookVector = lastFrame.LookVector,
+                            UpVector = lastFrame.UpVector,
+                            Velocity = lastFrame.Velocity,
+                            MoveState = lastState,
+                            WalkSpeed = lastFrame.WalkSpeed,
+                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            IsInterpolated = true
+                        }
+                        table.insert(StudioCurrentRecording.Frames, interpFrame)
+                    end
+                    
+                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 end
-                
-                print(string.format("✅ Smooth resume: %d blend frames created (distance: %.2f studs)", #blendFrames, distance))
-                
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
             end
             
             IsTimelineMode = false
             lastStudioRecordTime = tick()
             lastStudioRecordPos = hrp.Position
             
-            -- ✅ FIX: PASTIKAN HUMANOID READY
             if hum then
                 hum.WalkSpeed = CurrentWalkSpeed
                 hum.AutoRotate = true
-                hum.PlatformStand = false
             end
             
             UpdateStudioUI()
@@ -3015,10 +2996,3 @@ task.spawn(function()
     PlaySound("Success")
 end)
 
-print("✅ ByaruL Recorder v3.3 - Ultimate Enhanced Edition!")
-print("📌 Velocity Scaling System | Smooth Interpolation")
-print("🎯 Fixed Merged Replay System | Enhanced Climbing State")
-print("🔄 Network Synchronized ShiftLock | Visible to Others")
-print("💾 Enhanced State Management | Stable on Uneven Surfaces")
-print("⚡ All Systems Fixed & Optimized | No Jitter Guaranteed")
-print("🔧 All ByaruL Systems: FULLY FUNCTIONAL ✓")
