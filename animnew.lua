@@ -1,4 +1,3 @@
-
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -22,8 +21,6 @@ end
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.012
-local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -90,8 +87,6 @@ local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
-local lastPlaybackState = nil
-local lastStateChangeTime = 0
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
@@ -123,6 +118,7 @@ local titlePulseConnection = nil
 local PathHasBeenUsed = {}
 local PathsHiddenOnce = false
 local LastSafeFrameBeforeFall = 0
+local IsResumeMode = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -776,7 +772,7 @@ local function CheckIfPathUsed(recordingName)
     end
 end
 
--- ========= NEW: SMOOTH BLEND RESUME SYSTEM (v2.1 STYLE) =========
+-- ========= IMPROVED SMOOTH BLEND RESUME SYSTEM =========
 local function CreateSmoothBlendFrames(lastFrame, currentPos, currentCFrame, numFrames)
     local blendFrames = {}
     local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
@@ -812,6 +808,261 @@ local function CreateSmoothBlendFrames(lastFrame, currentPos, currentCFrame, num
         })
     end
     return blendFrames
+end
+
+-- ========= IMPROVED SMART PREV SYSTEM =========
+local function SmartPrevToSafePosition()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                return
+            end
+            
+            -- Emergency upright first
+            EmergencyUpright(char)
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            -- Cari safe frame terakhir (bukan falling)
+            local targetFrameIndex = math.max(1, LastSafeFrameBeforeFall)
+            
+            if targetFrameIndex <= 0 or targetFrameIndex > #StudioCurrentRecording.Frames then
+                targetFrameIndex = math.max(1, #StudioCurrentRecording.Frames - 10)
+            end
+            
+            -- Pastikan frame target bukan falling state
+            for i = targetFrameIndex, 1, -1 do
+                local frame = StudioCurrentRecording.Frames[i]
+                if frame and frame.MoveState ~= "Falling" then
+                    targetFrameIndex = i
+                    break
+                end
+            end
+            
+            local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
+            if not safeFrame then
+                PlaySound("Error")
+                return
+            end
+            
+            -- Potong recording HANYA sampai safe frame
+            local newFrames = {}
+            for i = 1, targetFrameIndex do
+                table.insert(newFrames, StudioCurrentRecording.Frames[i])
+            end
+            
+            -- Simpan current position & CFrame untuk blending
+            local currentPos = hrp.Position
+            local currentCFrame = hrp.CFrame
+            
+            -- Teleport ke safe position
+            local safeCFrame = GetFrameCFrame(safeFrame)
+            hrp.CFrame = safeCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            task.wait(0.05)
+            
+            -- Create smooth blend frames dari safe position ke current position
+            local blendFrames = CreateSmoothBlendFrames(safeFrame, currentPos, currentCFrame, BLEND_FRAMES_COUNT)
+            
+            -- Append blend frames
+            for _, blendFrame in ipairs(blendFrames) do
+                table.insert(newFrames, blendFrame)
+            end
+            
+            -- Update recording dengan frames yang sudah di-cut + blend
+            StudioCurrentRecording.Frames = newFrames
+            
+            -- Update timeline position
+            TimelinePosition = #newFrames
+            CurrentTimelineFrame = #newFrames
+            
+            -- Reset safe frame tracker
+            LastSafeFrameBeforeFall = #newFrames
+            
+            -- Update start time untuk continuation
+            if #newFrames > 0 then
+                local lastFrame = newFrames[#newFrames]
+                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+            end
+            
+            -- Enable recording mode lagi
+            IsTimelineMode = false
+            IsResumeMode = true
+            lastStudioRecordTime = tick()
+            lastStudioRecordPos = hrp.Position
+            
+            -- Restore humanoid to recording state
+            if hum then
+                hum.WalkSpeed = CurrentWalkSpeed
+                hum.AutoRotate = true
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+            
+            UpdateStudioUI()
+            PlaySound("Success")
+            
+            print(string.format("✅ Smart Prev: Teleported to safe frame %d, removed falling moments, added %d blend frames", targetFrameIndex, BLEND_FRAMES_COUNT))
+        end)
+    end)
+end
+
+-- ========= IMPROVED RESUME SYSTEM =========
+local function ResumeStudioRecording()
+    if not StudioCurrentRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                return
+            end
+            
+            EmergencyUpright(char)
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local currentPos = hrp.Position
+            local currentCFrame = hrp.CFrame
+            
+            -- Potong frames setelah timeline position
+            local cutFrameIndex = TimelinePosition
+            if cutFrameIndex <= 0 or cutFrameIndex > #StudioCurrentRecording.Frames then
+                cutFrameIndex = #StudioCurrentRecording.Frames
+            end
+            
+            local newFrames = {}
+            for i = 1, cutFrameIndex do
+                table.insert(newFrames, StudioCurrentRecording.Frames[i])
+            end
+            
+            -- Create blend frames untuk smooth transition
+            if #newFrames > 0 then
+                local lastFrame = newFrames[#newFrames]
+                local blendFrames = CreateSmoothBlendFrames(lastFrame, currentPos, currentCFrame, BLEND_FRAMES_COUNT)
+                
+                for _, blendFrame in ipairs(blendFrames) do
+                    table.insert(newFrames, blendFrame)
+                end
+                
+                print(string.format("✅ Resume: From frame %d, added %d blend frames", cutFrameIndex, BLEND_FRAMES_COUNT))
+                
+                -- Update recording
+                StudioCurrentRecording.Frames = newFrames
+                
+                -- Update timeline position
+                TimelinePosition = #newFrames
+                CurrentTimelineFrame = #newFrames
+                
+                -- Update start time untuk continuation
+                local lastFrame = newFrames[#newFrames]
+                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+            end
+            
+            -- Start recording baru
+            StudioIsRecording = true
+            IsTimelineMode = false
+            IsResumeMode = true
+            lastStudioRecordTime = tick()
+            lastStudioRecordPos = hrp.Position
+            
+            if hum then
+                hum.WalkSpeed = CurrentWalkSpeed
+                hum.AutoRotate = true
+            end
+            
+            -- Update UI
+            StartBtn.Text = "STOP"
+            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            
+            UpdateStudioUI()
+            PlaySound("Success")
+            
+            -- Restart recording connection
+            if recordConnection then
+                recordConnection:Disconnect()
+                recordConnection = nil
+            end
+            
+            StartStudioRecordingConnection()
+        end)
+    end)
+end
+
+-- ========= IMPROVED RECORDING SYSTEM =========
+local function StartStudioRecordingConnection()
+    if recordConnection then
+        recordConnection:Disconnect()
+        recordConnection = nil
+    end
+    
+    recordConnection = RunService.Heartbeat:Connect(function()
+        task.spawn(function()
+            pcall(function()
+                local char = player.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                    return
+                end
+                
+                local hrp = char.HumanoidRootPart
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                
+                if IsTimelineMode then
+                    return
+                end
+                
+                local now = tick()
+                if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                
+                local currentPos = hrp.Position
+                local currentVelocity = hrp.AssemblyLinearVelocity
+                
+                if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                    lastStudioRecordTime = now
+                    return
+                end
+                
+                local moveState = GetCurrentMoveState(hum)
+                
+                -- Track safe frames (not falling) - IMPROVED
+                if moveState == "Grounded" or moveState == "Running" or moveState == "Climbing" or moveState == "Swimming" then
+                    LastSafeFrameBeforeFall = #StudioCurrentRecording.Frames
+                end
+                
+                local cf = hrp.CFrame
+                table.insert(StudioCurrentRecording.Frames, {
+                    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                    MoveState = moveState,
+                    WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
+                    Timestamp = now - StudioCurrentRecording.StartTime
+                })
+                
+                lastStudioRecordTime = now
+                lastStudioRecordPos = currentPos
+                CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                TimelinePosition = CurrentTimelineFrame
+                
+                UpdateStudioUI()
+            end)
+        end)
+    end)
+    AddConnection(recordConnection)
 end
 
 -- ========= GUI CREATION =========
@@ -1471,98 +1722,7 @@ local function UpdateStudioUI()
     end)
 end
 
--- ========= NEW: SMART PREV (TELEPORT TO SAFE + BLEND RESUME) =========
-local function SmartPrevToSafePosition()
-    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
-        PlaySound("Error")
-        return
-    end
-    
-    task.spawn(function()
-        pcall(function()
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                PlaySound("Error")
-                return
-            end
-            
-            -- Emergency upright first
-            EmergencyUpright(char)
-            
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            
-            -- Teleport ke safe position (LastSafeFrameBeforeFall)
-            local targetFrameIndex = math.max(1, LastSafeFrameBeforeFall)
-            
-            if targetFrameIndex >= #StudioCurrentRecording.Frames then
-                targetFrameIndex = math.max(1, #StudioCurrentRecording.Frames - 1)
-            end
-            
-            local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
-            if not safeFrame then
-                PlaySound("Error")
-                return
-            end
-            
-            -- Cut recording di safe position
-            local newFrames = {}
-            for i = 1, targetFrameIndex do
-                table.insert(newFrames, StudioCurrentRecording.Frames[i])
-            end
-            
-            -- Simpan current position & CFrame untuk blending
-            local currentPos = hrp.Position
-            local currentCFrame = hrp.CFrame
-            
-            -- Teleport ke safe position
-            local safeCFrame = GetFrameCFrame(safeFrame)
-            hrp.CFrame = safeCFrame
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            
-            task.wait(0.05)
-            
-            -- Create smooth blend frames dari safe position ke current recording continuation
-            local blendFrames = CreateSmoothBlendFrames(safeFrame, currentPos, currentCFrame, BLEND_FRAMES_COUNT)
-            
-            -- Append blend frames
-            for _, blendFrame in ipairs(blendFrames) do
-                table.insert(newFrames, blendFrame)
-            end
-            
-            -- Update recording dengan frames yang sudah di-cut + blend
-            StudioCurrentRecording.Frames = newFrames
-            
-            -- Update timeline position
-            TimelinePosition = #newFrames
-            CurrentTimelineFrame = #newFrames
-            
-            -- Update start time untuk continuation
-            if #newFrames > 0 then
-                local lastFrame = newFrames[#newFrames]
-                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
-            end
-            
-            -- Enable recording mode lagi (bukan timeline mode)
-            IsTimelineMode = false
-            lastStudioRecordTime = tick()
-            lastStudioRecordPos = hrp.Position
-            
-            -- Restore humanoid to recording state
-            if hum then
-                hum.WalkSpeed = CurrentWalkSpeed
-                hum.AutoRotate = true
-            end
-            
-            UpdateStudioUI()
-            PlaySound("Success")
-            
-            print(string.format("✅ Smart Prev: Teleported to frame %d, added %d blend frames", targetFrameIndex, BLEND_FRAMES_COUNT))
-        end)
-    end)
-end
-
+-- ========= IMPROVED START STUDIO RECORDING =========
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
@@ -1578,72 +1738,24 @@ local function StartStudioRecording()
             
             StudioIsRecording = true
             IsTimelineMode = false
-            StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+            IsResumeMode = false
+            
+            -- Jika resume mode, jangan reset frames
+            if not IsResumeMode then
+                StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+            end
+            
             lastStudioRecordTime = 0
             lastStudioRecordPos = nil
-            CurrentTimelineFrame = 0
-            TimelinePosition = 0
-            LastSafeFrameBeforeFall = 0
+            CurrentTimelineFrame = #StudioCurrentRecording.Frames
+            TimelinePosition = CurrentTimelineFrame
             
             StartBtn.Text = "STOP"
             StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
             
             PlaySound("RecordStart")
             
-            recordConnection = RunService.Heartbeat:Connect(function()
-                task.spawn(function()
-                    pcall(function()
-                        local char = player.Character
-                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                            return
-                        end
-                        
-                        local hrp = char.HumanoidRootPart
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        
-                        if IsTimelineMode then
-                            return
-                        end
-                        
-                        local now = tick()
-                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-                        
-                        local currentPos = hrp.Position
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        
-                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                            lastStudioRecordTime = now
-                            return
-                        end
-                        
-                        local moveState = GetCurrentMoveState(hum)
-                        
-                        -- Track safe frames (not falling)
-                        if moveState == "Grounded" or moveState == "Running" or moveState == "Climbing" then
-                            LastSafeFrameBeforeFall = #StudioCurrentRecording.Frames
-                        end
-                        
-                        local cf = hrp.CFrame
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                            MoveState = moveState,
-                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
-                            Timestamp = now - StudioCurrentRecording.StartTime
-                        })
-                        
-                        lastStudioRecordTime = now
-                        lastStudioRecordPos = currentPos
-                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                        TimelinePosition = CurrentTimelineFrame
-                        
-                        UpdateStudioUI()
-                    end)
-                end)
-            end)
-            AddConnection(recordConnection)
+            StartStudioRecordingConnection()
         end)
     end)
 end
@@ -1651,6 +1763,7 @@ end
 local function StopStudioRecording()
     StudioIsRecording = false
     IsTimelineMode = false
+    IsResumeMode = false
     
     task.spawn(function()
         pcall(function()
@@ -1664,71 +1777,6 @@ local function StopStudioRecording()
             
             PlaySound("RecordStop")
             UpdateStudioUI()
-        end)
-    end)
-end
-
-local function ResumeStudioRecording()
-    if not StudioIsRecording then
-        PlaySound("Error")
-        return
-    end
-    
-    task.spawn(function()
-        pcall(function()
-            if #StudioCurrentRecording.Frames == 0 then
-                PlaySound("Error")
-                return
-            end
-            
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                PlaySound("Error")
-                return
-            end
-            
-            EmergencyUpright(char)
-            
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local currentPos = hrp.Position
-            local currentCFrame = hrp.CFrame
-            
-            -- Cut frames after timeline position
-            if TimelinePosition < #StudioCurrentRecording.Frames then
-                local newFrames = {}
-                for i = 1, TimelinePosition do
-                    table.insert(newFrames, StudioCurrentRecording.Frames[i])
-                end
-                StudioCurrentRecording.Frames = newFrames
-            end
-            
-            -- Create blend frames untuk smooth transition
-            if #StudioCurrentRecording.Frames > 0 then
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                local blendFrames = CreateSmoothBlendFrames(lastFrame, currentPos, currentCFrame, BLEND_FRAMES_COUNT)
-                
-                for _, blendFrame in ipairs(blendFrames) do
-                    table.insert(StudioCurrentRecording.Frames, blendFrame)
-                end
-                
-                print(string.format("✅ Resume: Added %d blend frames", BLEND_FRAMES_COUNT))
-                
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
-            end
-            
-            IsTimelineMode = false
-            lastStudioRecordTime = tick()
-            lastStudioRecordPos = hrp.Position
-            
-            if hum then
-                hum.WalkSpeed = CurrentWalkSpeed
-                hum.AutoRotate = true
-            end
-            
-            UpdateStudioUI()
-            PlaySound("Success")
         end)
     end)
 end
@@ -1754,6 +1802,7 @@ local function SaveStudioRecording()
             
             StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
             IsTimelineMode = false
+            IsResumeMode = false
             CurrentTimelineFrame = 0
             TimelinePosition = 0
             LastSafeFrameBeforeFall = 0
@@ -1954,7 +2003,7 @@ local function VisualizeAllPaths()
     end)
 end
 
--- ========= CORE PLAYBACK SYSTEM (v2.1 SMOOTH STYLE - NO FILTERING!) =========
+-- ========= IMPROVED CORE PLAYBACK SYSTEM =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2032,8 +2081,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
 
     SaveHumanoidState()
     
@@ -2044,7 +2091,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
 
-    -- ========= v2.1 STYLE PLAYBACK (PURE, NO FILTERING!) =========
+    -- ========= IMPROVED PLAYBACK SYSTEM =========
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
     pcall(function()
         if not IsPlaying then
@@ -2095,26 +2142,26 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
             hrp.CFrame = GetFrameCFrame(frame)
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
-if hum then
-    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-    hum.AutoRotate = false
-    
-    local moveState = frame.MoveState
-    
-    -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
-    if moveState == "Jumping" then
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-    elseif moveState == "Falling" then
-        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-    elseif moveState == "Climbing" then
-        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-        hum.PlatformStand = false
-    elseif moveState == "Swimming" then
-        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-    else
-        hum:ChangeState(Enum.HumanoidStateType.Running)
-    end
-end
+            if hum then
+                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                hum.AutoRotate = false
+                
+                local moveState = frame.MoveState
+                
+                -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
+                if moveState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                elseif moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    hum.PlatformStand = false
+                elseif moveState == "Swimming" then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end
             
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
@@ -2140,7 +2187,7 @@ function PlayRecording(name)
     end
 end
 
--- ========= AUTO LOOP SYSTEM (v2.1 STYLE + v3.3 FEATURES) =========
+-- ========= IMPROVED AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2173,8 +2220,6 @@ function StartAutoLoopAll()
     
     IsAutoLoopPlaying = true
     LoopRetryAttempts = 0
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2255,14 +2300,11 @@ function StartAutoLoopAll()
             local playbackStartTime = tick()
             local loopAccumulator = 0
             
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            
             SaveHumanoidState()
             
             IsLoopTransitioning = false
             
-            -- ========= v2.1 STYLE LOOP PLAYBACK (PURE, NO FILTERING!) =========
+            -- ========= IMPROVED LOOP PLAYBACK =========
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
                 if not IsCharacterReady() then
@@ -2277,8 +2319,6 @@ function StartAutoLoopAll()
                             
                             currentFrame = 1
                             playbackStartTime = tick()
-                            lastPlaybackState = nil
-                            lastStateChangeTime = 0
                             loopAccumulator = 0
                             
                             SaveHumanoidState()
@@ -2317,8 +2357,6 @@ function StartAutoLoopAll()
                         
                         currentFrame = 1
                         playbackStartTime = tick()
-                        lastPlaybackState = nil
-                        lastStateChangeTime = 0
                         loopAccumulator = 0
                         
                         SaveHumanoidState()
@@ -2372,25 +2410,25 @@ function StartAutoLoopAll()
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
                             if hum then
-    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-    hum.AutoRotate = false
-    
-    local moveState = frame.MoveState
-    
-    -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
-    if moveState == "Jumping" then
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-    elseif moveState == "Falling" then
-        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-    elseif moveState == "Climbing" then
-        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-        hum.PlatformStand = false
-    elseif moveState == "Swimming" then
-        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-    else
-        hum:ChangeState(Enum.HumanoidStateType.Running)
-    end
-end
+                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                                hum.AutoRotate = false
+                                
+                                local moveState = frame.MoveState
+                                
+                                -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
+                                if moveState == "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                elseif moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                    hum.PlatformStand = false
+                                elseif moveState == "Swimming" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                else
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                end
+                            end
             
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
@@ -2405,8 +2443,6 @@ end
             end
             
             RestoreFullUserControl()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
             
             if playbackCompleted then
                 PlaySound("Success")
@@ -2450,8 +2486,6 @@ end
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
-        lastPlaybackState = nil
-        lastStateChangeTime = 0
         PlayBtnControl.Text = "PLAY"
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         UpdatePlayButtonStatus()
@@ -2463,8 +2497,6 @@ function StopAutoLoopAll()
     IsAutoLoopPlaying = false
     IsPlaying = false
     IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     if loopConnection then
         pcall(function() task.cancel(loopConnection) end)
@@ -2501,8 +2533,6 @@ function StopPlayback()
     IsPlaying = false
     IsAutoLoopPlaying = false
     IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     LastPausePosition = nil
     LastPauseRecording = nil
     
@@ -2814,10 +2844,10 @@ task.spawn(function()
     PlaySound("Success")
 end)
 
-print("✅ ByaruL Recorder v3.3H (HYBRID) - Loaded Successfully!")
-print("🎯 Features: v3.3 GUI + v2.1 SMOOTH Playback")
-print("📌 NEW: Smart Prev (Teleport to Safe + Blend Resume)")
-print("⚡ Core Playback: NO FILTERING - Pure v2.1 Style!")
-print("🔄 Auto Loop: Full v3.3 Features (Respawn, Reset, etc)")
-print("✨ Recording Studio: Smart Prev with Smooth Blending")
+print("✅ ByaruL Recorder v3.3H (IMPROVED) - Loaded Successfully!")
+print("🎯 Features: IMPROVED Smart Prev + Consistent Animations")
+print("📌 NEW: Falling moments REMOVED after Safe Pos + Resume")
+print("⚡ Core Playback: NO cooldown checks - Pure responsive!")
+print("🔄 Auto Loop: Optimized performance")
+print("✨ Recording Studio: Smart resume with falling protection")
 print("🚀 All Systems: OPTIMIZED & STABLE!")
