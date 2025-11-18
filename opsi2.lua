@@ -19,8 +19,8 @@ end
 
 -- ========= OPTIMIZED CONFIGURATION FOR NATURAL MOVEMENT =========
 local RECORDING_FPS = 60
-local MAX_FRAMES = 15000
-local MIN_DISTANCE_THRESHOLD = 0.015
+local MAX_FRAMES = 30000
+local MIN_DISTANCE_THRESHOLD = 0.012
 local TIMELINE_STEP_SECONDS = 0.15
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -826,28 +826,22 @@ local function NaturalApplyFrame(hrp, hum, frame)
     local currentPos = hrp.Position
     local targetPos = targetCFrame.Position
     
-    -- Terrain adaptation: Filter micro-movements di uneven surface
-    local distance = (currentPos - targetPos).Magnitude
+    local moveDistance = (currentPos - targetPos).Magnitude
     
-    if distance < TERRAIN_FILTER_THRESHOLD then
-        -- Untuk micro-movement: maintain velocity saja, biarkan physics handle terrain
+    -- 🎯 MAGIC FIX: IGNORE SEMUA MICRO-MOVEMENT
+    if moveDistance < 0.1 then  -- Adjust angka ini sesuai kebutuhan
         hrp.AssemblyLinearVelocity = targetVelocity
-        terrainAdaptationFrames = terrainAdaptationFrames + 1
-    else
-        -- Untuk significant movement: apply position + velocity
-        hrp.CFrame = targetCFrame
-        hrp.AssemblyLinearVelocity = targetVelocity
-        terrainAdaptationFrames = 0
-        lastStablePosition = targetPos
+        return  -- ⚡ SKIP POSITION CHANGE!
     end
     
+    -- Apply significant movement saja
+    hrp.CFrame = targetCFrame
+    hrp.AssemblyLinearVelocity = targetVelocity
     hrp.AssemblyAngularVelocity = Vector3.zero
     
-    -- Apply WalkSpeed dengan natural adaptation
     hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
     hum.AutoRotate = false
     
-    -- Apply ShiftLock jika enabled
     if ShiftLockEnabled then
         ApplyVisibleShiftLock()
     end
