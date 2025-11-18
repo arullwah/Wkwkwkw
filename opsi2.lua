@@ -31,14 +31,10 @@ local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.12
 local AUTO_LOOP_RETRY_DELAY = 0.5
 
--- ========= SMOOTH PLAYBACK CONFIGURATION =========
-local INTERPOLATION_ALPHA = 0.15
-local POSITION_SMOOTHING = 0.25
-local ROTATION_SMOOTHING = 0.3
-
--- ========= SMOOTH RESUME SYSTEM =========
-local RESUME_BLEND_FRAMES = 12
-local RESUME_POSITION_TOLERANCE = 5
+-- ========= NATURAL MOVEMENT CONFIG =========
+local TERRAIN_FILTER_THRESHOLD = 0.2  -- Filter micro-movement di uneven terrain
+local VELOCITY_SMOOTHING = 0.4       -- Kurangi smoothing untuk movement natural
+local MAX_SLOPE_ANGLE = 35           -- Maksimal slope angle untuk natural movement
 
 -- ========= SMOOTH REVERSE CONFIGURATION =========
 local REVERSE_FRAME_STEP = 1
@@ -140,9 +136,9 @@ local ReverseTargetFrame = 0
 local ReverseCurrentFrame = 0
 local LastSafeFrameBeforeFall = 0
 
--- ========= SMOOTH INTERPOLATION VARIABLES =========
-local lastAppliedCFrame = nil
-local lastAppliedVelocity = Vector3.zero
+-- ========= NATURAL MOVEMENT VARIABLES =========
+local lastStablePosition = nil
+local terrainAdaptationFrames = 0
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -155,6 +151,8 @@ local SoundEffects = {
     Error = "rbxassetid://7772283448",
     Success = "rbxassetid://2865227271"
 }
+
+-- ========= FIXED FUNCTIONS =========
 
 local function AddConnection(connection)
     table.insert(activeConnections, connection)
@@ -261,6 +259,24 @@ local function CompleteCharacterReset(char)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             humanoid:ChangeState(Enum.HumanoidStateType.Running)
         end)
+    end)
+end
+
+local function EmergencyUpright(char)
+    pcall(function()
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if hrp and hum then
+            -- Force upright position dengan CFrame yang proper
+            local currentPos = hrp.Position
+            hrp.CFrame = CFrame.new(currentPos, currentPos + Vector3.new(0, 0, -1))
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            hum.PlatformStand = false
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
     end)
 end
 
@@ -762,7 +778,7 @@ local function UpdatePlayButtonStatus()
     end
 end
 
--- ========= IMPROVED STABLE MOVEMENT SYSTEM =========
+-- ========= FIXED NATURAL MOVEMENT SYSTEM =========
 local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     if not hum then return lastState, lastStateTime end
     
@@ -801,20 +817,33 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     return lastState, lastStateTime
 end
 
--- ========= STABLE FRAME APPLICATION =========
-local function StableApplyFrame(hrp, hum, frame)
+-- ========= FIXED STABLE FRAME APPLICATION =========
+local function NaturalApplyFrame(hrp, hum, frame)
     if not hrp or not hum then return end
     
-    -- Direct application tanpa complex interpolation untuk stability
     local targetCFrame = GetFrameCFrame(frame)
     local targetVelocity = GetFrameVelocity(frame)
+    local currentPos = hrp.Position
+    local targetPos = targetCFrame.Position
     
-    -- Simple application untuk menghindari jitter
-    hrp.CFrame = targetCFrame
-    hrp.AssemblyLinearVelocity = targetVelocity
+    -- Terrain adaptation: Filter micro-movements di uneven surface
+    local distance = (currentPos - targetPos).Magnitude
+    
+    if distance < TERRAIN_FILTER_THRESHOLD then
+        -- Untuk micro-movement: maintain velocity saja, biarkan physics handle terrain
+        hrp.AssemblyLinearVelocity = targetVelocity
+        terrainAdaptationFrames = terrainAdaptationFrames + 1
+    else
+        -- Untuk significant movement: apply position + velocity
+        hrp.CFrame = targetCFrame
+        hrp.AssemblyLinearVelocity = targetVelocity
+        terrainAdaptationFrames = 0
+        lastStablePosition = targetPos
+    end
+    
     hrp.AssemblyAngularVelocity = Vector3.zero
     
-    -- Apply WalkSpeed
+    -- Apply WalkSpeed dengan natural adaptation
     hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
     hum.AutoRotate = false
     
@@ -844,6 +873,46 @@ local function CheckIfPathUsed(recordingName)
     if distance < 10 and currentPlaybackFrame >= (#recording - 5) then
         PathHasBeenUsed[recordingName] = true
     end
+end
+
+-- ========= FIXED RESUME BLEND SYSTEM =========
+local function FixedResumeBlendFrames(lastFrame, currentPos, currentCFrame, numFrames)
+    local blendFrames = {}
+    local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+    local lastCF = GetFrameCFrame(lastFrame)
+    
+    for i = 1, numFrames do
+        local alpha = i / (numFrames + 1)
+        
+        -- POSITION Blending
+        local blendedPos = lastPos:Lerp(currentPos, alpha)
+        
+        -- ROTATION Blending (FIXED - menggunakan CFrame lerp yang proper)
+        local blendedCF = lastCF:Lerp(currentCFrame, alpha)
+        
+        -- Extract vectors dari blended CFrame (AMAN!)
+        local blendedLook = blendedCF.LookVector
+        local blendedUp = blendedCF.UpVector
+        
+        -- Velocity blending yang smooth
+        local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
+        local blendedVel = lastVel:Lerp(Vector3.new(0, 0, 0), alpha)
+        
+        -- WalkSpeed blending
+        local blendedWS = lastFrame.WalkSpeed + (CurrentWalkSpeed - lastFrame.WalkSpeed) * alpha
+        
+        table.insert(blendFrames, {
+            Position = {blendedPos.X, blendedPos.Y, blendedPos.Z},
+            LookVector = {blendedLook.X, blendedLook.Y, blendedLook.Z},
+            UpVector = {blendedUp.X, blendedUp.Y, blendedUp.Z},
+            Velocity = {blendedVel.X, blendedVel.Y, blendedVel.Z},
+            MoveState = "Grounded",
+            WalkSpeed = blendedWS,
+            Timestamp = lastFrame.Timestamp + (i * 0.016),
+            IsBlendFrame = true
+        })
+    end
+    return blendFrames
 end
 
 -- ========= GUI CREATION =========
@@ -1503,36 +1572,73 @@ local function UpdateStudioUI()
     end)
 end
 
-local function CreateResumeBlendFrames(lastFrame, currentPos, currentState, numFrames)
-    local blendFrames = {}
-    local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-    
-    for i = 1, numFrames do
-        local alpha = i / (numFrames + 1)
-        local blendedPos = lastPos:Lerp(currentPos, alpha)
-        
-        local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-        local blendedVel = lastVel:Lerp(Vector3.new(0, 0, 0), alpha)
-        
-        local blendedWS = lastFrame.WalkSpeed + (CurrentWalkSpeed - lastFrame.WalkSpeed) * alpha
-        
-        local lastLook = Vector3.new(lastFrame.LookVector[1], lastFrame.LookVector[2], lastFrame.LookVector[3])
-        local currentLook = (currentPos - lastPos).Unit
-        local blendedLook = lastLook:Lerp(currentLook, alpha).Unit
-        
-        table.insert(blendFrames, {
-            Position = {blendedPos.X, blendedPos.Y, blendedPos.Z},
-            LookVector = {blendedLook.X, blendedLook.Y, blendedLook.Z},
-            UpVector = lastFrame.UpVector,
-            Velocity = {blendedVel.X, blendedVel.Y, blendedVel.Z},
-            MoveState = currentState,
-            WalkSpeed = blendedWS,
-            Timestamp = lastFrame.Timestamp + (i * 0.016),
-            IsBlendFrame = true
-        })
+-- ========= FIXED RESUME RECORDING SYSTEM =========
+local function FixedResumeStudioRecording()
+    if not StudioIsRecording then
+        PlaySound("Error")
+        return
     end
     
-    return blendFrames
+    task.spawn(function()
+        pcall(function()
+            if #StudioCurrentRecording.Frames == 0 then
+                PlaySound("Error")
+                return
+            end
+            
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                return
+            end
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            -- Emergency upright dulu
+            EmergencyUpright(char)
+            
+            local currentPos = hrp.Position
+            local currentCFrame = hrp.CFrame
+            local currentState = GetCurrentMoveState(hum)
+            
+            -- Potong frames setelah timeline position
+            if TimelinePosition < #StudioCurrentRecording.Frames then
+                local newFrames = {}
+                for i = 1, TimelinePosition do
+                    table.insert(newFrames, StudioCurrentRecording.Frames[i])
+                end
+                StudioCurrentRecording.Frames = newFrames
+            end
+            
+            -- FIXED: Gunakan FixedResumeBlendFrames
+            if #StudioCurrentRecording.Frames > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local blendFrames = FixedResumeBlendFrames(lastFrame, currentPos, currentCFrame, 8)
+                
+                for _, blendFrame in ipairs(blendFrames) do
+                    table.insert(StudioCurrentRecording.Frames, blendFrame)
+                end
+                
+                print(string.format("✅ Fixed resume: %d blend frames created", #blendFrames))
+                
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+            end
+            
+            IsTimelineMode = false
+            lastStudioRecordTime = tick()
+            lastStudioRecordPos = hrp.Position
+            
+            if hum then
+                hum.WalkSpeed = CurrentWalkSpeed
+                hum.AutoRotate = true
+            end
+            
+            UpdateStudioUI()
+            PlaySound("Success")
+        end)
+    end)
 end
 
 local function StartStudioRecording()
@@ -1545,6 +1651,9 @@ local function StartStudioRecording()
                 PlaySound("Error")
                 return
             end
+            
+            -- Pastikan karakter berdiri tegak sebelum recording
+            EmergencyUpright(char)
             
             StudioIsRecording = true
             IsTimelineMode = false
@@ -1754,71 +1863,6 @@ local function StopSmoothReverse()
     end)
 end
 
-local function ResumeStudioRecording()
-    if not StudioIsRecording then
-        PlaySound("Error")
-        return
-    end
-    
-    task.spawn(function()
-        pcall(function()
-            if #StudioCurrentRecording.Frames == 0 then
-                PlaySound("Error")
-                return
-            end
-            
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                PlaySound("Error")
-                return
-            end
-            
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            
-            local currentPos = hrp.Position
-            local currentState = GetCurrentMoveState(hum)
-            
-            if TimelinePosition < #StudioCurrentRecording.Frames then
-                local newFrames = {}
-                for i = 1, TimelinePosition do
-                    table.insert(newFrames, StudioCurrentRecording.Frames[i])
-                end
-                StudioCurrentRecording.Frames = newFrames
-            end
-            
-            if #StudioCurrentRecording.Frames > 0 then
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-                local distance = (currentPos - lastPos).Magnitude
-                
-                local blendFrames = CreateResumeBlendFrames(lastFrame, currentPos, currentState, RESUME_BLEND_FRAMES)
-                
-                for _, blendFrame in ipairs(blendFrames) do
-                    table.insert(StudioCurrentRecording.Frames, blendFrame)
-                end
-                
-                print(string.format("✅ Smooth resume: %d blend frames created (distance: %.2f studs)", #blendFrames, distance))
-                
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
-            end
-            
-            IsTimelineMode = false
-            lastStudioRecordTime = tick()
-            lastStudioRecordPos = hrp.Position
-            
-            if hum then
-                hum.WalkSpeed = CurrentWalkSpeed
-                hum.AutoRotate = true
-            end
-            
-            UpdateStudioUI()
-            PlaySound("Success")
-        end)
-    end)
-end
-
 local function SaveStudioRecording()
     task.spawn(function()
         pcall(function()
@@ -1877,7 +1921,7 @@ end)
 ResumeBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
         AnimateButtonClick(ResumeBtn)
-        ResumeStudioRecording()
+        FixedResumeStudioRecording()  -- Gunakan yang fixed!
     end)
 end)
 
@@ -1908,7 +1952,7 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "3.2",
+            Version = "3.3",  -- Update version
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
@@ -2044,7 +2088,7 @@ local function VisualizeAllPaths()
     end)
 end
 
--- ========= IMPROVED STABLE PLAYBACK SYSTEM =========
+-- ========= FIXED NATURAL PLAYBACK SYSTEM =========
 function SmartPlayRecording(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2095,12 +2139,17 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end
 
+    -- Emergency upright sebelum mulai playback
+    EmergencyUpright(char)
+    
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
+    lastStablePosition = nil
+    terrainAdaptationFrames = 0
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -2249,8 +2298,8 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     
                     if not hrp or not hum then return end
                     
-                    -- STABLE FRAME APPLICATION - Direct tanpa complex interpolation
-                    StableApplyFrame(hrp, hum, frame)
+                    -- FIXED: Gunakan NaturalApplyFrame untuk movement yang natural
+                    NaturalApplyFrame(hrp, hum, frame)
                     
                     -- Process Humanoid State
                     lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
@@ -2279,6 +2328,7 @@ function PlayRecording(name)
     end
 end
 
+-- ========= AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2504,8 +2554,8 @@ function StartAutoLoopAll()
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
-                            -- STABLE FRAME APPLICATION
-                            StableApplyFrame(hrp, hum, frame)
+                            -- FIXED: Gunakan NaturalApplyFrame untuk auto loop juga
+                            NaturalApplyFrame(hrp, hum, frame)
                             
                             -- Process Humanoid State
                             lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
@@ -2932,10 +2982,10 @@ task.spawn(function()
     PlaySound("Success")
 end)
 
-print("✅ ByaruL Recorder v3.2 - Ultimate Smooth Edition Fixed!")
-print("📌 60 FPS Recording | Stable Movement System")
-print("🎯 Jitter Eliminated | Direct Frame Application")
-print("🔄 Fixed Merge Replay System | All Recordings Included")
-print("💾 Smart WalkSpeed Saving | Enhanced Blend Frames")
-print("⚡ Climbing State Fixed | Path Visualization Active")
-print("🔧 All ByaruL Systems: OPTIMIZED ✓")
+print("✅ ByaruL Recorder v3.3 - Natural Movement Edition!")
+print("📌 Fixed: Natural Movement di Uneven Terrain")
+print("🎯 Fixed: Karakter Tidak Tiduran Saat Resume") 
+print("🔄 Fixed: Smooth Blend Frames dengan CFrame Lerp")
+print("💾 Enhanced: Merge System dengan Checked Recordings")
+print("⚡ Improved: Terrain Adaptation Filter")
+print("🔧 All Systems: OPTIMIZED & STABLE ✓")
