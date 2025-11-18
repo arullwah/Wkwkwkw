@@ -2095,44 +2095,26 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
             hrp.CFrame = GetFrameCFrame(frame)
             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
             
-            if hum then
-                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                hum.AutoRotate = false
-                
-                local moveState = frame.MoveState
-                local stateTime = tick()
-                
-                if moveState == "Jumping" then
-    -- ⭐⭐ SIMPLE & CONSISTENT: Always trigger jump animation
-    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-    lastPlaybackState = "Jumping"
-    lastStateChangeTime = stateTime
-                elseif moveState == "Falling" then
-    -- ⭐⭐ CONSISTENT FALL ANIMATION
-    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-    lastPlaybackState = "Falling" 
-    lastStateChangeTime = stateTime
-                elseif moveState == "Climbing" then
-                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                        lastPlaybackState = moveState
-                        lastStateChangeTime = stateTime
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    end
-                elseif moveState == "Swimming" then
-                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                        lastPlaybackState = moveState
-                        lastStateChangeTime = stateTime
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    end
-                else
-                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                        lastPlaybackState = moveState
-                        lastStateChangeTime = stateTime
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end
-            end
+if hum then
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    local moveState = frame.MoveState
+    
+    -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
+    if moveState == "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
             
             if ShiftLockEnabled then
                 ApplyVisibleShiftLock()
@@ -2390,44 +2372,25 @@ function StartAutoLoopAll()
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             
                             if hum then
-                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                hum.AutoRotate = false
-                                
-                                local moveState = frame.MoveState
-                                local stateTime = tick()
-                                
-                        if moveState == "Jumping" then
-    -- ⭐⭐ SIMPLE & CONSISTENT: Always trigger jump animation
-    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-    lastPlaybackState = "Jumping"
-    lastStateChangeTime = stateTime
-                      elseif moveState == "Falling" then
-    -- ⭐⭐ CONSISTENT FALL ANIMATION
-    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-    lastPlaybackState = "Falling" 
-    lastStateChangeTime = stateTime
-                                elseif moveState == "Climbing" then
-                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                        lastPlaybackState = moveState
-                                        lastStateChangeTime = stateTime
-                                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                        hum.PlatformStand = false
-                                        hum.AutoRotate = false
-                                    end
-                                elseif moveState == "Swimming" then
-                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                        lastPlaybackState = moveState
-                                        lastStateChangeTime = stateTime
-                                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                    end
-                                else
-                                    if moveState ~= lastPlaybackState and (stateTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                                        lastPlaybackState = moveState
-                                        lastStateChangeTime = stateTime
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                    end
-                                end
-                            end
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    local moveState = frame.MoveState
+    
+    -- ⭐⭐ CONSISTENT ANIMATION: Always trigger state changes ⭐⭐
+    if moveState == "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
             
                             if ShiftLockEnabled then
                                 ApplyVisibleShiftLock()
