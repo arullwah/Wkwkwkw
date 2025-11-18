@@ -44,6 +44,10 @@ local MAX_SLOPE_ANGLE = 35
 local REVERSE_FRAME_STEP = 1
 local REVERSE_ANIMATION_SPEED = 1.0
 
+-- ========= INISIALISASI VARIABEL YANG DIBUTUHKAN =========
+local CheckedRecordings = {}
+local checkpointNames = {}
+
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
     Position = "11",
@@ -1438,16 +1442,31 @@ local function MoveRecordingDown(name)
     end
 end
 
+-- ========= FUNGSI YANG DIBUTUHKAN =========
 local function FormatDuration(seconds)
     local minutes = math.floor(seconds / 60)
     local remainingSeconds = math.floor(seconds % 60)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
+local function PlayRecording(name)
+    if name then
+        local recording = RecordedMovements[name]
+        if recording then
+            PlayFromSpecificFrame(recording, 1, name)
+        end
+    else
+        SmartPlayRecording(50)
+    end
+end
+
 function UpdateRecordList()
     pcall(function()
+        -- Clear existing items
         for _, child in pairs(RecordingsList:GetChildren()) do 
-            if child:IsA("Frame") then child:Destroy() end
+            if child:IsA("Frame") then 
+                child:Destroy() 
+            end
         end
         
         local yPos = 3
@@ -1455,6 +1474,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
+            -- Create item frame
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -1465,6 +1485,7 @@ function UpdateRecordList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            -- Checkbox
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
@@ -1479,12 +1500,13 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
+            -- Name box
             local nameBox = Instance.new("TextBox")
             nameBox.Size = UDim2.new(1, -90, 0, 18)
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
+            nameBox.Text = checkpointNames[name] or "Checkpoint" .. index
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
@@ -1497,12 +1519,13 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
+            -- Info label
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -90, 0, 14)
             infoLabel.Position = UDim2.fromOffset(28, 25)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
-                local totalSeconds = rec[#rec].Timestamp
+                local totalSeconds = rec[#rec].Timestamp or 0
                 infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
             else
                 infoLabel.Text = "🕐 0:00 📊 0 frames"
@@ -1513,6 +1536,7 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
+            -- Play button
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(38, 20)
             playBtn.Position = UDim2.new(1, -79, 0, 5)
@@ -1527,6 +1551,7 @@ function UpdateRecordList()
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
+            -- Delete button
             local delBtn = Instance.new("TextButton")
             delBtn.Size = UDim2.fromOffset(38, 20)
             delBtn.Position = UDim2.new(1, -38, 0, 5)
@@ -1541,6 +1566,7 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
+            -- Up button
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(38, 20)
             upBtn.Position = UDim2.new(1, -79, 0, 30)
@@ -1555,6 +1581,7 @@ function UpdateRecordList()
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
+            -- Down button
             local downBtn = Instance.new("TextButton")
             downBtn.Size = UDim2.fromOffset(38, 20)
             downBtn.Position = UDim2.new(1, -38, 0, 30)
@@ -1569,6 +1596,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ========= EVENT HANDLERS =========
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -1595,9 +1623,10 @@ function UpdateRecordList()
                 RecordedMovements[name] = nil
                 checkpointNames[name] = nil
                 CheckedRecordings[name] = nil
-                PathHasBeenUsed[name] = nil
                 local idx = table.find(RecordingOrder, name)
-                if idx then table.remove(RecordingOrder, idx) end
+                if idx then 
+                    table.remove(RecordingOrder, idx) 
+                end
                 UpdateRecordList()
             end)
             
@@ -1618,6 +1647,7 @@ function UpdateRecordList()
             yPos = yPos + 65
         end
         
+        -- Update canvas size
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
     end)
 end
