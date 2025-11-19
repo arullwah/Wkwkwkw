@@ -2020,78 +2020,126 @@ local function ApplyFrameToCharacter(frame)
 end
 
 local function StartStudioRecording()
-    if StudioIsRecording then return end
+    print("=" .. string.rep("=", 50))
+    print("🔴 RECORDING START - DEBUG MODE")
+    print("=" .. string.rep("=", 50))
     
-    task.spawn(function()
-        pcall(function()
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                PlaySound("Error")
+    if StudioIsRecording then 
+        warn("❌ Already recording!")
+        return 
+    end
+    
+    local char = player.Character
+    print("1. Character check:", char ~= nil)
+    
+    if not char then
+        PlaySound("Error")
+        warn("❌ No character found!")
+        return
+    end
+    
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    
+    print("2. HumanoidRootPart:", hrp ~= nil)
+    print("3. Humanoid:", hum ~= nil)
+    
+    if not hrp or not hum then
+        PlaySound("Error")
+        warn("❌ Missing components!")
+        return
+    end
+    
+    print("4. Initial position:", hrp.Position)
+    print("5. WalkSpeed:", hum.WalkSpeed)
+    
+    StudioIsRecording = true
+    StudioCurrentRecording = {
+        Frames = {}, 
+        StartTime = tick(), 
+        Name = "recording_" .. os.date("%H%M%S")
+    }
+    lastStudioRecordTime = 0
+    lastStudioRecordPos = nil
+    
+    StartBtn.Text = "STOP"
+    StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    
+    print("6. Variables initialized")
+    print("7. Starting Heartbeat connection...")
+    
+    local frameCount = 0
+    
+    recordConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        frameCount = frameCount + 1
+        
+        -- Debug setiap 30 frames
+        if frameCount % 30 == 0 then
+            print("💓 Heartbeat running, frame:", frameCount)
+        end
+        
+        if not StudioIsRecording then 
+            print("⚠️ Recording stopped by flag")
+            return 
+        end
+        
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then 
+            warn("⚠️ Character lost!")
+            return 
+        end
+        
+        local hrp = char.HumanoidRootPart
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        local now = tick()
+        local timeSinceLastFrame = now - lastStudioRecordTime
+        
+        if timeSinceLastFrame < (1 / RECORDING_FPS) then 
+            return 
+        end
+        
+        local currentPos = hrp.Position
+        
+        if lastStudioRecordPos then
+            local distance = (currentPos - lastStudioRecordPos).Magnitude
+            if distance < MIN_DISTANCE_THRESHOLD then
+                lastStudioRecordTime = now
                 return
             end
-            
-            StudioIsRecording = true
-            IsTimelineMode = false
-            StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
-            lastStudioRecordTime = 0
-            lastStudioRecordPos = nil
-            CurrentTimelineFrame = 0
-            TimelinePosition = 0
-            
-            StartBtn.Text = "STOP"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-            
-            PlaySound("Toggle")
-            
-            recordConnection = RunService.Heartbeat:Connect(function()
-                task.spawn(function()
-                    pcall(function()
-                        local char = player.Character
-                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                            return
-                        end
-                        
-                        local hrp = char.HumanoidRootPart
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        
-                        if IsTimelineMode then
-                            return
-                        end
-                        
-                        local now = tick()
-                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-                        
-                        local currentPos = hrp.Position
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        
-                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                            lastStudioRecordTime = now
-                            return
-                        end
-                        
-                        local cf = hrp.CFrame
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                            MoveState = GetCurrentMoveState(hum),
-                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
-                            Timestamp = now - StudioCurrentRecording.StartTime
-                        })
-                        
-                        lastStudioRecordTime = now
-                        lastStudioRecordPos = currentPos
-                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                        TimelinePosition = CurrentTimelineFrame
-                        
-                        UpdateStudioUI()
-                    end)
-                end)
-            end)
-            AddConnection(recordConnection)
-        end)
+        end
+        
+        -- RECORD FRAME
+        local cf = hrp.CFrame
+        local vel = hrp.AssemblyLinearVelocity
+        
+        table.insert(StudioCurrentRecording.Frames, {
+            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+            Velocity = {vel.X, vel.Y, vel.Z},
+            MoveState = GetCurrentMoveState(hum),
+            WalkSpeed = hum.WalkSpeed,
+            Timestamp = now - StudioCurrentRecording.StartTime
+        })
+        
+        lastStudioRecordTime = now
+        lastStudioRecordPos = currentPos
+        
+        -- Debug setiap frame
+        if #StudioCurrentRecording.Frames % 10 == 0 then
+            print("📹 Frame recorded:", #StudioCurrentRecording.Frames, "| Pos:", currentPos)
+        end
     end)
+    
+    AddConnection(recordConnection)
+    
+    print("8. ✅ Recording connection established!")
+    print("=" .. string.rep("=", 50))
+    print("NOW MOVE YOUR CHARACTER!")
+    print("=" .. string.rep("=", 50))
+    
+    PlaySound("Toggle")
 end
 
 local function StopStudioRecording()
