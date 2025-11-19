@@ -39,10 +39,13 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 2
+local INTERPOLATION_LOOKAHEAD = 3
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
 local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
 local JUMP_ANIMATION_SPEED = 1.5
+-- ✅ TAMBAHKAN:
+local PAUSE_DETECTION_THRESHOLD = 0.5  -- Deteksi pause jika > 0.5 detik gap
+local MAX_PAUSE_TRANSITION_FRAMES = 18   -- Max transition frames untuk pause
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -1939,51 +1942,106 @@ local function StartStudioRecording()
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
-                task.spawn(function()
-                    pcall(function()
-                        local char = player.Character
-                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                            return
-                        end
-                        
-                        local hrp = char.HumanoidRootPart
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        
-                        if IsTimelineMode then
-                            return
-                        end
-                        
-                        local now = tick()
-                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-                        
-                        local currentPos = hrp.Position
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        
-                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                            lastStudioRecordTime = now
-                            return
-                        end
-                        
-                        local cf = hrp.CFrame
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                            MoveState = GetCurrentMoveState(hum),
-                            WalkSpeed = hum and hum.WalkSpeed or 16,
-                            Timestamp = now - StudioCurrentRecording.StartTime
-                        })
-                        
-                        lastStudioRecordTime = now
-                        lastStudioRecordPos = currentPos
-                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                        TimelinePosition = CurrentTimelineFrame
-                        
-                        UpdateStudioUI()
-                    end)
-                end)
-            end)
+    task.spawn(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                return
+            end
+            
+            local hrp = char.HumanoidRootPart
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if IsTimelineMode then
+                return
+            end
+            
+            local now = tick()
+            if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+            
+            local currentPos = hrp.Position
+            local currentVelocity = hrp.AssemblyLinearVelocity
+            
+            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                lastStudioRecordTime = now
+                return
+            end
+            
+            -- ✅ TAMBAHKAN PAUSE DETECTION DI SINI:
+            local timeSinceLastFrame = now - lastStudioRecordTime
+            local isPauseDetected = timeSinceLastFrame > 0.5  -- Jika > 0.5 detik = pause
+            
+            -- ✅ JIKA ADA PAUSE, TAMBAHKAN TRANSITION FRAMES
+            if isPauseDetected and #StudioCurrentRecording.Frames > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+                local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
+                
+                -- Hitung berapa transition frames yang dibutuhkan
+                local transitionCount = math.min(
+                    math.floor(timeSinceLastFrame * RECORDING_FPS),
+                    INTERPOLATION_LOOKAHEAD * 3  -- Max 4-6 frames
+                )
+                
+                -- Buat smooth transition dari lastPos ke currentPos
+                for i = 1, transitionCount do
+                    local alpha = i / (transitionCount + 1)
+                    local interpPos = lastPos:Lerp(currentPos, alpha)
+                    
+                    -- Velocity gradual decrease -> increase
+                    local interpVel
+                    if i <= transitionCount / 2 then
+                        -- First half: slow down to stop
+                        local stopAlpha = (i * 2) / transitionCount
+                        interpVel = lastVel:Lerp(Vector3.zero, stopAlpha)
+                    else
+                        -- Second half: speed up from stop
+                        local startAlpha = ((i - transitionCount / 2) * 2) / transitionCount
+                        interpVel = Vector3.zero:Lerp(currentVelocity, startAlpha)
+                    end
+                    
+                    local cf = CFrame.new(interpPos)
+                    table.insert(StudioCurrentRecording.Frames, {
+                        Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                        LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                        UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                        MoveState = lastFrame.MoveState,
+                        WalkSpeed = lastFrame.WalkSpeed,
+                        Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                        IsInterpolated = true,
+                        IsPauseTransition = true  -- ✅ Mark sebagai pause transition
+                    })
+                end
+                
+                -- Update timestamp base
+                if #StudioCurrentRecording.Frames > 0 then
+                    local lastTransitionFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                    StudioCurrentRecording.StartTime = tick() - lastTransitionFrame.Timestamp
+                end
+            end
+            
+            -- Simpan frame normal seperti biasa
+            local cf = hrp.CFrame
+            table.insert(StudioCurrentRecording.Frames, {
+                Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                MoveState = GetCurrentMoveState(hum),
+                WalkSpeed = hum and hum.WalkSpeed or 16,
+                Timestamp = now - StudioCurrentRecording.StartTime
+            })
+            
+            lastStudioRecordTime = now
+            lastStudioRecordPos = currentPos
+            CurrentTimelineFrame = #StudioCurrentRecording.Frames
+            TimelinePosition = CurrentTimelineFrame
+            
+            UpdateStudioUI()
+        end)
+    end)
+end)
             AddConnection(recordConnection)
         end)
     end)
@@ -2151,7 +2209,66 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
-            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
+            -- ✅ TAMBAHKAN POST-PROCESSING PAUSE DETECTION
+            local processedFrames = {}
+            local lastTimestamp = 0
+            
+            for i, frame in ipairs(StudioCurrentRecording.Frames) do
+                -- Skip jika sudah ada flag IsPauseTransition
+                if frame.IsPauseTransition then
+                    table.insert(processedFrames, frame)
+                    lastTimestamp = frame.Timestamp
+                    continue
+                end
+                
+                -- Deteksi pause yang terlewat (gap besar di timestamp)
+                if i > 1 then
+                    local timeDiff = frame.Timestamp - lastTimestamp
+                    local expectedDiff = 1 / RECORDING_FPS
+                    
+                    -- Jika gap > 0.3 detik DAN belum ada transition
+                    if timeDiff > 0.3 and timeDiff > (expectedDiff * 5) then
+                        local prevFrame = processedFrames[#processedFrames]
+                        local transitionCount = math.min(
+                            math.floor((timeDiff - expectedDiff) * RECORDING_FPS),
+                            8  -- Max 8 transition frames
+                        )
+                        
+                        -- Generate smooth transition
+                        local prevPos = Vector3.new(prevFrame.Position[1], prevFrame.Position[2], prevFrame.Position[3])
+                        local nextPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+                        local prevVel = Vector3.new(prevFrame.Velocity[1], prevFrame.Velocity[2], prevFrame.Velocity[3])
+                        local nextVel = Vector3.new(frame.Velocity[1], frame.Velocity[2], frame.Velocity[3])
+                        
+                        for j = 1, transitionCount do
+                            local alpha = j / (transitionCount + 1)
+                            local interpPos = prevPos:Lerp(nextPos, alpha)
+                            
+                            -- S-curve velocity (slow-fast-slow)
+                            local smoothAlpha = alpha * alpha * (3 - 2 * alpha)  -- Smoothstep
+                            local interpVel = prevVel:Lerp(nextVel, smoothAlpha)
+                            
+                            table.insert(processedFrames, {
+                                Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                                LookVector = prevFrame.LookVector,
+                                UpVector = prevFrame.UpVector,
+                                Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                                MoveState = prevFrame.MoveState,
+                                WalkSpeed = prevFrame.WalkSpeed,
+                                Timestamp = prevFrame.Timestamp + (j * expectedDiff),
+                                IsInterpolated = true,
+                                IsPauseTransition = true
+                            })
+                        end
+                    end
+                end
+                
+                table.insert(processedFrames, frame)
+                lastTimestamp = frame.Timestamp
+            end
+            
+            -- ✅ Gunakan processed frames alih-alih raw frames
+            local normalizedFrames = NormalizeRecordingTimestamps(processedFrames)
             
             RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
