@@ -2258,51 +2258,76 @@ local function ResumeStudioRecording()
     end)
 end
 
--- ========= FIXED: SaveStudioRecording() =========
+-- ========= FIXED: SaveStudioRecording() - WITH DEBUGGING =========
 local function SaveStudioRecording()
     task.spawn(function()
         pcall(function()
+            print("🔵 SaveStudioRecording() START")
+            
             if #StudioCurrentRecording.Frames == 0 then
                 PlaySound("Error")
                 print("❌ No frames to save")
                 return
             end
             
+            print("   Frames to save:", #StudioCurrentRecording.Frames)
+            
             if StudioIsRecording then
+                print("   Stopping recording first...")
                 StopStudioRecording()
+                task.wait(0.1)
             end
             
             -- ✅ Normalize frames
+            print("   Normalizing frames...")
             local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
+            print("   Normalized:", #normalizedFrames, "frames")
             
             -- ✅ Generate unique name
             local recordingName = StudioCurrentRecording.Name
+            print("   Recording name:", recordingName)
             
-            -- ✅ CRITICAL: Simpan dengan urutan yang benar
+            -- ✅ CRITICAL: Simpan ke RecordedMovements
             RecordedMovements[recordingName] = normalizedFrames
+            print("   ✅ Saved to RecordedMovements")
             
-            -- ✅ CRITICAL: Pastikan nama unik di RecordingOrder
+            -- ✅ CRITICAL: Add to RecordingOrder
             if not table.find(RecordingOrder, recordingName) then
                 table.insert(RecordingOrder, recordingName)
+                print("   ✅ Added to RecordingOrder at index:", #RecordingOrder)
+            else
+                print("   ⚠️ Already exists in RecordingOrder")
             end
             
-            -- ✅ CRITICAL: Set checkpoint name DENGAN BENAR
+            -- ✅ CRITICAL: Set checkpoint name
             local checkpointIndex = #RecordingOrder
             checkpointNames[recordingName] = "Checkpoint " .. checkpointIndex
+            print("   ✅ Set checkpointNames:", checkpointNames[recordingName])
             
-            -- ✅ CRITICAL: Default checked ke TRUE untuk auto-save
+            -- ✅ CRITICAL: Auto-check
             CheckedRecordings[recordingName] = true
+            print("   ✅ Auto-checked recording")
             
-            -- ✅ Update UI setelah semua data tersimpan
+            -- ✅ Verify data sebelum update UI
+            print("📊 VERIFICATION:")
+            print("   RecordedMovements has recording:", RecordedMovements[recordingName] ~= nil)
+            print("   RecordingOrder has recording:", table.find(RecordingOrder, recordingName) ~= nil)
+            print("   Total recordings:", #RecordingOrder)
+            
+            -- ✅ Update UI dengan delay
+            print("   Updating UI...")
+            task.wait(0.2)  -- Small delay untuk ensure data tersimpan
             UpdateRecordList()
             
             PlaySound("Success")
-            print("✅ Saved:", recordingName)
-            print("   Frames:", #normalizedFrames)
-            print("   Duration:", string.format("%.2f", normalizedFrames[#normalizedFrames].Timestamp), "seconds")
+            print("✅ SaveStudioRecording() COMPLETE")
             
             -- ✅ Reset studio recording
-            StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+            StudioCurrentRecording = {
+                Frames = {}, 
+                StartTime = 0, 
+                Name = "recording_" .. os.date("%H%M%S")
+            }
             IsTimelineMode = false
             CurrentTimelineFrame = 0
             TimelinePosition = 0
@@ -2310,19 +2335,27 @@ local function SaveStudioRecording()
             
             -- ✅ Close studio window
             task.wait(0.5)
-            if RecordingStudio then RecordingStudio.Visible = false end
-            if MainFrame then MainFrame.Visible = true end
+            if RecordingStudio then 
+                RecordingStudio.Visible = false 
+                print("   Studio window closed")
+            end
+            if MainFrame then 
+                MainFrame.Visible = true 
+                print("   Main frame shown")
+            end
         end)
     end)
 end
 
--- ========= FIXED: SaveToObfuscatedJSON() =========
-local function SaveToObfuscatedJSON()
+-- ========= FIXED: LoadFromObfuscatedJSON() - WITH DEBUGGING =========
+local function LoadFromObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
         print("❌ File system not available")
         return
     end
+    
+    print("🔵 LoadFromObfuscatedJSON() START")
     
     local filename = "MyReplays"
     if FilenameBox and FilenameBox.Text ~= "" then
@@ -2330,68 +2363,124 @@ local function SaveToObfuscatedJSON()
     end
     filename = filename .. ".json"
     
-    -- ✅ FIXED: Cek apakah ada recording yang di-check
-    local hasCheckedRecordings = false
-    for name, checked in pairs(CheckedRecordings) do
-        if checked and RecordedMovements[name] then
-            hasCheckedRecordings = true
-            break
-        end
-    end
-    
-    if not hasCheckedRecordings then
-        PlaySound("Error")
-        print("❌ No recordings checked")
-        return
-    end
+    print("   Loading from:", filename)
     
     local success, err = pcall(function()
-        local saveData = {
-            Version = "3.2",
-            Obfuscated = true,
-            Checkpoints = {},
-            RecordingOrder = {},
-            CheckpointNames = {}
-        }
+        if not isfile(filename) then
+            PlaySound("Error")
+            print("❌ File not found:", filename)
+            return
+        end
         
-        local recordingsToObfuscate = {}
+        print("   File found, reading...")
+        local jsonString = readfile(filename)
+        print("   File size:", #jsonString, "characters")
         
-        -- ✅ FIXED: Loop through RecordingOrder untuk maintain urutan
-        for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] and RecordedMovements[name] then
-                local frames = RecordedMovements[name]
+        print("   Parsing JSON...")
+        local saveData = HttpService:JSONDecode(jsonString)
+        print("   ✅ JSON parsed successfully")
+        
+        -- ✅ Detect format
+        print("📊 FORMAT DETECTION:")
+        print("   Has Obfuscated field:", saveData.Obfuscated ~= nil)
+        print("   Has ObfuscatedFrames:", saveData.ObfuscatedFrames ~= nil)
+        print("   Has Checkpoints:", saveData.Checkpoints ~= nil)
+        print("   Has RecordedMovements:", saveData.RecordedMovements ~= nil)
+        
+        -- ✅ Load recordings based on format
+        local loadedRecordings = {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            print("   Loading NEW FORMAT (obfuscated)...")
+            loadedRecordings = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+        elseif saveData.Checkpoints and #saveData.Checkpoints > 0 then
+            print("   Loading LEGACY FORMAT (checkpoints)...")
+            for _, checkpointData in ipairs(saveData.Checkpoints) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
+                if frames and #frames > 0 then
+                    loadedRecordings[name] = frames
+                    print("   -", name, "=>", #frames, "frames")
+                end
+            end
+        elseif saveData.RecordedMovements then
+            print("   Loading VERY OLD FORMAT (direct)...")
+            loadedRecordings = saveData.RecordedMovements
+        else
+            print("❌ Unknown format!")
+            PlaySound("Error")
+            return
+        end
+        
+        print("📊 LOADED RECORDINGS:")
+        local loadedCount = 0
+        for name, frames in pairs(loadedRecordings) do
+            print("   -", name, "=>", #frames, "frames")
+            loadedCount = loadedCount + 1
+        end
+        
+        if loadedCount == 0 then
+            print("❌ No recordings found in file!")
+            PlaySound("Error")
+            return
+        end
+        
+        -- ✅ Import loaded recordings
+        print("📥 IMPORTING TO GAME:")
+        for name, frames in pairs(loadedRecordings) do
+            if frames and #frames > 0 then
+                -- ✅ Save to RecordedMovements
+                RecordedMovements[name] = frames
+                print("   ✅ Imported:", name)
                 
-                -- ✅ Add to checkpoint data
-                local checkpointData = {
-                    Name = name,
-                    DisplayName = checkpointNames[name] or "Checkpoint",
-                    Frames = frames
-                }
-                table.insert(saveData.Checkpoints, checkpointData)
-                table.insert(saveData.RecordingOrder, name)
-                saveData.CheckpointNames[name] = checkpointNames[name] or "Checkpoint"
+                -- ✅ Add to RecordingOrder
+                if not table.find(RecordingOrder, name) then
+                    table.insert(RecordingOrder, name)
+                    print("   ✅ Added to RecordingOrder at index:", #RecordingOrder)
+                end
                 
-                -- ✅ Add to obfuscation list
-                recordingsToObfuscate[name] = frames
+                -- ✅ Set checkpoint name
+                if saveData.CheckpointNames and saveData.CheckpointNames[name] then
+                    checkpointNames[name] = saveData.CheckpointNames[name]
+                elseif saveData.Checkpoints then
+                    for _, cp in ipairs(saveData.Checkpoints) do
+                        if cp.Name == name then
+                            checkpointNames[name] = cp.DisplayName or "Checkpoint"
+                            break
+                        end
+                    end
+                else
+                    checkpointNames[name] = "Checkpoint " .. (#RecordingOrder)
+                end
+                print("   ✅ Set name:", checkpointNames[name])
+                
+                -- ✅ Auto-check
+                CheckedRecordings[name] = true
+                print("   ✅ Auto-checked")
             end
         end
         
-        -- ✅ Obfuscate data
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
-        saveData.ObfuscatedFrames = obfuscatedData
+        -- ✅ Verify before UI update
+        print("📊 FINAL VERIFICATION:")
+        print("   Total in RecordedMovements:", #{RecordedMovements})
+        print("   Total in RecordingOrder:", #RecordingOrder)
+        for i, name in ipairs(RecordingOrder) do
+            print("   [" .. i .. "]", name, "=>", RecordedMovements[name] and #RecordedMovements[name] or "NIL", "frames")
+        end
         
-        -- ✅ Save to file
-        local jsonString = HttpService:JSONEncode(saveData)
-        writefile(filename, jsonString)
+        -- ✅ Update UI
+        print("   Updating UI...")
+        task.wait(0.2)
+        UpdateRecordList()
         
         PlaySound("Success")
-        print("✅ Saved to:", filename)
-        print("   Recordings saved:", #saveData.Checkpoints)
+        print("✅ LoadFromObfuscatedJSON() COMPLETE")
+        print("   Total loaded:", loadedCount, "recordings")
     end)
     
     if not success then
         PlaySound("Error")
-        warn("❌ Save failed:", err)
+        warn("❌ Load failed:", err)
     end
 end
 
@@ -2522,16 +2611,40 @@ local function FormatDuration(seconds)
     return string.format("%d:%02d", minutes, remainingSeconds)
 end
 
+-- ========= FIXED: UpdateRecordList() - FORCE REFRESH =========
 function UpdateRecordList()
     pcall(function()
+        -- ✅ CRITICAL: Clear ALL existing items first
         for _, child in pairs(RecordingsList:GetChildren()) do 
-            if child:IsA("Frame") then child:Destroy() end
+            if child:IsA("Frame") then 
+                child:Destroy() 
+            end
+        end
+        
+        -- ✅ DEBUG: Print what we're about to display
+        print("📊 UpdateRecordList() called:")
+        print("   Total recordings:", #RecordingOrder)
+        for i, name in ipairs(RecordingOrder) do
+            local rec = RecordedMovements[name]
+            print("   [" .. i .. "]", name, "=>", rec and #rec or "NIL", "frames")
+        end
+        
+        -- ✅ CRITICAL: Exit early if no recordings
+        if #RecordingOrder == 0 then
+            print("⚠️ No recordings to display")
+            RecordingsList.CanvasSize = UDim2.new(0, 0, 0, 0)
+            return
         end
         
         local yPos = 3
         for index, name in ipairs(RecordingOrder) do
             local rec = RecordedMovements[name]
-            if not rec then continue end
+            
+            -- ✅ CRITICAL: Skip if recording is nil or empty
+            if not rec or #rec == 0 then 
+                print("⚠️ Skipping empty recording:", name)
+                continue 
+            end
             
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
@@ -2562,7 +2675,7 @@ function UpdateRecordList()
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
             nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
+            nameBox.Text = checkpointNames[name] or ("Checkpoint " .. index)
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
@@ -2579,12 +2692,8 @@ function UpdateRecordList()
             infoLabel.Size = UDim2.new(1, -90, 0, 14)
             infoLabel.Position = UDim2.fromOffset(28, 25)
             infoLabel.BackgroundTransparency = 1
-            if #rec > 0 then
-                local totalSeconds = rec[#rec].Timestamp
-                infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
-            else
-                infoLabel.Text = "🕐 0:00 📊 0 frames"
-            end
+            local totalSeconds = rec[#rec].Timestamp or 0
+            infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
             infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
             infoLabel.Font = Enum.Font.GothamBold
             infoLabel.TextSize = 8
@@ -2647,6 +2756,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ✅ Button connections
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -2697,6 +2807,8 @@ function UpdateRecordList()
         end
         
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
+        
+        print("✅ UpdateRecordList() completed:", yPos, "pixels")
     end)
 end
 
