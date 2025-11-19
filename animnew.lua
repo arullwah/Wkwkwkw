@@ -17,29 +17,30 @@ if not hasFileSystem then
     isfile = function() return false end
 end
 
--- ========= OPTIMIZED CONFIGURATION FOR 90 FPS (ULTRA SMOOTH) =========
-local RECORDING_FPS = 90
+-- ========= OPTIMIZED CONFIGURATION (PERFECT BALANCE) =========
+local RECORDING_FPS = 60  -- ✅ 60 FPS (lebih stabil)
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Lebih sensitif (dari 0.012)
+local MIN_DISTANCE_THRESHOLD = 0.01
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0  -- ✅ NO COOLDOWN! (dari 0.1)
-local TRANSITION_FRAMES = 4  -- ✅ Lebih cepat (dari 8)
+local STATE_CHANGE_COOLDOWN = 0.05  -- ✅ Hanya untuk grounded/climbing
+local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 90
-local JUMP_VELOCITY_THRESHOLD = 10
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
+local JUMP_VELOCITY_THRESHOLD = 8
 local FALL_VELOCITY_THRESHOLD = -5
-local LOOP_TRANSITION_DELAY = 0.05  -- ✅ Lebih cepat (dari 0.12)
-local AUTO_LOOP_RETRY_DELAY = 0.3  -- ✅ Lebih cepat (dari 0.5)
-local TIME_BYPASS_THRESHOLD = 0.08  -- ✅ Lebih ketat (dari 0.15)
-local LAG_DETECTION_THRESHOLD = 0.15  -- ✅ Lebih sensitif (dari 0.2)
-local MAX_LAG_FRAMES_TO_SKIP = 3  -- ✅ Lebih sedikit (dari 5)
+local LOOP_TRANSITION_DELAY = 0.08
+local AUTO_LOOP_RETRY_DELAY = 0.3
+local TIME_BYPASS_THRESHOLD = 0.1
+local LAG_DETECTION_THRESHOLD = 0.15
+local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 2  -- ✅ Lebih sedikit (dari 3)
+local INTERPOLATION_LOOKAHEAD = 2
+local STOP_VELOCITY_THRESHOLD = 0.8  -- ✅ Untuk smooth stop (dari 0.5)
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -722,11 +723,23 @@ local function GetFrameCFrame(frame)
 end
 
 local function GetFrameVelocity(frame)
-    return frame.Velocity and Vector3.new(
+    if not frame.Velocity then return Vector3.new(0, 0, 0) end
+    
+    local vel = Vector3.new(
         frame.Velocity[1] * VELOCITY_SCALE,
         frame.Velocity[2] * VELOCITY_Y_SCALE,
         frame.Velocity[3] * VELOCITY_SCALE
-    ) or Vector3.new(0, 0, 0)
+    )
+    
+    -- ✅ FIX: Smooth stop (threshold untuk horizontal velocity saja)
+    local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
+    
+    if horizontalVel.Magnitude < STOP_VELOCITY_THRESHOLD then
+        -- Berhenti smooth, tapi keep Y velocity (gravity/jump)
+        return Vector3.new(0, vel.Y, 0)
+    end
+    
+    return vel
 end
 
 local function GetFrameWalkSpeed(frame)
@@ -2172,10 +2185,16 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
+        -- ✅ BACKWARD COMPATIBILITY CHECK
+        local fileVersion = saveData.Version or "2.0"
+        print("📂 Loading file version:", fileVersion)
+        
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
+        -- ✅ Support old format (non-obfuscated)
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            -- New format (obfuscated)
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
@@ -2191,13 +2210,50 @@ local function LoadFromObfuscatedJSON()
                     end
                 end
             end
+        else
+            -- ✅ OLD FORMAT SUPPORT (non-obfuscated)
+            print("⚠️ Loading old format file...")
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = checkpointData.Frames
+                
+                if frames and #frames > 0 then
+                    -- Fix old frame format jika perlu
+                    local fixedFrames = {}
+                    for _, frame in ipairs(frames) do
+                        -- Pastikan semua field ada
+                        local fixedFrame = {
+                            Position = frame.Position or frame.Pos or {0, 0, 0},
+                            LookVector = frame.LookVector or frame.Look or {0, 0, -1},
+                            UpVector = frame.UpVector or frame.Up or {0, 1, 0},
+                            Velocity = frame.Velocity or frame.Vel or {0, 0, 0},
+                            MoveState = frame.MoveState or frame.State or "Grounded",
+                            WalkSpeed = frame.WalkSpeed or frame.Speed or 16,
+                            Timestamp = frame.Timestamp or frame.Time or 0
+                        }
+                        table.insert(fixedFrames, fixedFrame)
+                    end
+                    
+                    RecordedMovements[name] = fixedFrames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName or "Checkpoint"
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                    
+                    print("✅ Loaded:", name, "with", #fixedFrames, "frames")
+                end
+            end
         end
         
         UpdateRecordList()
         PlaySound("Success")
+        print("✅ Total recordings loaded:", #RecordingOrder)
     end)
     
     if not success then
+        warn("❌ Load failed:", err)
         PlaySound("Error")
     end
 end
@@ -2454,24 +2510,48 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
-                if hum then
+               if hum then
                     hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
+                    local currentTime = tick()
                     
-                    -- ⭐ ALWAYS trigger state (NO cooldown!)
+                    -- ✅ SMART STATE CHANGE (NO COOLDOWN untuk Jump/Fall!)
                     if moveState == "Jumping" then
+                        -- Jump HARUS instant, no cooldown!
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        lastPlaybackState = "Jumping"
+                        lastStateChangeTime = currentTime
+                        
                     elseif moveState == "Falling" then
+                        -- Fall juga HARUS instant!
                         hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        lastPlaybackState = "Falling"
+                        lastStateChangeTime = currentTime
+                        
                     elseif moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
+                        -- Climbing pakai cooldown (agar tidak flicker)
+                        if not lastPlaybackState or lastPlaybackState ~= "Climbing" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            lastPlaybackState = "Climbing"
+                            lastStateChangeTime = currentTime
+                        end
+                        
                     elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        -- Swimming pakai cooldown
+                        if not lastPlaybackState or lastPlaybackState ~= "Swimming" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            lastPlaybackState = "Swimming"
+                            lastStateChangeTime = currentTime
+                        end
+                        
                     else
+                        -- Grounded (Running) - instant OK
                         hum:ChangeState(Enum.HumanoidStateType.Running)
+                        lastPlaybackState = "Grounded"
+                        lastStateChangeTime = currentTime
                     end
                 end
                 
@@ -2748,27 +2828,50 @@ function StartAutoLoopAll()
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
-                            if hum then
-                                -- Set WalkSpeed
-                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                hum.AutoRotate = false
-                                
-                                local moveState = frame.MoveState
-                                
-                                -- ⭐ ALWAYS trigger state change (NO COOLDOWN!)
-                                if moveState == "Jumping" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                elseif moveState == "Falling" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                elseif moveState == "Climbing" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                    hum.PlatformStand = false
-                                elseif moveState == "Swimming" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                else
-                                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                                end
-                            end
+                        if hum then
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    hum.AutoRotate = false
+                    
+                    local moveState = frame.MoveState
+                    local currentTime = tick()
+                    
+                    -- ✅ SMART STATE CHANGE (NO COOLDOWN untuk Jump/Fall!)
+                    if moveState == "Jumping" then
+                        -- Jump HARUS instant, no cooldown!
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        lastPlaybackState = "Jumping"
+                        lastStateChangeTime = currentTime
+                        
+                    elseif moveState == "Falling" then
+                        -- Fall juga HARUS instant!
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        lastPlaybackState = "Falling"
+                        lastStateChangeTime = currentTime
+                        
+                    elseif moveState == "Climbing" then
+                        -- Climbing pakai cooldown (agar tidak flicker)
+                        if not lastPlaybackState or lastPlaybackState ~= "Climbing" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            lastPlaybackState = "Climbing"
+                            lastStateChangeTime = currentTime
+                        end
+                        
+                    elseif moveState == "Swimming" then
+                        -- Swimming pakai cooldown
+                        if not lastPlaybackState or lastPlaybackState ~= "Swimming" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            lastPlaybackState = "Swimming"
+                            lastStateChangeTime = currentTime
+                        end
+                        
+                    else
+                        -- Grounded (Running) - instant OK
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                        lastPlaybackState = "Grounded"
+                        lastStateChangeTime = currentTime
+                    end
+                end
                             
                             -- Apply ShiftLock if enabled
                             if ShiftLockEnabled then
