@@ -1977,8 +1977,15 @@ function StopPlayback()
     UpdatePlayButtonStatus()
 end
 
--- ========= STUDIO RECORDING FUNCTIONS =========
+-- ========= STUDIO RECORDING FUNCTIONS (MOVED AFTER GUI CREATION) =========
+
 local function UpdateStudioUI()
+    -- Placeholder for future UI updates
+    pcall(function()
+        if StudioIsRecording and #StudioCurrentRecording.Frames > 0 then
+            -- Update timeline info jika ada
+        end
+    end)
 end
 
 local function ApplyFrameToCharacter(frame)
@@ -2020,126 +2027,81 @@ local function ApplyFrameToCharacter(frame)
 end
 
 local function StartStudioRecording()
-    print("=" .. string.rep("=", 50))
-    print("🔴 RECORDING START - DEBUG MODE")
-    print("=" .. string.rep("=", 50))
+    if StudioIsRecording then return end
     
-    if StudioIsRecording then 
-        warn("❌ Already recording!")
-        return 
-    end
-    
-    local char = player.Character
-    print("1. Character check:", char ~= nil)
-    
-    if not char then
-        PlaySound("Error")
-        warn("❌ No character found!")
-        return
-    end
-    
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    
-    print("2. HumanoidRootPart:", hrp ~= nil)
-    print("3. Humanoid:", hum ~= nil)
-    
-    if not hrp or not hum then
-        PlaySound("Error")
-        warn("❌ Missing components!")
-        return
-    end
-    
-    print("4. Initial position:", hrp.Position)
-    print("5. WalkSpeed:", hum.WalkSpeed)
-    
-    StudioIsRecording = true
-    StudioCurrentRecording = {
-        Frames = {}, 
-        StartTime = tick(), 
-        Name = "recording_" .. os.date("%H%M%S")
-    }
-    lastStudioRecordTime = 0
-    lastStudioRecordPos = nil
-    
-    StartBtn.Text = "STOP"
-    StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-    
-    print("6. Variables initialized")
-    print("7. Starting Heartbeat connection...")
-    
-    local frameCount = 0
-    
-    recordConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        frameCount = frameCount + 1
-        
-        -- Debug setiap 30 frames
-        if frameCount % 30 == 0 then
-            print("💓 Heartbeat running, frame:", frameCount)
-        end
-        
-        if not StudioIsRecording then 
-            print("⚠️ Recording stopped by flag")
-            return 
-        end
-        
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then 
-            warn("⚠️ Character lost!")
-            return 
-        end
-        
-        local hrp = char.HumanoidRootPart
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        
-        local now = tick()
-        local timeSinceLastFrame = now - lastStudioRecordTime
-        
-        if timeSinceLastFrame < (1 / RECORDING_FPS) then 
-            return 
-        end
-        
-        local currentPos = hrp.Position
-        
-        if lastStudioRecordPos then
-            local distance = (currentPos - lastStudioRecordPos).Magnitude
-            if distance < MIN_DISTANCE_THRESHOLD then
-                lastStudioRecordTime = now
+    task.spawn(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                print("❌ Character not ready")
                 return
             end
-        end
-        
-        -- RECORD FRAME
-        local cf = hrp.CFrame
-        local vel = hrp.AssemblyLinearVelocity
-        
-        table.insert(StudioCurrentRecording.Frames, {
-            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-            Velocity = {vel.X, vel.Y, vel.Z},
-            MoveState = GetCurrentMoveState(hum),
-            WalkSpeed = hum.WalkSpeed,
-            Timestamp = now - StudioCurrentRecording.StartTime
-        })
-        
-        lastStudioRecordTime = now
-        lastStudioRecordPos = currentPos
-        
-        -- Debug setiap frame
-        if #StudioCurrentRecording.Frames % 10 == 0 then
-            print("📹 Frame recorded:", #StudioCurrentRecording.Frames, "| Pos:", currentPos)
-        end
+            
+            StudioIsRecording = true
+            IsTimelineMode = false
+            StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+            lastStudioRecordTime = 0
+            lastStudioRecordPos = nil
+            CurrentTimelineFrame = 0
+            TimelinePosition = 0
+            
+            -- ✅ SAFE GUI UPDATE
+            if StartBtn then
+                StartBtn.Text = "STOP"
+                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            end
+            
+            PlaySound("Toggle")
+            print("✅ Recording started")
+            
+            recordConnection = RunService.Heartbeat:Connect(function()
+                task.spawn(function()
+                    pcall(function()
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                            return
+                        end
+                        
+                        local hrp = char.HumanoidRootPart
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        
+                        if IsTimelineMode then return end
+                        
+                        local now = tick()
+                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                        
+                        local currentPos = hrp.Position
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        
+                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                            lastStudioRecordTime = now
+                            return
+                        end
+                        
+                        local cf = hrp.CFrame
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                            MoveState = GetCurrentMoveState(hum),
+                            WalkSpeed = hum and hum.WalkSpeed or CurrentWalkSpeed,
+                            Timestamp = now - StudioCurrentRecording.StartTime
+                        })
+                        
+                        lastStudioRecordTime = now
+                        lastStudioRecordPos = currentPos
+                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                        TimelinePosition = CurrentTimelineFrame
+                        
+                        UpdateStudioUI()
+                    end)
+                end)
+            end)
+            AddConnection(recordConnection)
+        end)
     end)
-    
-    AddConnection(recordConnection)
-    
-    print("8. ✅ Recording connection established!")
-    print("=" .. string.rep("=", 50))
-    print("NOW MOVE YOUR CHARACTER!")
-    print("=" .. string.rep("=", 50))
-    
-    PlaySound("Toggle")
 end
 
 local function StopStudioRecording()
@@ -2153,11 +2115,15 @@ local function StopStudioRecording()
                 recordConnection = nil
             end
             
-            StartBtn.Text = "START"
-            StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            -- ✅ SAFE GUI UPDATE
+            if StartBtn then
+                StartBtn.Text = "START"
+                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            end
             
             PlaySound("Toggle")
             UpdateStudioUI()
+            print("✅ Recording stopped:", #StudioCurrentRecording.Frames, "frames")
         end)
     end)
 end
@@ -2282,7 +2248,7 @@ local function ResumeStudioRecording()
             lastStudioRecordPos = hrp.Position
             
             if hum then
-                hum.WalkSpeed = CurrentWalkSpeed  -- ✅ Use saved WalkSpeed
+                hum.WalkSpeed = CurrentWalkSpeed
                 hum.AutoRotate = true
             end
             
@@ -2297,6 +2263,7 @@ local function SaveStudioRecording()
         pcall(function()
             if #StudioCurrentRecording.Frames == 0 then
                 PlaySound("Error")
+                print("❌ No frames to save")
                 return
             end
             
@@ -2312,6 +2279,7 @@ local function SaveStudioRecording()
             UpdateRecordList()
             
             PlaySound("Success")
+            print("✅ Saved:", StudioCurrentRecording.Name)
             
             StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
             IsTimelineMode = false
@@ -2320,21 +2288,26 @@ local function SaveStudioRecording()
             UpdateStudioUI()
             
             wait(1)
-            RecordingStudio.Visible = false
-            MainFrame.Visible = true
+            if RecordingStudio then RecordingStudio.Visible = false end
+            if MainFrame then MainFrame.Visible = true end
         end)
     end)
 end
 
--- ========= SAVE/LOAD SYSTEM =========
+-- ========= SAVE/LOAD SYSTEM (FIXED) =========
+
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
+        print("❌ File system not available")
         return
     end
     
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
+    -- ✅ SAFE: Check FilenameBox exists
+    local filename = "MyReplays"
+    if FilenameBox and FilenameBox.Text ~= "" then
+        filename = FilenameBox.Text
+    end
     filename = filename .. ".json"
     
     local hasCheckedRecordings = false
@@ -2347,6 +2320,7 @@ local function SaveToObfuscatedJSON()
     
     if not hasCheckedRecordings then
         PlaySound("Error")
+        print("❌ No recordings checked")
         return
     end
     
@@ -2387,26 +2361,33 @@ local function SaveToObfuscatedJSON()
         
         writefile(filename, jsonString)
         PlaySound("Success")
+        print("✅ Saved to:", filename)
     end)
     
     if not success then
         PlaySound("Error")
+        warn("❌ Save failed:", err)
     end
 end
 
 local function LoadFromObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
+        print("❌ File system not available")
         return
     end
     
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
+    -- ✅ SAFE: Check FilenameBox exists
+    local filename = "MyReplays"
+    if FilenameBox and FilenameBox.Text ~= "" then
+        filename = FilenameBox.Text
+    end
     filename = filename .. ".json"
     
     local success, err = pcall(function()
         if not isfile(filename) then
             PlaySound("Error")
+            print("❌ File not found:", filename)
             return
         end
         
@@ -2436,10 +2417,12 @@ local function LoadFromObfuscatedJSON()
         
         UpdateRecordList()
         PlaySound("Success")
+        print("✅ Loaded from:", filename)
     end)
     
     if not success then
         PlaySound("Error")
+        warn("❌ Load failed:", err)
     end
 end
 
@@ -3188,45 +3171,70 @@ ShowRuteBtnControl.MouseButton1Click:Connect(function()
     end
 end)
 
--- ========= STUDIO BUTTON CONNECTIONS =========
-StartBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(StartBtn)
-        if StudioIsRecording then
-            StopStudioRecording()
-        else
-            StartStudioRecording()
-        end
+-- ========= STUDIO BUTTON CONNECTIONS (SAFE VERSION) =========
+if StartBtn then
+    StartBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(StartBtn)
+            if StudioIsRecording then
+                StopStudioRecording()
+            else
+                StartStudioRecording()
+            end
+        end)
     end)
-end)
+end
 
-PrevBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(PrevBtn)
-        GoBackTimeline()
+if PrevBtn then
+    PrevBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
     end)
-end)
+end
 
-NextBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(NextBtn)
-        GoNextTimeline()
+if NextBtn then
+    NextBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
     end)
-end)
+end
 
-ResumeBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(ResumeBtn)
-        ResumeStudioRecording()
+if ResumeBtn then
+    ResumeBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(ResumeBtn)
+            ResumeStudioRecording()
+        end)
     end)
-end)
+end
 
-SaveBtn.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        AnimateButtonClick(SaveBtn)
-        SaveStudioRecording()
+if SaveBtn then
+    SaveBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(SaveBtn)
+            SaveStudioRecording()
+        end)
     end)
-end)
+end
+
+-- ========= MAIN FRAME BUTTON CONNECTIONS (SAFE VERSION) =========
+if SaveFileBtn then
+    SaveFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(SaveFileBtn)
+        SaveToObfuscatedJSON()
+    end)
+end
+
+if LoadFileBtn then
+    LoadFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(LoadFileBtn)
+        LoadFromObfuscatedJSON()
+    end)
+end
 
 -- ========= MAIN FRAME BUTTONS =========
 PlayBtn.MouseButton1Click:Connect(function()
@@ -3252,16 +3260,6 @@ MenuBtn.MouseButton1Click:Connect(function()
             PlaySound("Error")
         end
     end)
-end)
-
-SaveFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(SaveFileBtn)
-    SaveToObfuscatedJSON()
-end)
-
-LoadFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadFileBtn)
-    LoadFromObfuscatedJSON()
 end)
 
 MergeBtn.MouseButton1Click:Connect(function()
