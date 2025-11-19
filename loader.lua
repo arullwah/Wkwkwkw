@@ -2258,6 +2258,7 @@ local function ResumeStudioRecording()
     end)
 end
 
+-- ========= FIXED: SaveStudioRecording() =========
 local function SaveStudioRecording()
     task.spawn(function()
         pcall(function()
@@ -2271,31 +2272,51 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
+            -- ✅ Normalize frames
             local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
             
-            RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
-            table.insert(RecordingOrder, StudioCurrentRecording.Name)
-            checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
+            -- ✅ Generate unique name
+            local recordingName = StudioCurrentRecording.Name
+            
+            -- ✅ CRITICAL: Simpan dengan urutan yang benar
+            RecordedMovements[recordingName] = normalizedFrames
+            
+            -- ✅ CRITICAL: Pastikan nama unik di RecordingOrder
+            if not table.find(RecordingOrder, recordingName) then
+                table.insert(RecordingOrder, recordingName)
+            end
+            
+            -- ✅ CRITICAL: Set checkpoint name DENGAN BENAR
+            local checkpointIndex = #RecordingOrder
+            checkpointNames[recordingName] = "Checkpoint " .. checkpointIndex
+            
+            -- ✅ CRITICAL: Default checked ke TRUE untuk auto-save
+            CheckedRecordings[recordingName] = true
+            
+            -- ✅ Update UI setelah semua data tersimpan
             UpdateRecordList()
             
             PlaySound("Success")
-            print("✅ Saved:", StudioCurrentRecording.Name)
+            print("✅ Saved:", recordingName)
+            print("   Frames:", #normalizedFrames)
+            print("   Duration:", string.format("%.2f", normalizedFrames[#normalizedFrames].Timestamp), "seconds")
             
+            -- ✅ Reset studio recording
             StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
             IsTimelineMode = false
             CurrentTimelineFrame = 0
             TimelinePosition = 0
             UpdateStudioUI()
             
-            wait(1)
+            -- ✅ Close studio window
+            task.wait(0.5)
             if RecordingStudio then RecordingStudio.Visible = false end
             if MainFrame then MainFrame.Visible = true end
         end)
     end)
 end
 
--- ========= SAVE/LOAD SYSTEM (FIXED) =========
-
+-- ========= FIXED: SaveToObfuscatedJSON() =========
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2303,16 +2324,16 @@ local function SaveToObfuscatedJSON()
         return
     end
     
-    -- ✅ SAFE: Check FilenameBox exists
     local filename = "MyReplays"
     if FilenameBox and FilenameBox.Text ~= "" then
         filename = FilenameBox.Text
     end
     filename = filename .. ".json"
     
+    -- ✅ FIXED: Cek apakah ada recording yang di-check
     local hasCheckedRecordings = false
     for name, checked in pairs(CheckedRecordings) do
-        if checked then
+        if checked and RecordedMovements[name] then
             hasCheckedRecordings = true
             break
         end
@@ -2333,35 +2354,39 @@ local function SaveToObfuscatedJSON()
             CheckpointNames = {}
         }
         
+        local recordingsToObfuscate = {}
+        
+        -- ✅ FIXED: Loop through RecordingOrder untuk maintain urutan
         for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] then
+            if CheckedRecordings[name] and RecordedMovements[name] then
                 local frames = RecordedMovements[name]
-                if frames then
-                    local checkpointData = {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
-                    }
-                    table.insert(saveData.Checkpoints, checkpointData)
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                end
+                
+                -- ✅ Add to checkpoint data
+                local checkpointData = {
+                    Name = name,
+                    DisplayName = checkpointNames[name] or "Checkpoint",
+                    Frames = frames
+                }
+                table.insert(saveData.Checkpoints, checkpointData)
+                table.insert(saveData.RecordingOrder, name)
+                saveData.CheckpointNames[name] = checkpointNames[name] or "Checkpoint"
+                
+                -- ✅ Add to obfuscation list
+                recordingsToObfuscate[name] = frames
             end
         end
         
-        local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
-        end
-        
+        -- ✅ Obfuscate data
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
+        -- ✅ Save to file
         local jsonString = HttpService:JSONEncode(saveData)
-        
         writefile(filename, jsonString)
+        
         PlaySound("Success")
         print("✅ Saved to:", filename)
+        print("   Recordings saved:", #saveData.Checkpoints)
     end)
     
     if not success then
@@ -2370,6 +2395,7 @@ local function SaveToObfuscatedJSON()
     end
 end
 
+-- ========= FIXED: LoadFromObfuscatedJSON() - BACKWARD COMPATIBLE =========
 local function LoadFromObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2377,7 +2403,6 @@ local function LoadFromObfuscatedJSON()
         return
     end
     
-    -- ✅ SAFE: Check FilenameBox exists
     local filename = "MyReplays"
     if FilenameBox and FilenameBox.Text ~= "" then
         filename = FilenameBox.Text
@@ -2394,30 +2419,76 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        local newRecordingOrder = saveData.RecordingOrder or {}
-        local newCheckpointNames = saveData.CheckpointNames or {}
+        -- ✅ CRITICAL: Handle BOTH new (obfuscated) AND old (plain) formats
+        local loadedRecordings = {}
         
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
-            
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+            -- ✅ NEW FORMAT: Deobfuscate data
+            print("📦 Loading obfuscated format...")
+            loadedRecordings = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+        elseif saveData.Checkpoints then
+            -- ✅ OLD FORMAT: Direct load
+            print("📦 Loading legacy format...")
+            for _, checkpointData in ipairs(saveData.Checkpoints) do
                 local name = checkpointData.Name
-                local frames = deobfuscatedData[name]
-                
+                local frames = checkpointData.Frames
                 if frames then
-                    RecordedMovements[name] = frames
-                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                    
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
+                    loadedRecordings[name] = frames
                 end
+            end
+        else
+            -- ✅ VERY OLD FORMAT: Try direct RecordedMovements
+            print("📦 Loading very old format...")
+            if saveData.RecordedMovements then
+                loadedRecordings = saveData.RecordedMovements
             end
         end
         
+        -- ✅ CRITICAL: Clear existing data sebelum load
+        -- RecordedMovements = {}  -- ❌ JANGAN hapus, biarkan user merge
+        -- RecordingOrder = {}
+        -- checkpointNames = {}
+        
+        local loadedCount = 0
+        
+        -- ✅ Load recordings
+        for name, frames in pairs(loadedRecordings) do
+            if frames and #frames > 0 then
+                RecordedMovements[name] = frames
+                
+                -- ✅ Add to RecordingOrder jika belum ada
+                if not table.find(RecordingOrder, name) then
+                    table.insert(RecordingOrder, name)
+                end
+                
+                -- ✅ Set checkpoint name
+                if saveData.CheckpointNames and saveData.CheckpointNames[name] then
+                    checkpointNames[name] = saveData.CheckpointNames[name]
+                elseif saveData.Checkpoints then
+                    for _, cp in ipairs(saveData.Checkpoints) do
+                        if cp.Name == name then
+                            checkpointNames[name] = cp.DisplayName or "Checkpoint"
+                            break
+                        end
+                    end
+                else
+                    checkpointNames[name] = "Checkpoint " .. (#RecordingOrder)
+                end
+                
+                -- ✅ Auto-check loaded recordings
+                CheckedRecordings[name] = true
+                
+                loadedCount = loadedCount + 1
+            end
+        end
+        
+        -- ✅ Update UI
         UpdateRecordList()
+        
         PlaySound("Success")
         print("✅ Loaded from:", filename)
+        print("   Recordings loaded:", loadedCount)
+        print("   Format:", saveData.Version or "Legacy")
     end)
     
     if not success then
