@@ -36,7 +36,7 @@ local TIME_BYPASS_THRESHOLD = 0.05  -- ✅ Lebih ketat
 local LAG_DETECTION_THRESHOLD = 0.15
 local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
-local ENABLE_FRAME_SMOOTHING = true
+local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 3
@@ -45,7 +45,7 @@ local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
 local JUMP_ANIMATION_SPEED = 1.5
 -- ✅ TAMBAHKAN:
 local PAUSE_DETECTION_THRESHOLD = 0.5  -- Deteksi pause jika > 0.5 detik gap
-local MAX_PAUSE_TRANSITION_FRAMES = 18   -- Max transition frames untuk pause
+local MAX_PAUSE_TRANSITION_FRAMES = 6   -- Max transition frames untuk pause
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
