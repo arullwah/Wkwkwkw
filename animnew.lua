@@ -2180,7 +2180,6 @@ local function LoadFromObfuscatedJSON()
     
     local success, err = pcall(function()
         if not isfile(filename) then
-            print("❌ File not found:", filename)
             PlaySound("Error")
             return
         end
@@ -2188,123 +2187,32 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        print("📂 Loading file...")
-        print("   Version:", saveData.Version or "Unknown")
-        print("   Obfuscated:", saveData.Obfuscated and "Yes" or "No")
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ METHOD 1: Try new format (v3.x - obfuscated)
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            print("   Format: v3.x (Obfuscated)")
-            
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 local name = checkpointData.Name
                 local frames = deobfuscatedData[name]
                 
-                if frames and #frames > 0 then
+                if frames then
                     RecordedMovements[name] = frames
-                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or checkpointData.DisplayName or "Checkpoint"
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
                     
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
-                    
-                    print("   ✅ Loaded:", name, "→", #frames, "frames")
                 end
             end
-            
-        -- ✅ METHOD 2: Try v2.x format (non-obfuscated with Checkpoints array)
-        elseif saveData.Checkpoints and type(saveData.Checkpoints) == "table" then
-            print("   Format: v2.x (Non-obfuscated)")
-            
-            for _, checkpointData in ipairs(saveData.Checkpoints) do
-                local name = checkpointData.Name
-                local frames = checkpointData.Frames
-                
-                if frames and #frames > 0 then
-                    -- Fix frame format jika perlu
-                    local fixedFrames = {}
-                    for _, frame in ipairs(frames) do
-                        local fixedFrame = {
-                            Position = frame.Position or frame.Pos or frame["11"] or {0, 0, 0},
-                            LookVector = frame.LookVector or frame.Look or frame["88"] or {0, 0, -1},
-                            UpVector = frame.UpVector or frame.Up or frame["55"] or {0, 1, 0},
-                            Velocity = frame.Velocity or frame.Vel or frame["22"] or {0, 0, 0},
-                            MoveState = frame.MoveState or frame.State or frame["33"] or "Grounded",
-                            WalkSpeed = frame.WalkSpeed or frame.Speed or frame["44"] or 16,
-                            Timestamp = frame.Timestamp or frame.Time or frame["66"] or 0
-                        }
-                        table.insert(fixedFrames, fixedFrame)
-                    end
-                    
-                    RecordedMovements[name] = fixedFrames
-                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or checkpointData.DisplayName or "Checkpoint"
-                    
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                    
-                    print("   ✅ Loaded:", name, "→", #fixedFrames, "frames")
-                end
-            end
-            
-        -- ✅ METHOD 3: Try v1.x format (direct RecordedMovements table)
-        elseif saveData.RecordedMovements and type(saveData.RecordedMovements) == "table" then
-            print("   Format: v1.x (Legacy)")
-            
-            for name, frames in pairs(saveData.RecordedMovements) do
-                if frames and #frames > 0 then
-                    -- Fix frame format
-                    local fixedFrames = {}
-                    for _, frame in ipairs(frames) do
-                        local fixedFrame = {
-                            Position = frame.Position or frame.Pos or frame["11"] or {0, 0, 0},
-                            LookVector = frame.LookVector or frame.Look or frame["88"] or {0, 0, -1},
-                            UpVector = frame.UpVector or frame.Up or frame["55"] or {0, 1, 0},
-                            Velocity = frame.Velocity or frame.Vel or frame["22"] or {0, 0, 0},
-                            MoveState = frame.MoveState or frame.State or frame["33"] or "Grounded",
-                            WalkSpeed = frame.WalkSpeed or frame.Speed or frame["44"] or 16,
-                            Timestamp = frame.Timestamp or frame.Time or frame["66"] or 0
-                        }
-                        table.insert(fixedFrames, fixedFrame)
-                    end
-                    
-                    RecordedMovements[name] = fixedFrames
-                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or name
-                    
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                    
-                    print("   ✅ Loaded:", name, "→", #fixedFrames, "frames")
-                end
-            end
-            
-            -- Restore order if available
-            if saveData.RecordingOrder and type(saveData.RecordingOrder) == "table" then
-                RecordingOrder = {}
-                for _, name in ipairs(saveData.RecordingOrder) do
-                    if RecordedMovements[name] then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-            
-        else
-            print("❌ Unknown file format!")
-            PlaySound("Error")
-            return
         end
         
         UpdateRecordList()
         PlaySound("Success")
-        print("✅ Total recordings loaded:", #RecordingOrder)
-        
     end)
     
     if not success then
-        warn("❌ Load failed:", err)
         PlaySound("Error")
     end
 end
