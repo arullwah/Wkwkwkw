@@ -1076,11 +1076,28 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         
         local targetCFrame = GetFrameCFrame(frame)
         
-        -- ✅ FIX: Smooth CFrame tanpa jitter
+        -- ✅ Apply position
         hrp.CFrame = targetCFrame
         
-        -- ✅ FIX: HILANGKAN velocity playback (penyebab bounce/jitter)
-        hrp.AssemblyLinearVelocity = Vector3.zero
+        -- ✅ SOLUSI 1: Simulasi velocity untuk trigger animasi
+        if previousFrame then
+            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+            local prevPos = Vector3.new(previousFrame.Position[1], previousFrame.Position[2], previousFrame.Position[3])
+            
+            -- Hitung direction
+            local direction = (currentPos - prevPos)
+            local speed = direction.Magnitude / (1/90)  -- Karena 90 FPS
+            
+            -- Set velocity untuk trigger animasi
+            if speed > 0.5 then  -- Threshold untuk walk
+                hrp.AssemblyLinearVelocity = direction.Unit * math.min(speed, hum.WalkSpeed)
+            else
+                hrp.AssemblyLinearVelocity = Vector3.zero
+            end
+        else
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+        
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
