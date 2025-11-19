@@ -1024,46 +1024,7 @@ local function UpdatePlayButtonStatus()
     end
 end
 
--- ✅ FIX: SMOOTH PLAYBACK (NO JITTER/BOUNCE)
-local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
-    if not hum then return lastState, lastStateTime end
-    
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < -5
-    
-    if moveState == "Jumping" or isJumpingByVelocity then
-        if lastState ~= "Jumping" then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-        return "Jumping", currentTime
-    elseif moveState == "Falling" or isFallingByVelocity then
-        if lastState ~= "Falling" then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-        end
-        return "Falling", currentTime
-    else
-        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            if moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-                hum.AutoRotate = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-            return moveState, currentTime
-        end
-    end
-    
-    return lastState, lastStateTime
-end
-
--- ✅ FIX: SMOOTH PLAYBACK TANPA JITTER
+-- ⭐ v2.1 PURE METHOD - NO FILTERING, NO SIMULATION
 local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
     pcall(function()
         local char = player.Character
@@ -1074,40 +1035,33 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         
         if not hrp or not hum then return end
         
-        local targetCFrame = GetFrameCFrame(frame)
+        -- ✅ LANGSUNG apply CFrame tanpa delay
+        hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply position
-        hrp.CFrame = targetCFrame
-        
-        -- ✅ SOLUSI 1: Simulasi velocity untuk trigger animasi
-        if previousFrame then
-            local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-            local prevPos = Vector3.new(previousFrame.Position[1], previousFrame.Position[2], previousFrame.Position[3])
-            
-            -- Hitung direction
-            local direction = (currentPos - prevPos)
-            local speed = direction.Magnitude / (1/90)  -- Karena 90 FPS
-            
-            -- Set velocity untuk trigger animasi
-            if speed > 0.5 then  -- Threshold untuk walk
-                hrp.AssemblyLinearVelocity = direction.Unit * math.min(speed, hum.WalkSpeed)
-            else
-                hrp.AssemblyLinearVelocity = Vector3.zero
-            end
-        else
-            hrp.AssemblyLinearVelocity = Vector3.zero
-        end
-        
+        -- ✅ LANGSUNG apply velocity dari recording (PURE!)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
-            local targetWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            hum.WalkSpeed = targetWalkSpeed
+            -- ✅ Set WalkSpeed
+            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
             
-            lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                hum, frame, lastPlaybackState, lastStateChangeTime
-            )
+            -- ✅ SELALU trigger state change (NO COOLDOWN!)
+            local moveState = frame.MoveState
+            
+            if moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
         end
     end)
 end
@@ -2493,9 +2447,32 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                ApplyFrameToCharacterSmooth(frame, previousFrameData, alpha)
+                ⭐⭐ LANGSUNG APPLY - NO FUNCTION CALL ⭐⭐
+                hrp.CFrame = GetFrameCFrame(frame)
+                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+                hrp.AssemblyAngularVelocity = Vector3.zero
                 
-                previousFrameData = frame
+                if hum then
+                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+                    hum.AutoRotate = false
+                    
+                    local moveState = frame.MoveState
+                    
+                    -- ⭐ ALWAYS trigger state (NO cooldown!)
+                    if moveState == "Jumping" then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    elseif moveState == "Falling" then
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    elseif moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                end
+                
                 currentPlaybackFrame = nextFrame
             end
         end)
@@ -2516,7 +2493,7 @@ function PlayRecording(name)
     end
 end
 
--- ✅ FIX: AUTO LOOP SYSTEM
+-- ⭐ v2.1 SMOOTH AUTO LOOP - PURE METHOD
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2563,6 +2540,7 @@ function StartAutoLoopAll()
             local recordingNameToPlay = nil
             local searchAttempts = 0
             
+            -- Cari recording yang valid
             while searchAttempts < #RecordingOrder do
                 recordingNameToPlay = RecordingOrder[CurrentLoopIndex]
                 recordingToPlay = RecordedMovements[recordingNameToPlay]
@@ -2584,6 +2562,7 @@ function StartAutoLoopAll()
                 continue
             end
             
+            -- Check character ready
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -2616,6 +2595,7 @@ function StartAutoLoopAll()
             
             if not AutoLoop or not IsAutoLoopPlaying then break end
             
+            -- Teleport ke start position
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -2629,12 +2609,13 @@ function StartAutoLoopAll()
                 
                 local targetCFrame = GetFrameCFrame(recordingToPlay[1])
                 hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 
                 task.wait(0.2)
             end
             
+            -- Initialize playback variables
             local playbackCompleted = false
             local currentFrame = 1
             local playbackStartTime = tick()
@@ -2647,8 +2628,10 @@ function StartAutoLoopAll()
             
             IsLoopTransitioning = false
             
+            -- ⭐⭐ MAIN PLAYBACK LOOP (v2.1 PURE STYLE) ⭐⭐
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
+                -- Check if character died during playback
                 if not IsCharacterReady() then
                     
                     if AutoRespawn then
@@ -2659,6 +2642,7 @@ function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
+                            -- Reset playback dari awal
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -2679,6 +2663,7 @@ function StartAutoLoopAll()
                             continue
                         end
                     else
+                        -- Manual respawn mode
                         local manualRespawnWait = 0
                         local maxManualWait = 30
                         
@@ -2709,6 +2694,7 @@ function StartAutoLoopAll()
                     end
                 end
                 
+                -- Get character references
                 local char = player.Character
                 if not char or not char:FindFirstChild("HumanoidRootPart") then
                     task.wait(0.5)
@@ -2722,6 +2708,7 @@ function StartAutoLoopAll()
                     break
                 end
                 
+                -- Fixed timestep accumulator
                 local deltaTime = task.wait()
                 loopAccumulator = loopAccumulator + deltaTime
                 
@@ -2731,6 +2718,7 @@ function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStartTime) * CurrentSpeed
                     
+                    -- Advance frames based on time
                     local targetFrame = currentFrame
                     for i = currentFrame, #recordingToPlay do
                         if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
@@ -2742,44 +2730,71 @@ function StartAutoLoopAll()
                     
                     currentFrame = targetFrame
                     
+                    -- Check if playback completed
                     if currentFrame >= #recordingToPlay then
                         playbackCompleted = true
                     end
                     
+                    -- ⭐⭐ APPLY FRAME (PURE v2.1 METHOD - NO FILTERING!) ⭐⭐
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
+                            -- Apply CFrame
                             hrp.CFrame = GetFrameCFrame(frame)
-                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            
+                            -- Apply ORIGINAL velocity (RAHASIA SMOOTH!)
+                            hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
                             if hum then
+                                -- Set WalkSpeed
                                 hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
                                 hum.AutoRotate = false
                                 
-                                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                                    hum, frame, lastPlaybackState, lastStateChangeTime
-                                )
+                                local moveState = frame.MoveState
+                                
+                                -- ⭐ ALWAYS trigger state change (NO COOLDOWN!)
+                                if moveState == "Jumping" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                                elseif moveState == "Falling" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                                elseif moveState == "Climbing" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                                    hum.PlatformStand = false
+                                elseif moveState == "Swimming" then
+                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                                else
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                end
+                            end
+                            
+                            -- Apply ShiftLock if enabled
+                            if ShiftLockEnabled then
+                                ApplyVisibleShiftLock()
                             end
                         end
                     end
                 end
                 
+                -- Break if playback completed
                 if playbackCompleted then
                     break
                 end
             end
             
+            -- Cleanup after playback
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = 0
             
+            -- Handle playback completion
             if playbackCompleted then
                 PlaySound("Success")
                 CheckIfPathUsed(recordingNameToPlay)
                 
                 local isLastRecording = (CurrentLoopIndex >= #RecordingOrder)
                 
+                -- Auto reset if enabled and last recording
                 if AutoReset and isLastRecording then
                     ResetCharacter()
                     local success = WaitForRespawn()
@@ -2788,10 +2803,12 @@ function StartAutoLoopAll()
                     end
                 end
                 
+                -- Move to next recording
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
                     
+                    -- Transition delay between loops
                     if AutoLoop and IsAutoLoopPlaying then
                         IsLoopTransitioning = true
                         task.wait(LOOP_TRANSITION_DELAY)
@@ -2801,6 +2818,7 @@ function StartAutoLoopAll()
                 
                 if not AutoLoop or not IsAutoLoopPlaying then break end
             else
+                -- Playback failed, try next recording
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
@@ -2813,6 +2831,7 @@ function StartAutoLoopAll()
             end
         end
         
+        -- Final cleanup
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
@@ -3172,35 +3191,3 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
-
-print("✅ ByaruL Recorder v3.1 - FIXED!")
-print("📌 Features:")
-print("   • 90 FPS Recording with Lag Compensation")
-print("   • SMOOTH Playback (No Jitter/Bounce)")
-print("   • FIXED Merged Replay (100+ checkpoints)")
-print("   • Smart Auto Loop with Auto Respawn")
-print("   • Path Visualization with Auto-Hide")
-print("   • Obfuscated Save/Load System")
-print("   • Persistent Mini Button Position")
-print("   • RGB Pulse Title Animation")
-print("")
-print("🔧 CHANGELOG v3.1:")
-print("   ✅ FIXED: Jitter on uneven surfaces")
-print("   ✅ FIXED: Merged replay stuck at checkpoint #1")
-print("   ✅ FIXED: Auto loop character stuck")
-print("   ✅ IMPROVED: Velocity playback disabled for smoothness")
-print("   ✅ IMPROVED: UI layout (Speed/Filename/WalkSpeed)")
-print("   ✅ IMPROVED: Sound system (only 4 sounds)")
-print("   ✅ IMPROVED: Studio recording buttons position")
-print("")
-print("🎮 Quick Guide:")
-print("   1. Click RECORD to open Studio")
-print("   2. Click START to begin recording")
-print("   3. Use PREV/NEXT to navigate timeline")
-print("   4. Click RESUME to continue from current frame")
-print("   5. Click SAVE when finished")
-print("   6. Use MERGE to combine multiple replays")
-print("   7. Enable Loop + Auto Respawn for infinite playback")
-print("")
-print("💾 Auto-loading 'MyReplays.json' if exists...")
-print("Ready to use! 🚀")
