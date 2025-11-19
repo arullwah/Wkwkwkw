@@ -44,8 +44,8 @@ local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
 local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
 local JUMP_ANIMATION_SPEED = 1.5
 -- ✅ TAMBAHKAN:
-local PAUSE_DETECTION_THRESHOLD = 0.5  -- Deteksi pause jika > 0.5 detik gap
-local MAX_PAUSE_TRANSITION_FRAMES = 18   -- Max transition frames untuk pause
+local PAUSE_DETECTION_THRESHOLD = 0.3  -- Deteksi pause jika > 0.5 detik gap
+local MAX_PAUSE_TRANSITION_FRAMES = 12   -- Max transition frames untuk pause
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
