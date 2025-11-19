@@ -3026,6 +3026,15 @@ function StopAutoLoopAll()
 end
 
 function StopPlayback()
+
+lastStateChangeTime = 0
+lastPlaybackState = nil
+lastJumpTime = 0
+if jumpAnimationTrack then
+    jumpAnimationTrack:Stop()
+    jumpAnimationTrack = nil
+end
+
     if AutoLoop then
         StopAutoLoopAll()
         LoopBtnControl.Text = "Loop OFF"
@@ -3037,8 +3046,6 @@ function StopPlayback()
     IsPlaying = false
     IsAutoLoopPlaying = false
     IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     LastPausePosition = nil
     LastPauseRecording = nil
     
