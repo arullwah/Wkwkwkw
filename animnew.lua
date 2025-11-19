@@ -17,29 +17,29 @@ if not hasFileSystem then
     isfile = function() return false end
 end
 
--- ========= OPTIMIZED CONFIGURATION FOR 90 FPS =========
+-- ========= OPTIMIZED CONFIGURATION FOR 90 FPS (ULTRA SMOOTH) =========
 local RECORDING_FPS = 90
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.012
+local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Lebih sensitif (dari 0.012)
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.1
-local TRANSITION_FRAMES = 8
+local STATE_CHANGE_COOLDOWN = 0  -- ✅ NO COOLDOWN! (dari 0.1)
+local TRANSITION_FRAMES = 4  -- ✅ Lebih cepat (dari 8)
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 90
 local JUMP_VELOCITY_THRESHOLD = 10
 local FALL_VELOCITY_THRESHOLD = -5
-local LOOP_TRANSITION_DELAY = 0.12
-local AUTO_LOOP_RETRY_DELAY = 0.5
-local TIME_BYPASS_THRESHOLD = 0.15
-local LAG_DETECTION_THRESHOLD = 0.2
-local MAX_LAG_FRAMES_TO_SKIP = 5
+local LOOP_TRANSITION_DELAY = 0.05  -- ✅ Lebih cepat (dari 0.12)
+local AUTO_LOOP_RETRY_DELAY = 0.3  -- ✅ Lebih cepat (dari 0.5)
+local TIME_BYPASS_THRESHOLD = 0.08  -- ✅ Lebih ketat (dari 0.15)
+local LAG_DETECTION_THRESHOLD = 0.15  -- ✅ Lebih sensitif (dari 0.2)
+local MAX_LAG_FRAMES_TO_SKIP = 3  -- ✅ Lebih sedikit (dari 5)
 local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
-local USE_VELOCITY_PLAYBACK = false -- ✅ DISABLED untuk smooth playback
-local INTERPOLATION_LOOKAHEAD = 3
+local USE_VELOCITY_PLAYBACK = false
+local INTERPOLATION_LOOKAHEAD = 2  -- ✅ Lebih sedikit (dari 3)
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -215,10 +215,10 @@ local function WaitForRespawn()
     local startTime = tick()
     local timeout = 10
     repeat
-        task.wait(0.1)
+        task.wait(0.05)  -- ✅ Lebih cepat (dari 0.1)
         if tick() - startTime > timeout then return false end
     until player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChildOfClass("Humanoid") and player.Character.Humanoid.Health > 0
-    task.wait(1)
+    task.wait(0.3)  -- ✅ Lebih cepat (dari 1)
     return true
 end
 
@@ -2301,9 +2301,11 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     local distance = (currentPos - targetPos).Magnitude
     
     if distance > 3 then
-        local tweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        TweenService:Create(hrp, tweenInfo, {CFrame = GetFrameCFrame(targetFrame)}):Play()
-        task.wait(0.15)
+        -- ✅ INSTANT teleport, no tween!
+        hrp.CFrame = GetFrameCFrame(targetFrame)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        task.wait(0.03)  -- ✅ Minimal delay
     end
     
     currentPlaybackFrame = startFrame
@@ -2612,7 +2614,7 @@ function StartAutoLoopAll()
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 
-                task.wait(0.2)
+                task.wait(0.5)
             end
             
             -- Initialize playback variables
