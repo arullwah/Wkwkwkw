@@ -17,14 +17,14 @@ if not hasFileSystem then
     isfile = function() return false end
 end
 
--- ========= OPTIMIZED CONFIGURATION (PERFECT BALANCE) =========
-local RECORDING_FPS = 60  -- ✅ 60 FPS (lebih stabil)
+-- ========= OPTIMIZED CONFIGURATION (TESTED & PERFECT) =========
+local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.01
+local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.05  -- ✅ Hanya untuk grounded/climbing
+local STATE_CHANGE_COOLDOWN = 0  -- ✅ NO COOLDOWN! (PURE v2.1)
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -32,7 +32,7 @@ local JUMP_VELOCITY_THRESHOLD = 8
 local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.08
 local AUTO_LOOP_RETRY_DELAY = 0.3
-local TIME_BYPASS_THRESHOLD = 0.1
+local TIME_BYPASS_THRESHOLD = 0.05  -- ✅ Lebih ketat
 local LAG_DETECTION_THRESHOLD = 0.15
 local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
@@ -40,7 +40,7 @@ local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
-local STOP_VELOCITY_THRESHOLD = 0.8  -- ✅ Untuk smooth stop (dari 0.5)
+local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -897,14 +897,13 @@ local function NormalizeRecordingTimestamps(recording)
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
     
     if hadLag then
-        print("⚠️ Lag detected and compensated")
+        print("⚠️ Lag terdeteksi ")
     end
     
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
     
     local normalized = {}
-    local timeOffset = 0
-    local lastValidTimestamp = 0
+    local expectedFrameTime = 1 / RECORDING_FPS
     
     for i, frame in ipairs(smoothed) do
         local newFrame = {
@@ -921,16 +920,19 @@ local function NormalizeRecordingTimestamps(recording)
         
         if i == 1 then
             newFrame.Timestamp = 0
-            lastValidTimestamp = 0
         else
+            -- ✅ FIXED: Simple increment, no complex offset
+            local prevTimestamp = normalized[i-1].Timestamp
             local originalTimeDiff = frame.Timestamp - smoothed[i-1].Timestamp
             
-            if originalTimeDiff > TIME_BYPASS_THRESHOLD then
-                timeOffset = timeOffset + (originalTimeDiff - (1/RECORDING_FPS))
+            -- Hanya adjust jika time jump terlalu besar
+            if originalTimeDiff > (expectedFrameTime * 3) then
+                -- Ada pause/lag besar, gunakan expected frame time
+                newFrame.Timestamp = prevTimestamp + expectedFrameTime
+            else
+                -- Normal increment
+                newFrame.Timestamp = prevTimestamp + math.max(originalTimeDiff, expectedFrameTime * 0.5)
             end
-            
-            newFrame.Timestamp = frame.Timestamp - timeOffset
-            lastValidTimestamp = newFrame.Timestamp
         end
         
         table.insert(normalized, newFrame)
@@ -2178,6 +2180,7 @@ local function LoadFromObfuscatedJSON()
     
     local success, err = pcall(function()
         if not isfile(filename) then
+            print("❌ File not found:", filename)
             PlaySound("Error")
             return
         end
@@ -2185,71 +2188,119 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        -- ✅ BACKWARD COMPATIBILITY CHECK
-        local fileVersion = saveData.Version or "2.0"
-        print("📂 Loading file version:", fileVersion)
+        print("📂 Loading file...")
+        print("   Version:", saveData.Version or "Unknown")
+        print("   Obfuscated:", saveData.Obfuscated and "Yes" or "No")
         
-        local newRecordingOrder = saveData.RecordingOrder or {}
-        local newCheckpointNames = saveData.CheckpointNames or {}
-        
-        -- ✅ Support old format (non-obfuscated)
+        -- ✅ METHOD 1: Try new format (v3.x - obfuscated)
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            -- New format (obfuscated)
+            print("   Format: v3.x (Obfuscated)")
+            
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 local name = checkpointData.Name
                 local frames = deobfuscatedData[name]
                 
-                if frames then
+                if frames and #frames > 0 then
                     RecordedMovements[name] = frames
-                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or checkpointData.DisplayName or "Checkpoint"
                     
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
+                    
+                    print("   ✅ Loaded:", name, "→", #frames, "frames")
                 end
             end
-        else
-            -- ✅ OLD FORMAT SUPPORT (non-obfuscated)
-            print("⚠️ Loading old format file...")
             
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+        -- ✅ METHOD 2: Try v2.x format (non-obfuscated with Checkpoints array)
+        elseif saveData.Checkpoints and type(saveData.Checkpoints) == "table" then
+            print("   Format: v2.x (Non-obfuscated)")
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints) do
                 local name = checkpointData.Name
                 local frames = checkpointData.Frames
                 
                 if frames and #frames > 0 then
-                    -- Fix old frame format jika perlu
+                    -- Fix frame format jika perlu
                     local fixedFrames = {}
                     for _, frame in ipairs(frames) do
-                        -- Pastikan semua field ada
                         local fixedFrame = {
-                            Position = frame.Position or frame.Pos or {0, 0, 0},
-                            LookVector = frame.LookVector or frame.Look or {0, 0, -1},
-                            UpVector = frame.UpVector or frame.Up or {0, 1, 0},
-                            Velocity = frame.Velocity or frame.Vel or {0, 0, 0},
-                            MoveState = frame.MoveState or frame.State or "Grounded",
-                            WalkSpeed = frame.WalkSpeed or frame.Speed or 16,
-                            Timestamp = frame.Timestamp or frame.Time or 0
+                            Position = frame.Position or frame.Pos or frame["11"] or {0, 0, 0},
+                            LookVector = frame.LookVector or frame.Look or frame["88"] or {0, 0, -1},
+                            UpVector = frame.UpVector or frame.Up or frame["55"] or {0, 1, 0},
+                            Velocity = frame.Velocity or frame.Vel or frame["22"] or {0, 0, 0},
+                            MoveState = frame.MoveState or frame.State or frame["33"] or "Grounded",
+                            WalkSpeed = frame.WalkSpeed or frame.Speed or frame["44"] or 16,
+                            Timestamp = frame.Timestamp or frame.Time or frame["66"] or 0
                         }
                         table.insert(fixedFrames, fixedFrame)
                     end
                     
                     RecordedMovements[name] = fixedFrames
-                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName or "Checkpoint"
+                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or checkpointData.DisplayName or "Checkpoint"
                     
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
                     end
                     
-                    print("✅ Loaded:", name, "with", #fixedFrames, "frames")
+                    print("   ✅ Loaded:", name, "→", #fixedFrames, "frames")
                 end
             end
+            
+        -- ✅ METHOD 3: Try v1.x format (direct RecordedMovements table)
+        elseif saveData.RecordedMovements and type(saveData.RecordedMovements) == "table" then
+            print("   Format: v1.x (Legacy)")
+            
+            for name, frames in pairs(saveData.RecordedMovements) do
+                if frames and #frames > 0 then
+                    -- Fix frame format
+                    local fixedFrames = {}
+                    for _, frame in ipairs(frames) do
+                        local fixedFrame = {
+                            Position = frame.Position or frame.Pos or frame["11"] or {0, 0, 0},
+                            LookVector = frame.LookVector or frame.Look or frame["88"] or {0, 0, -1},
+                            UpVector = frame.UpVector or frame.Up or frame["55"] or {0, 1, 0},
+                            Velocity = frame.Velocity or frame.Vel or frame["22"] or {0, 0, 0},
+                            MoveState = frame.MoveState or frame.State or frame["33"] or "Grounded",
+                            WalkSpeed = frame.WalkSpeed or frame.Speed or frame["44"] or 16,
+                            Timestamp = frame.Timestamp or frame.Time or frame["66"] or 0
+                        }
+                        table.insert(fixedFrames, fixedFrame)
+                    end
+                    
+                    RecordedMovements[name] = fixedFrames
+                    checkpointNames[name] = (saveData.CheckpointNames and saveData.CheckpointNames[name]) or name
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                    
+                    print("   ✅ Loaded:", name, "→", #fixedFrames, "frames")
+                end
+            end
+            
+            -- Restore order if available
+            if saveData.RecordingOrder and type(saveData.RecordingOrder) == "table" then
+                RecordingOrder = {}
+                for _, name in ipairs(saveData.RecordingOrder) do
+                    if RecordedMovements[name] then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+            
+        else
+            print("❌ Unknown file format!")
+            PlaySound("Error")
+            return
         end
         
         UpdateRecordList()
         PlaySound("Success")
         print("✅ Total recordings loaded:", #RecordingOrder)
+        
     end)
     
     if not success then
@@ -2515,43 +2566,19 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
-                    local currentTime = tick()
                     
-                    -- ✅ SMART STATE CHANGE (NO COOLDOWN untuk Jump/Fall!)
+                    -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
                     if moveState == "Jumping" then
-                        -- Jump HARUS instant, no cooldown!
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        lastPlaybackState = "Jumping"
-                        lastStateChangeTime = currentTime
-                        
                     elseif moveState == "Falling" then
-                        -- Fall juga HARUS instant!
                         hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        lastPlaybackState = "Falling"
-                        lastStateChangeTime = currentTime
-                        
                     elseif moveState == "Climbing" then
-                        -- Climbing pakai cooldown (agar tidak flicker)
-                        if not lastPlaybackState or lastPlaybackState ~= "Climbing" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            hum.PlatformStand = false
-                            lastPlaybackState = "Climbing"
-                            lastStateChangeTime = currentTime
-                        end
-                        
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
                     elseif moveState == "Swimming" then
-                        -- Swimming pakai cooldown
-                        if not lastPlaybackState or lastPlaybackState ~= "Swimming" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            lastPlaybackState = "Swimming"
-                            lastStateChangeTime = currentTime
-                        end
-                        
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
                     else
-                        -- Grounded (Running) - instant OK
                         hum:ChangeState(Enum.HumanoidStateType.Running)
-                        lastPlaybackState = "Grounded"
-                        lastStateChangeTime = currentTime
                     end
                 end
                 
@@ -2833,43 +2860,19 @@ function StartAutoLoopAll()
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
-                    local currentTime = tick()
                     
-                    -- ✅ SMART STATE CHANGE (NO COOLDOWN untuk Jump/Fall!)
+                    -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
                     if moveState == "Jumping" then
-                        -- Jump HARUS instant, no cooldown!
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                        lastPlaybackState = "Jumping"
-                        lastStateChangeTime = currentTime
-                        
                     elseif moveState == "Falling" then
-                        -- Fall juga HARUS instant!
                         hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                        lastPlaybackState = "Falling"
-                        lastStateChangeTime = currentTime
-                        
                     elseif moveState == "Climbing" then
-                        -- Climbing pakai cooldown (agar tidak flicker)
-                        if not lastPlaybackState or lastPlaybackState ~= "Climbing" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                            hum.PlatformStand = false
-                            lastPlaybackState = "Climbing"
-                            lastStateChangeTime = currentTime
-                        end
-                        
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
                     elseif moveState == "Swimming" then
-                        -- Swimming pakai cooldown
-                        if not lastPlaybackState or lastPlaybackState ~= "Swimming" or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                            lastPlaybackState = "Swimming"
-                            lastStateChangeTime = currentTime
-                        end
-                        
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
                     else
-                        -- Grounded (Running) - instant OK
                         hum:ChangeState(Enum.HumanoidStateType.Running)
-                        lastPlaybackState = "Grounded"
-                        lastStateChangeTime = currentTime
                     end
                 end
                             
