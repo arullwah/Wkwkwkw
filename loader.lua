@@ -24,7 +24,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.04 -- ✅ NO COOLDOWN! (PURE v2.1)
+local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ NO COOLDOWN! (PURE v2.1)
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -36,16 +36,16 @@ local TIME_BYPASS_THRESHOLD = 0.05  -- ✅ Lebih ketat
 local LAG_DETECTION_THRESHOLD = 0.15
 local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
-local ENABLE_FRAME_SMOOTHING = false
+local ENABLE_FRAME_SMOOTHING = true
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 5
+local INTERPOLATION_LOOKAHEAD = 3
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
-local JUMP_FORCE_COOLDOWN = 0.01   
-local JUMP_ANIMATION_SPEED = 1.6
+local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
+local JUMP_ANIMATION_SPEED = 1.5
 -- ✅ TAMBAHKAN:
-local PAUSE_DETECTION_THRESHOLD = 0.3  -- Deteksi pause jika > 0.5 detik gap
-local MAX_PAUSE_TRANSITION_FRAMES = 30   -- Max transition frames untuk pause
+local PAUSE_DETECTION_THRESHOLD = 0.5  -- Deteksi pause jika > 0.5 detik gap
+local MAX_PAUSE_TRANSITION_FRAMES = 18   -- Max transition frames untuk pause
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -900,18 +900,18 @@ end
 
 local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
-    
+
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
-    
+
     if hadLag then
         print("⚠️ Lag terdeteksi ")
     end
-    
+
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
-    
+
     local normalized = {}
     local expectedFrameTime = 1 / RECORDING_FPS
-    
+
     for i, frame in ipairs(smoothed) do
         local newFrame = {
             Position = frame.Position,
@@ -924,27 +924,66 @@ local function NormalizeRecordingTimestamps(recording)
             IsInterpolated = frame.IsInterpolated,
             IsSmoothed = frame.IsSmoothed
         }
-        
+
         if i == 1 then
             newFrame.Timestamp = 0
+            table.insert(normalized, newFrame)
         else
-            -- ✅ FIXED: Simple increment, no complex offset
-            local prevTimestamp = normalized[i-1].Timestamp
-            local originalTimeDiff = frame.Timestamp - smoothed[i-1].Timestamp
-            
-            -- Hanya adjust jika time jump terlalu besar
+            local prevSmoothed = smoothed[i-1]
+            local prevNormalized = normalized[#normalized]
+            local originalTimeDiff = frame.Timestamp - prevSmoothed.Timestamp
+
+            -- Jika gap terlalu besar -> buat smooth transition frames menggunakan CreateSmoothTransition
             if originalTimeDiff > (expectedFrameTime * 3) then
-                -- Ada pause/lag besar, gunakan expected frame time
-                newFrame.Timestamp = prevTimestamp + expectedFrameTime
+                -- Hitung berapa transition frames wajar berdasarkan gap (min 2)
+                local estimatedFrames = math.max(2, math.floor(originalTimeDiff / expectedFrameTime) - 1)
+                local numFrames = math.min(estimatedFrames, MAX_PAUSE_TRANSITION_FRAMES or 18)
+
+                -- Generate transition frames (lerp posisi, look, up, vel, walkspeed)
+                local transitionFrames = CreateSmoothTransition(prevSmoothed, frame, numFrames)
+
+                -- Append transition frames dengan timestamp berurutan (dari prevNormalized.Timestamp)
+                for tIndex, tFrame in ipairs(transitionFrames) do
+                    -- Pastikan timestamp increment berdasarkan expectedFrameTime (safeguard)
+                    local ts = prevNormalized.Timestamp + (tIndex * expectedFrameTime)
+                    tFrame.Timestamp = ts
+                    -- Mark sebagai interpolated / pause transition
+                    tFrame.IsInterpolated = true
+                    tFrame.IsPauseTransition = true
+                    table.insert(normalized, {
+                        Position = tFrame.Position,
+                        LookVector = tFrame.LookVector,
+                        UpVector = tFrame.UpVector,
+                        Velocity = tFrame.Velocity,
+                        MoveState = tFrame.MoveState,
+                        WalkSpeed = tFrame.WalkSpeed,
+                        Timestamp = tFrame.Timestamp,
+                        IsInterpolated = tFrame.IsInterpolated,
+                        IsPauseTransition = tFrame.IsPauseTransition
+                    })
+                    prevNormalized = normalized[#normalized]
+                end
+
+                -- Setelah transition, append the actual frame but timestamp it after the last transition
+                newFrame.Timestamp = prevNormalized.Timestamp + expectedFrameTime
+                table.insert(normalized, newFrame)
             else
-                -- Normal increment
+                -- Normal increment (no large gap)
+                local prevTimestamp = prevNormalized.Timestamp
                 newFrame.Timestamp = prevTimestamp + math.max(originalTimeDiff, expectedFrameTime * 0.5)
+                table.insert(normalized, newFrame)
             end
         end
-        
-        table.insert(normalized, newFrame)
     end
-    
+
+    -- Final pass: renormalize so first timestamp = 0 and monotonic
+    if #normalized > 0 then
+        local base = normalized[1].Timestamp
+        for idx = 1, #normalized do
+            normalized[idx].Timestamp = normalized[idx].Timestamp - base
+        end
+    end
+
     return normalized
 end
 
