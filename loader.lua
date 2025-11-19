@@ -3377,26 +3377,80 @@ player.CharacterRemoving:Connect(function()
     end)
 end)
 
-game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
-    if descendant == ScreenGui then
-        pcall(function()
-            CleanupConnections()
-            ClearPathVisualization()
+-- ✅ NEW: Character respawn monitoring untuk auto-apply WalkSpeed
+player.CharacterAdded:Connect(function(character)
+    task.wait(1)  -- Wait for character to fully load
+    
+    -- ✅ Auto apply saved WalkSpeed setelah respawn
+    ApplyWalkSpeedToCharacter()
+    
+    -- Monitor humanoid changes
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if humanoid then
+        humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            -- Jika WalkSpeed berubah dan berbeda dari saved value, restore it
+            if not IsPlaying and not IsAutoLoopPlaying and not StudioIsRecording then
+                if math.abs(humanoid.WalkSpeed - CurrentWalkSpeed) > 0.1 then
+                    task.wait(0.1)
+                    humanoid.WalkSpeed = CurrentWalkSpeed
+                end
+            end
         end)
     end
 end)
 
-game:BindToClose(function()
+-- ========= FINAL CLEANUP - FIXED VERSION (NO BindToClose) =========
+
+local function PerformCleanup()
     pcall(function()
+        -- Stop semua aktivitas
+        if StudioIsRecording then StopStudioRecording() end
+        if IsPlaying or IsAutoLoopPlaying then StopPlayback() end
+        if ShiftLockEnabled then DisableVisibleShiftLock() end
+        if InfiniteJump then DisableInfiniteJump() end
+        
+        -- Cleanup connections
         CleanupConnections()
+        
+        -- Clear visualizations
         ClearPathVisualization()
+        
+        -- Restore character control
+        RestoreFullUserControl()
+        
+        print("✅ ByaruL Recorder - Cleanup completed")
     end)
+end
+
+-- Detect player leaving
+player.AncestryChanged:Connect(function()
+    if not player:IsDescendantOf(game) then
+        PerformCleanup()
+    end
 end)
 
+-- Detect GUI being destroyed
+ScreenGui.AncestryChanged:Connect(function()
+    if not ScreenGui:IsDescendantOf(game) then
+        PerformCleanup()
+    end
+end)
+
+-- Detect script being destroyed
+script.AncestryChanged:Connect(function()
+    if not script:IsDescendantOf(game) then
+        PerformCleanup()
+    end
+end)
+
+-- ========= SUCCESS MESSAGE =========
 task.spawn(function()
     task.wait(1)
     PlaySound("Success")
     print("✅ ByaruL Recorder v3.2 - OPTIMIZED 30 FPS")
     print("📊 Current FPS:", CurrentDeviceFPS)
     print("⚙️ WalkSpeed:", CurrentWalkSpeed)
+    print("🔧 Cleanup system initialized successfully")
 end)
+
+-- ========= END OF SCRIPT =========
