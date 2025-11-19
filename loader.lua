@@ -41,7 +41,7 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
-local JUMP_FORCE_COOLDOWN = 0.05    -- Minimal delay antar jump
+local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
 local JUMP_ANIMATION_SPEED = 1.5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
