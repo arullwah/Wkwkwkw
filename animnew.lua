@@ -24,7 +24,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0  -- ✅ NO COOLDOWN! (PURE v2.1)
+local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ NO COOLDOWN! (PURE v2.1)
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -41,6 +41,8 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
+local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
+local JUMP_ANIMATION_SPEED = 1.5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -103,6 +105,8 @@ local prePausePlatformStand = false
 local prePauseSit = false
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
+local lastJumpTime = 0
+local forceAnimationPlay = true  -- ✅ Force play animation
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
@@ -1039,7 +1043,56 @@ local function UpdatePlayButtonStatus()
     end
 end
 
--- ⭐ v2.1 PURE METHOD - NO FILTERING, NO SIMULATION
+-- ========= ADD FUNGSI BARU (PASTE SEBELUM ApplyFrameToCharacterSmooth) =========
+local function ForcePlayJumpAnimation(humanoid)
+    task.spawn(function()
+        pcall(function()
+            local animator = humanoid:FindFirstChildOfClass("Animator")
+            if not animator then return end
+            
+            -- Stop SEMUA jump/fall animation yang sedang play
+            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                if track.Animation then
+                    local animName = string.lower(track.Animation.Name)
+                    if string.find(animName, "jump") or string.find(animName, "fall") then
+                        track:Stop(0)  -- Stop immediately
+                    end
+                end
+            end
+            
+            -- Cari jump animation track
+            local foundJumpTrack = false
+            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                if track.Animation and string.find(string.lower(track.Animation.Name), "jump") then
+                    jumpAnimationTrack = track
+                    foundJumpTrack = true
+                    break
+                end
+            end
+            
+            -- Kalau belum ada, coba load dari Humanoid
+            if not foundJumpTrack then
+                -- Try to find jump animation in character
+                local char = humanoid.Parent
+                if char then
+                    local jumpAnim = char:FindFirstChild("Jump", true)
+                    if jumpAnim and jumpAnim:IsA("Animation") then
+                        jumpAnimationTrack = animator:LoadAnimation(jumpAnim)
+                        foundJumpTrack = true
+                    end
+                end
+            end
+            
+            -- Play animation dari AWAL
+            if jumpAnimationTrack then
+                jumpAnimationTrack.TimePosition = 0  -- Reset ke frame 0
+                jumpAnimationTrack:Play(0, 1, JUMP_ANIMATION_SPEED)
+            end
+        end)
+    end)
+end
+
+-- ========= REPLACE ApplyFrameToCharacterSmooth (Line 1090) =========
 local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
     pcall(function()
         local char = player.Character
@@ -1050,32 +1103,92 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         
         if not hrp or not hum then return end
         
-        -- ✅ LANGSUNG apply CFrame tanpa delay
+        -- ✅ Apply CFrame (INSTANT)
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ LANGSUNG apply velocity dari recording (PURE!)
+        -- ✅ Apply Velocity (PURE)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
-            -- ✅ Set WalkSpeed
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
             
-            -- ✅ SELALU trigger state change (NO COOLDOWN!)
             local moveState = frame.MoveState
+            local currentTime = tick()
             
-            if moveState == "Jumping" then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            elseif moveState == "Falling" then
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
+            -- ========= ✅ ULTIMATE JUMP FIX =========
+            local shouldChangeState = false
+            local forceJumpAnimation = false
+            
+            -- Cek apakah perlu change state
+            if moveState ~= lastPlaybackState then
+                -- State berbeda, ALWAYS change
+                shouldChangeState = true
+                
+                -- Special handling untuk jump
+                if moveState == "Jumping" then
+                    local timeSinceLastJump = currentTime - lastJumpTime
+                    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
+                        forceJumpAnimation = true
+                        lastJumpTime = currentTime
+                    end
+                end
+                
+            elseif (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                -- State sama tapi sudah lewat cooldown
+                
+                -- ✅ CRITICAL: Jump/Fall butuh re-trigger untuk spam jump
+                if moveState == "Jumping" then
+                    local timeSinceLastJump = currentTime - lastJumpTime
+                    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
+                        shouldChangeState = true
+                        forceJumpAnimation = true
+                        lastJumpTime = currentTime
+                    end
+                elseif moveState == "Falling" then
+                    shouldChangeState = true
+                end
+            end
+            
+            -- Apply state change
+            if shouldChangeState then
+                if moveState == "Jumping" then
+                    -- ✅ METHOD 1: Boost JumpPower temporary
+                    local originalJumpPower = hum.JumpPower
+                    hum.JumpPower = math.max(originalJumpPower, 50)
+                    
+                    -- ✅ METHOD 2: Change state
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    
+                    -- ✅ METHOD 3: Force animation
+                    if forceJumpAnimation then
+                        ForcePlayJumpAnimation(hum)
+                    end
+                    
+                    -- Reset JumpPower
+                    task.delay(0.08, function()
+                        if hum and hum.Parent then
+                            hum.JumpPower = originalJumpPower
+                        end
+                    end)
+                    
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    
+                elseif moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    hum.PlatformStand = false
+                    
+                elseif moveState == "Swimming" then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+                
+                lastStateChangeTime = currentTime
+                lastPlaybackState = moveState
             end
         end
     end)
@@ -2770,10 +2883,32 @@ function StartAutoLoopAll()
                     local moveState = frame.MoveState
                     
                     -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
-                    if moveState == "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    elseif moveState == "Falling" then
-                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                   if moveState == "Jumping" then
+    local timeSinceLastJump = tick() - lastJumpTime
+    
+    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
+        -- Boost JumpPower
+        local originalJumpPower = hum.JumpPower
+        hum.JumpPower = math.max(originalJumpPower, 50)
+        
+        -- Change state
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        
+        -- Force animation
+        ForcePlayJumpAnimation(hum)
+        
+        -- Reset JumpPower
+        task.delay(0.08, function()
+            if hum and hum.Parent then
+                hum.JumpPower = originalJumpPower
+            end
+        end)
+        
+        lastJumpTime = tick()
+    end
+    
+elseif moveState == "Falling" then
+    hum:ChangeState(Enum.HumanoidStateType.Freefall)
                     elseif moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
@@ -2891,6 +3026,15 @@ function StopAutoLoopAll()
 end
 
 function StopPlayback()
+
+lastStateChangeTime = 0
+lastPlaybackState = nil
+lastJumpTime = 0
+if jumpAnimationTrack then
+    jumpAnimationTrack:Stop()
+    jumpAnimationTrack = nil
+end
+
     if AutoLoop then
         StopAutoLoopAll()
         LoopBtnControl.Text = "Loop OFF"
@@ -2902,8 +3046,6 @@ function StopPlayback()
     IsPlaying = false
     IsAutoLoopPlaying = false
     IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     LastPausePosition = nil
     LastPauseRecording = nil
     
