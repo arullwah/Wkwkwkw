@@ -995,14 +995,16 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    local hueSpeed = 0.25
-    local pulseFreq = 4.5
-    local baseSize = 14
-    local sizeAmplitude = 6
-    local baseScale = 1.0
-    local strokeMin = 0.0
-    local strokeMax = 0.9
-    local strokePulseFreq = 2.2
+    -- === PENGATURAN ===
+    local hueSpeed = 3            -- Kecepatan ganti warna pelangi
+    local pulseFreq = 20         -- Kecepatan denyut jantung (Zoom In/Out)
+    local baseSize = 14            -- Ukuran font dasar
+    local sizeAmplitude = 8       -- Seberapa besar dia membesar saat berdenyut
+    
+    -- Bagian Stroke (Garis Tepi)
+    local strokePulseFreq = 5      -- Kecepatan kedip garis tepi
+    local strokeMin = 0.0          -- Transparansi minimal (0 = tebal)
+    local strokeMax = 1.0          -- Transparansi maksimal (1 = hilang)
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1016,30 +1018,44 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
+            -- 1. Warna Pelangi (RGB)
             local hue = (t * hueSpeed) % 1
             local color = Color3.fromHSV(hue, 1, 1)
             titleLabel.TextColor3 = color
 
+            -- 2. Denyut Ukuran (Size Pulse)
             local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5)
             local newSize = baseSize + (pulse * sizeAmplitude)
             titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
 
+            -- 3. Efek Stroke/Garis Tepi (FIXED)
             if titleLabel.TextStrokeTransparency ~= nil then
+                -- Kita ganti warna Stroke jadi PUTIH agar kelihatan di background hitam
+                titleLabel.TextStrokeColor3 = Color3.fromRGB(255, 255, 255) 
+                
                 local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5)
+                -- Rumus interpolasi transparansi
                 local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
+                
                 titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
-                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
             end
 
+            -- 4. Efek Getar Posisi (Jitter)
             if titleLabel.Position and typeof(titleLabel.Position) == "UDim2" then
-                local jitter = (math.sin(t * pulseFreq * 0.5) * 2) * (pulse * 0.6)
-                titleLabel.Position = UDim2.new(titleLabel.Position.X.Scale, titleLabel.Position.X.Offset, titleLabel.Position.Y.Scale, titleLabel.Position.Y.Offset + jitter)
+                -- Getaran diperhalus agar tidak terlalu kasar
+                local jitter = (math.sin(t * pulseFreq * 0.8) * 1.5) * (pulse * 0.5)
+                titleLabel.Position = UDim2.new(
+                    0.5, 0,  -- X tetap di tengah (sesuai anchor point)
+                    0.5, jitter -- Y bergoyang dikit
+                ) 
+                -- Catatan: Saya set X ke 0.5 dan AnchorPoint title harus (0.5, 0.5) agar rapi
             end
         end)
     end)
 
     AddConnection(titlePulseConnection)
 end
+
 
 -- ========= SMART PLAY SYSTEM =========
 local function FindNearestRecording(maxDistance)
