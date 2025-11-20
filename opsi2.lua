@@ -24,7 +24,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ NO COOLDOWN! (PURE v2.1)
+local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ Untuk state selain jump/fall
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -41,57 +41,8 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
-
--- ========= SIMPLE JUMP SYSTEM =========
-local currentJumpAnimationTrack = nil
-
-local function ForcePlayJumpAnimation(humanoid, animationSpeed)
-    task.spawn(function()
-        pcall(function()
-            local animator = humanoid:FindFirstChildOfClass("Animator")
-            if not animator then return end
-            
-            if currentJumpAnimationTrack then
-                currentJumpAnimationTrack:Stop(0.1)
-            end
-            
-            local jumpAnim = nil
-            local char = humanoid.Parent
-            if char then
-                jumpAnim = char:FindFirstChild("Jump", true)
-                if not jumpAnim then
-                    jumpAnim = humanoid:FindFirstChild("Jump") or humanoid:FindFirstChildOfClass("Animation")
-                end
-            end
-            
-            if jumpAnim and jumpAnim:IsA("Animation") then
-                currentJumpAnimationTrack = animator:LoadAnimation(jumpAnim)
-                currentJumpAnimationTrack.Priority = Enum.AnimationPriority.Action
-                currentJumpAnimationTrack:Play(0.1, 1, animationSpeed or 1.7)
-            end
-        end)
-    end)
-end
-
-local function AdaptiveJumpHandler(hum, moveState)
-    if moveState == "Jumping" then
-        local originalJumpPower = hum.JumpPower
-        
-        -- ⭐ SIMPLE: Boost jump power based on walkspeed
-        local powerBoost = math.min(65, math.max(50, CurrentWalkSpeed * 0.8))
-        hum.JumpPower = math.max(originalJumpPower, powerBoost)
-        
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        ForcePlayJumpAnimation(hum, 1.7)  -- Fixed animation speed
-        
-        task.delay(0.12, function()
-            if hum and hum.Parent then hum.JumpPower = originalJumpPower end
-        end)
-        
-        return true
-    end
-    return false
-end
+local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
+local JUMP_ANIMATION_SPEED = 1.5
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -187,6 +138,8 @@ local titlePulseConnection = nil
 local previousFrameData = nil
 local PathHasBeenUsed = {}
 local PathsHiddenOnce = false
+local jumpAnimationTrack = nil
+local CheckAllRecordings = false  -- ✅ NEW: Full weight system
 
 -- ========= SHIFT LOCK SYSTEM YANG STABIL =========
 local Camera = workspace.CurrentCamera
@@ -823,9 +776,11 @@ local function GetFrameVelocity(frame)
         frame.Velocity[3] * VELOCITY_SCALE
     )
     
+    -- ✅ FIX: Smooth stop (threshold untuk horizontal velocity saja)
     local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
     
     if horizontalVel.Magnitude < STOP_VELOCITY_THRESHOLD then
+        -- Berhenti smooth, tapi keep Y velocity (gravity/jump)
         return Vector3.new(0, vel.Y, 0)
     end
     
@@ -1040,10 +995,10 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    local hueSpeed = 3
-    local pulseFreq = 25
+    local hueSpeed = 0.25
+    local pulseFreq = 4.5
     local baseSize = 14
-    local sizeAmplitude = 7
+    local sizeAmplitude = 6
     local baseScale = 1.0
     local strokeMin = 0.0
     local strokeMax = 0.9
@@ -1129,7 +1084,56 @@ local function UpdatePlayButtonStatus()
     end
 end
 
--- ========= REPLACE ApplyFrameToCharacterSmooth (Line 1090) =========
+-- ========= JUMP ANIMATION FIX =========
+local function ForcePlayJumpAnimation(humanoid)
+    task.spawn(function()
+        pcall(function()
+            local animator = humanoid:FindFirstChildOfClass("Animator")
+            if not animator then return end
+            
+            -- Stop SEMUA jump/fall animation yang sedang play
+            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                if track.Animation then
+                    local animName = string.lower(track.Animation.Name)
+                    if string.find(animName, "jump") or string.find(animName, "fall") then
+                        track:Stop(0)  -- Stop immediately
+                    end
+                end
+            end
+            
+            -- Cari jump animation track
+            local foundJumpTrack = false
+            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                if track.Animation and string.find(string.lower(track.Animation.Name), "jump") then
+                    jumpAnimationTrack = track
+                    foundJumpTrack = true
+                    break
+                end
+            end
+            
+            -- Kalau belum ada, coba load dari Humanoid
+            if not foundJumpTrack then
+                -- Try to find jump animation in character
+                local char = humanoid.Parent
+                if char then
+                    local jumpAnim = char:FindFirstChild("Jump", true)
+                    if jumpAnim and jumpAnim:IsA("Animation") then
+                        jumpAnimationTrack = animator:LoadAnimation(jumpAnim)
+                        foundJumpTrack = true
+                    end
+                end
+            end
+            
+            -- Play animation dari AWAL
+            if jumpAnimationTrack then
+                jumpAnimationTrack.TimePosition = 0  -- Reset ke frame 0
+                jumpAnimationTrack:Play(0, 1, JUMP_ANIMATION_SPEED)
+            end
+        end)
+    end)
+end
+
+-- ========= UPDATED: ApplyFrameToCharacterSmooth (FIXED JUMP/FALL & NO SHIFT LOCK) =========
 local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
     pcall(function()
         local char = player.Character
@@ -1151,25 +1155,67 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
             
-            local moveState = frame.MoveState
+            -- ❌ REMOVED: Shift Lock selama playback (menyebabkan konflik)
+            -- if ShiftLockEnabled then
+            --     ApplyStableShiftLock()
+            -- end
             
-            -- ========= 🚀 SUPER RESPONSIVE - NO COOLDOWN =========
-            if moveState ~= lastPlaybackState then
-                -- ⭐ LANGSUNG TRIGGER SETIAP STATE BERUBAH!
-                if moveState == "Jumping" then
-                    AdaptiveJumpHandler(hum, moveState)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif moveState == "Climbing" then
+            local moveState = frame.MoveState
+            local currentTime = tick()
+            
+            -- ========= ✅ ULTIMATE JUMP/FALL FIX (NO COOLDOWN) =========
+            if moveState == "Jumping" then
+                -- ✅ JUMP: ALWAYS trigger tanpa cooldown
+                local timeSinceLastJump = currentTime - lastJumpTime
+                
+                -- Boost JumpPower temporary
+                local originalJumpPower = hum.JumpPower
+                hum.JumpPower = math.max(originalJumpPower, 50)
+                
+                -- Change state
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                
+                -- Force animation
+                ForcePlayJumpAnimation(hum)
+                
+                -- Reset JumpPower
+                task.delay(0.08, function()
+                    if hum and hum.Parent then
+                        hum.JumpPower = originalJumpPower
+                    end
+                end)
+                
+                lastJumpTime = currentTime
+                lastPlaybackState = "Jumping"
+                
+            elseif moveState == "Falling" then
+                -- ✅ FALLING: ALWAYS trigger tanpa cooldown
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                lastPlaybackState = "Falling"
+                
+            elseif moveState == "Climbing" then
+                -- State lain pakai cooldown normal
+                if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                     hum:ChangeState(Enum.HumanoidStateType.Climbing)
                     hum.PlatformStand = false
-                elseif moveState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                    lastStateChangeTime = currentTime
+                    lastPlaybackState = moveState
                 end
                 
-                lastPlaybackState = moveState
+            elseif moveState == "Swimming" then
+                if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    lastStateChangeTime = currentTime
+                    lastPlaybackState = moveState
+                end
+                
+            else
+                -- Grounded state
+                if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                    lastStateChangeTime = currentTime
+                    lastPlaybackState = moveState
+                end
             end
         end
     end)
@@ -1337,7 +1383,7 @@ local PlayBtn = CreateControlBtn("PLAY", 0, 81, Color3.fromRGB(59, 15, 116))
 local RecordBtn = CreateControlBtn("RECORD", 84, 81, Color3.fromRGB(59, 15, 116))
 local MenuBtn = CreateControlBtn("MENU", 168, 81, Color3.fromRGB(59, 15, 116))
 
--- ✅ NEW: SPEED & WALKSPEED SECTION
+-- ========= SPEED & WALKSPEED SECTION =========
 local SpeedWalkSection = Instance.new("Frame")
 SpeedWalkSection.Size = UDim2.new(1, 0, 0, 28)
 SpeedWalkSection.Position = UDim2.new(0, 0, 0, 36)
@@ -1349,9 +1395,25 @@ local SpeedWalkCorner = Instance.new("UICorner")
 SpeedWalkCorner.CornerRadius = UDim.new(0, 6)
 SpeedWalkCorner.Parent = SpeedWalkSection
 
+-- ✅ NEW: FULL WEIGHT BUTTON
+local FullWeightBtn = Instance.new("TextButton")
+FullWeightBtn.Size = UDim2.fromOffset(55, 20)
+FullWeightBtn.Position = UDim2.fromOffset(5, 4)
+FullWeightBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+FullWeightBtn.Text = "Check All"
+FullWeightBtn.TextColor3 = Color3.new(1, 1, 1)
+FullWeightBtn.Font = Enum.Font.GothamBold
+FullWeightBtn.TextSize = 9
+FullWeightBtn.AutoButtonColor = false
+FullWeightBtn.Parent = SpeedWalkSection
+
+local FullWeightCorner = Instance.new("UICorner")
+FullWeightCorner.CornerRadius = UDim.new(0, 4)
+FullWeightCorner.Parent = FullWeightBtn
+
 local SpeedBox = Instance.new("TextBox")
 SpeedBox.Size = UDim2.fromOffset(55, 20)
-SpeedBox.Position = UDim2.fromOffset(5, 4)
+SpeedBox.Position = UDim2.fromOffset(65, 4)
 SpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 SpeedBox.BorderSizePixel = 0
 SpeedBox.Text = "1.00"
@@ -1369,7 +1431,7 @@ SpeedCorner.Parent = SpeedBox
 
 local FilenameBox = Instance.new("TextBox")
 FilenameBox.Size = UDim2.fromOffset(125, 20)
-FilenameBox.Position = UDim2.fromOffset(65, 4)
+FilenameBox.Position = UDim2.fromOffset(125, 4)
 FilenameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 FilenameBox.BorderSizePixel = 0
 FilenameBox.Text = ""
@@ -1384,24 +1446,6 @@ FilenameBox.Parent = SpeedWalkSection
 local FilenameCorner = Instance.new("UICorner")
 FilenameCorner.CornerRadius = UDim.new(0, 4)
 FilenameCorner.Parent = FilenameBox
-
-local WalkSpeedBox = Instance.new("TextBox")
-WalkSpeedBox.Size = UDim2.fromOffset(55, 20)
-WalkSpeedBox.Position = UDim2.fromOffset(195, 4)
-WalkSpeedBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-WalkSpeedBox.BorderSizePixel = 0
-WalkSpeedBox.Text = "16"
-WalkSpeedBox.PlaceholderText = "WalkSpeed"
-WalkSpeedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-WalkSpeedBox.Font = Enum.Font.GothamBold
-WalkSpeedBox.TextSize = 10
-WalkSpeedBox.TextXAlignment = Enum.TextXAlignment.Center
-WalkSpeedBox.ClearTextOnFocus = false
-WalkSpeedBox.Parent = SpeedWalkSection
-
-local WalkSpeedCorner = Instance.new("UICorner")
-WalkSpeedCorner.CornerRadius = UDim.new(0, 4)
-WalkSpeedCorner.Parent = WalkSpeedBox
 
 -- ========= SAVE BUTTONS SECTION =========
 local SaveSection = Instance.new("Frame")
@@ -1632,22 +1676,31 @@ local function ValidateWalkSpeed(walkSpeedText)
     return true, walkSpeed
 end
 
-WalkSpeedBox.FocusLost:Connect(function()
-    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
-    if success then
-        CurrentWalkSpeed = result
-        WalkSpeedBox.Text = tostring(result)
-        pcall(function()
-            local char = player.Character
-            if char and char:FindFirstChildOfClass("Humanoid") then
-                char.Humanoid.WalkSpeed = CurrentWalkSpeed
-            end
-        end)
-        PlaySound("Success")
+-- ========= FULL WEIGHT SYSTEM =========
+FullWeightBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(FullWeightBtn)
+    CheckAllRecordings = not CheckAllRecordings
+    
+    if CheckAllRecordings then
+        FullWeightBtn.Text = "Uncheck All"
+        FullWeightBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        
+        -- Check semua recordings
+        for name, _ in pairs(RecordedMovements) do
+            CheckedRecordings[name] = true
+        end
     else
-        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
-        PlaySound("Error")
+        FullWeightBtn.Text = "Check All"
+        FullWeightBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        
+        -- Uncheck semua recordings
+        for name, _ in pairs(RecordedMovements) do
+            CheckedRecordings[name] = false
+        end
     end
+    
+    UpdateRecordList()
+    PlaySound("Toggle")
 end)
 
 -- ========= RECORDING LIST FUNCTIONS =========
@@ -1874,7 +1927,8 @@ local function ApplyFrameToCharacter(frame)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             
             if hum then
-                hum.WalkSpeed = 0
+                -- ✅ FIX: Jangan reset WalkSpeed ke 16, gunakan nilai dari frame
+                hum.WalkSpeed = GetFrameWalkSpeed(frame)
                 hum.AutoRotate = false
                 
                 local moveState = frame.MoveState
@@ -1952,7 +2006,7 @@ local function StartStudioRecording()
                             UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
                             Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
                             MoveState = GetCurrentMoveState(hum),
-                            WalkSpeed = hum and hum.WalkSpeed or 16,
+                            WalkSpeed = hum and hum.WalkSpeed or 16,  -- ✅ Simpan WalkSpeed ASLI
                             Timestamp = now - StudioCurrentRecording.StartTime
                         })
                         
@@ -2094,7 +2148,7 @@ local function ResumeStudioRecording()
                             UpVector = lastFrame.UpVector,
                             Velocity = lastFrame.Velocity,
                             MoveState = lastState,
-                            WalkSpeed = lastFrame.WalkSpeed,
+                            WalkSpeed = lastFrame.WalkSpeed,  -- ✅ Pertahankan WalkSpeed asli
                             Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
                             IsInterpolated = true
                         }
@@ -2110,7 +2164,8 @@ local function ResumeStudioRecording()
             lastStudioRecordPos = hrp.Position
             
             if hum then
-                hum.WalkSpeed = CurrentWalkSpeed
+                -- ✅ FIX: Jangan reset ke CurrentWalkSpeed, biarkan sesuai rekaman
+                hum.WalkSpeed = GetFrameWalkSpeed(StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames])
                 hum.AutoRotate = true
             end
             
@@ -2423,6 +2478,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     pauseStartTime = 0
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    lastJumpTime = 0
 
     SaveHumanoidState()
     
@@ -2451,6 +2507,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
+                lastJumpTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2469,6 +2526,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
+                lastJumpTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2488,6 +2546,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
+                lastJumpTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2519,6 +2578,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     UpdatePauseMarker()
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
+                    lastJumpTime = 0
                     previousFrameData = nil
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2547,6 +2607,7 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     UpdatePauseMarker()
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
+                    lastJumpTime = 0
                     previousFrameData = nil
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2564,19 +2625,61 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
+                    local currentTime = tick()
                     
-                    -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
+                    -- ⭐ UPDATED: JUMP/FALL NO COOLDOWN, OTHERS USE COOLDOWN
                     if moveState == "Jumping" then
+                        -- ✅ JUMP: ALWAYS trigger tanpa cooldown
+                        local timeSinceLastJump = currentTime - lastJumpTime
+                        
+                        -- Boost JumpPower temporary
+                        local originalJumpPower = hum.JumpPower
+                        hum.JumpPower = math.max(originalJumpPower, 50)
+                        
+                        -- Change state
                         hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        
+                        -- Force animation
+                        ForcePlayJumpAnimation(hum)
+                        
+                        -- Reset JumpPower
+                        task.delay(0.08, function()
+                            if hum and hum.Parent then
+                                hum.JumpPower = originalJumpPower
+                            end
+                        end)
+                        
+                        lastJumpTime = currentTime
+                        lastPlaybackState = "Jumping"
+                        
                     elseif moveState == "Falling" then
+                        -- ✅ FALLING: ALWAYS trigger tanpa cooldown
                         hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        lastPlaybackState = "Falling"
+                        
                     elseif moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
+                        -- State lain pakai cooldown normal
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
+                        
                     elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
+                        
                     else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                        -- Grounded state
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
                     end
                 end
                 
@@ -2600,7 +2703,7 @@ function PlayRecording(name)
     end
 end
 
--- ⭐ v2.1 SMOOTH AUTO LOOP - PURE METHOD
+-- ========= AUTO LOOP SYSTEM =========
 function StartAutoLoopAll()
     if not AutoLoop then return end
     
@@ -2635,6 +2738,7 @@ function StartAutoLoopAll()
     LoopRetryAttempts = 0
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    lastJumpTime = 0
     
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2730,12 +2834,13 @@ function StartAutoLoopAll()
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
+            lastJumpTime = 0
             
             SaveHumanoidState()
             
             IsLoopTransitioning = false
             
-            -- ⭐⭐ MAIN PLAYBACK LOOP (v2.1 PURE STYLE) ⭐⭐
+            -- ⭐⭐ MAIN PLAYBACK LOOP (FIXED JUMP/FALL) ⭐⭐
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
                 -- Check if character died during playback
@@ -2754,6 +2859,7 @@ function StartAutoLoopAll()
                             playbackStartTime = tick()
                             lastPlaybackState = nil
                             lastStateChangeTime = 0
+                            lastJumpTime = 0
                             loopAccumulator = 0
                             
                             SaveHumanoidState()
@@ -2794,6 +2900,7 @@ function StartAutoLoopAll()
                         playbackStartTime = tick()
                         lastPlaybackState = nil
                         lastStateChangeTime = 0
+                        lastJumpTime = 0
                         loopAccumulator = 0
                         
                         SaveHumanoidState()
@@ -2842,14 +2949,14 @@ function StartAutoLoopAll()
                         playbackCompleted = true
                     end
                     
-                    -- ⭐⭐ APPLY FRAME (PURE v2.1 METHOD - NO FILTERING!) ⭐⭐
+                    -- ⭐⭐ APPLY FRAME (FIXED JUMP/FALL) ⭐⭐
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
                             -- Apply CFrame
                             hrp.CFrame = GetFrameCFrame(frame)
                             
-                            -- Apply ORIGINAL velocity (RAHASIA SMOOTH!)
+                            -- Apply ORIGINAL velocity
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
@@ -2858,27 +2965,63 @@ function StartAutoLoopAll()
                     hum.AutoRotate = false
                     
                     local moveState = frame.MoveState
+                    local currentTime = tick()
                     
-                    -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
-                   if moveState == "Jumping" then
-    AdaptiveJumpHandler(hum, moveState)
-    
-elseif moveState == "Falling" then
-    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    -- ⭐ UPDATED: JUMP/FALL NO COOLDOWN, OTHERS USE COOLDOWN
+                    if moveState == "Jumping" then
+                        -- ✅ JUMP: ALWAYS trigger tanpa cooldown
+                        local timeSinceLastJump = currentTime - lastJumpTime
+                        
+                        -- Boost JumpPower temporary
+                        local originalJumpPower = hum.JumpPower
+                        hum.JumpPower = math.max(originalJumpPower, 50)
+                        
+                        -- Change state
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        
+                        -- Force animation
+                        ForcePlayJumpAnimation(hum)
+                        
+                        -- Reset JumpPower
+                        task.delay(0.08, function()
+                            if hum and hum.Parent then
+                                hum.JumpPower = originalJumpPower
+                            end
+                        end)
+                        
+                        lastJumpTime = currentTime
+                        lastPlaybackState = "Jumping"
+                        
+                    elseif moveState == "Falling" then
+                        -- ✅ FALLING: ALWAYS trigger tanpa cooldown
+                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                        lastPlaybackState = "Falling"
+                        
                     elseif moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
+                        -- State lain pakai cooldown normal
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                            hum.PlatformStand = false
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
+                        
                     elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
+                        
                     else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                        -- Grounded state
+                        if moveState ~= lastPlaybackState or (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                            hum:ChangeState(Enum.HumanoidStateType.Running)
+                            lastStateChangeTime = currentTime
+                            lastPlaybackState = moveState
+                        end
                     end
                 end
-                            
-                            -- Apply ShiftLock jika enabled - SELALU aktif selama setting ON
-                            if ShiftLockEnabled then
-                                ApplyStableShiftLock()
-                            end
                         end
                     end
                 end
@@ -2893,6 +3036,7 @@ elseif moveState == "Falling" then
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = 0
+            lastJumpTime = 0
             
             -- Handle playback completion
             if playbackCompleted then
@@ -2944,6 +3088,7 @@ elseif moveState == "Falling" then
         RestoreFullUserControl()
         lastPlaybackState = nil
         lastStateChangeTime = 0
+        lastJumpTime = 0
         PlayBtnControl.Text = "PLAY"
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         UpdatePlayButtonStatus()
@@ -2957,6 +3102,7 @@ function StopAutoLoopAll()
     IsLoopTransitioning = false
     lastPlaybackState = nil
     lastStateChangeTime = 0
+    lastJumpTime = 0
     
     if loopConnection then
         pcall(function() task.cancel(loopConnection) end)
@@ -2982,14 +3128,13 @@ function StopAutoLoopAll()
 end
 
 function StopPlayback()
-
-lastStateChangeTime = 0
-lastPlaybackState = nil
-lastJumpTime = 0
-if jumpAnimationTrack then
-    jumpAnimationTrack:Stop()
-    jumpAnimationTrack = nil
-end
+    lastStateChangeTime = 0
+    lastPlaybackState = nil
+    lastJumpTime = 0
+    if jumpAnimationTrack then
+        jumpAnimationTrack:Stop()
+        jumpAnimationTrack = nil
+    end
 
     if AutoLoop then
         StopAutoLoopAll()
