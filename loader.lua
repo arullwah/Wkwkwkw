@@ -24,7 +24,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ NO COOLDOWN! (PURE v2.1)
+local STATE_CHANGE_COOLDOWN = 0.016 -- ✅ NO COOLDOWN! (PURE v2.1)
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -39,13 +39,10 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 3
+local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0  -- ✅ Natural
-local JUMP_FORCE_COOLDOWN = 0.03   -- Minimal delay antar jump
-local JUMP_ANIMATION_SPEED = 1.5
--- ✅ TAMBAHKAN:
-local PAUSE_DETECTION_THRESHOLD = 0.5  -- Deteksi pause jika > 0.5 detik gap
-local MAX_PAUSE_TRANSITION_FRAMES = 6   -- Max transition frames untuk pause
+local JUMP_FORCE_COOLDOWN = 0.016  -- Minimal delay antar jump
+local JUMP_ANIMATION_SPEED = 2.0
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -141,6 +138,32 @@ local titlePulseConnection = nil
 local previousFrameData = nil
 local PathHasBeenUsed = {}
 local PathsHiddenOnce = false
+
+-- ========= NUCLEAR OPTION: FORCE REFRESH =========
+local lastForceRefresh = 0
+local FORCE_REFRESH_INTERVAL = 0.05  -- Refresh every 3 frames
+
+RunService.Heartbeat:Connect(function()
+    if IsPlaying or IsAutoLoopPlaying then
+        local now = tick()
+        if now - lastForceRefresh >= FORCE_REFRESH_INTERVAL then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    -- Force refresh Humanoid state
+                    local currentState = hum:GetState()
+                    if currentState == Enum.HumanoidStateType.Jumping then
+                        task.spawn(function()
+                            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                        end)
+                    end
+                end
+            end
+            lastForceRefresh = now
+        end
+    end
+end)
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -900,18 +923,18 @@ end
 
 local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
-
+    
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
-
+    
     if hadLag then
         print("⚠️ Lag terdeteksi ")
     end
-
+    
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
-
+    
     local normalized = {}
     local expectedFrameTime = 1 / RECORDING_FPS
-
+    
     for i, frame in ipairs(smoothed) do
         local newFrame = {
             Position = frame.Position,
@@ -924,66 +947,27 @@ local function NormalizeRecordingTimestamps(recording)
             IsInterpolated = frame.IsInterpolated,
             IsSmoothed = frame.IsSmoothed
         }
-
+        
         if i == 1 then
             newFrame.Timestamp = 0
-            table.insert(normalized, newFrame)
         else
-            local prevSmoothed = smoothed[i-1]
-            local prevNormalized = normalized[#normalized]
-            local originalTimeDiff = frame.Timestamp - prevSmoothed.Timestamp
-
-            -- Jika gap terlalu besar -> buat smooth transition frames menggunakan CreateSmoothTransition
+            -- ✅ FIXED: Simple increment, no complex offset
+            local prevTimestamp = normalized[i-1].Timestamp
+            local originalTimeDiff = frame.Timestamp - smoothed[i-1].Timestamp
+            
+            -- Hanya adjust jika time jump terlalu besar
             if originalTimeDiff > (expectedFrameTime * 3) then
-                -- Hitung berapa transition frames wajar berdasarkan gap (min 2)
-                local estimatedFrames = math.max(2, math.floor(originalTimeDiff / expectedFrameTime) - 1)
-                local numFrames = math.min(estimatedFrames, MAX_PAUSE_TRANSITION_FRAMES or 18)
-
-                -- Generate transition frames (lerp posisi, look, up, vel, walkspeed)
-                local transitionFrames = CreateSmoothTransition(prevSmoothed, frame, numFrames)
-
-                -- Append transition frames dengan timestamp berurutan (dari prevNormalized.Timestamp)
-                for tIndex, tFrame in ipairs(transitionFrames) do
-                    -- Pastikan timestamp increment berdasarkan expectedFrameTime (safeguard)
-                    local ts = prevNormalized.Timestamp + (tIndex * expectedFrameTime)
-                    tFrame.Timestamp = ts
-                    -- Mark sebagai interpolated / pause transition
-                    tFrame.IsInterpolated = true
-                    tFrame.IsPauseTransition = true
-                    table.insert(normalized, {
-                        Position = tFrame.Position,
-                        LookVector = tFrame.LookVector,
-                        UpVector = tFrame.UpVector,
-                        Velocity = tFrame.Velocity,
-                        MoveState = tFrame.MoveState,
-                        WalkSpeed = tFrame.WalkSpeed,
-                        Timestamp = tFrame.Timestamp,
-                        IsInterpolated = tFrame.IsInterpolated,
-                        IsPauseTransition = tFrame.IsPauseTransition
-                    })
-                    prevNormalized = normalized[#normalized]
-                end
-
-                -- Setelah transition, append the actual frame but timestamp it after the last transition
-                newFrame.Timestamp = prevNormalized.Timestamp + expectedFrameTime
-                table.insert(normalized, newFrame)
+                -- Ada pause/lag besar, gunakan expected frame time
+                newFrame.Timestamp = prevTimestamp + expectedFrameTime
             else
-                -- Normal increment (no large gap)
-                local prevTimestamp = prevNormalized.Timestamp
+                -- Normal increment
                 newFrame.Timestamp = prevTimestamp + math.max(originalTimeDiff, expectedFrameTime * 0.5)
-                table.insert(normalized, newFrame)
             end
         end
+        
+        table.insert(normalized, newFrame)
     end
-
-    -- Final pass: renormalize so first timestamp = 0 and monotonic
-    if #normalized > 0 then
-        local base = normalized[1].Timestamp
-        for idx = 1, #normalized do
-            normalized[idx].Timestamp = normalized[idx].Timestamp - base
-        end
-    end
-
+    
     return normalized
 end
 
@@ -1152,82 +1136,65 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-        if hum then
-            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            hum.AutoRotate = false
-            
-            local moveState = frame.MoveState
-            local currentTime = tick()
-            
-            -- ========= ✅ ULTIMATE JUMP FIX =========
-            local shouldChangeState = false
-            local forceJumpAnimation = false
-            
-            -- Cek apakah perlu change state
-            if moveState ~= lastPlaybackState then
-                -- State berbeda, ALWAYS change
-                shouldChangeState = true
-                
-                -- Special handling untuk jump
-                if moveState == "Jumping" then
-                    local timeSinceLastJump = currentTime - lastJumpTime
-                    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
-                        forceJumpAnimation = true
-                        lastJumpTime = currentTime
-                    end
-                end
-                
-            elseif (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                -- State sama tapi sudah lewat cooldown
-                
-                -- ✅ CRITICAL: Jump/Fall butuh re-trigger untuk spam jump
-                if moveState == "Jumping" then
-                    local timeSinceLastJump = currentTime - lastJumpTime
-                    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
-                        shouldChangeState = true
-                        forceJumpAnimation = true
-                        lastJumpTime = currentTime
-                    end
-                elseif moveState == "Falling" then
-                    shouldChangeState = true
-                end
-            end
-            
-            -- Apply state change
-            if shouldChangeState then
-                if moveState == "Jumping" then
-                    -- ✅ METHOD 1: Boost JumpPower temporary
-                    local originalJumpPower = hum.JumpPower
-                    hum.JumpPower = math.max(originalJumpPower, 50)
-                    
-                    -- ✅ METHOD 2: Change state
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    
-                    -- ✅ METHOD 3: Force animation
-                    if forceJumpAnimation then
-                        ForcePlayJumpAnimation(hum)
-                    end
-                    
-                    -- Reset JumpPower
-                    task.delay(0.08, function()
-                        if hum and hum.Parent then
-                            hum.JumpPower = originalJumpPower
+        -- ⭐⭐ ZERO-MISS METHOD: NO CONDITIONS! ⭐⭐
+if hum then
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    local moveState = frame.MoveState
+    
+    -- ✅ ALWAYS execute state change tanpa syarat apapun!
+    if moveState == "Jumping" then
+        -- Boost JumpPower
+        local originalJumpPower = hum.JumpPower
+        hum.JumpPower = 50  -- Force 50
+        
+        -- Change state
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        
+        -- Force animation SETIAP FRAME
+        task.spawn(function()
+            pcall(function()
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if animator then
+                    -- Stop ALL animations first
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        if string.find(string.lower(track.Animation.Name or ""), "jump") or 
+                           string.find(string.lower(track.Animation.Name or ""), "fall") then
+                            track:Stop(0)
                         end
-                    end)
+                    end
                     
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    
-                elseif moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    hum.PlatformStand = false
-                    
-                elseif moveState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                    -- Find and play jump animation
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        if track.Animation and string.find(string.lower(track.Animation.Name), "jump") then
+                            track.TimePosition = 0
+                            track:Play(0, 1, 2.0)
+                            break
+                        end
+                    end
                 end
+            end)
+        end)
+        
+        -- Reset JumpPower
+        task.delay(0.05, function()
+            if hum and hum.Parent then
+                hum.JumpPower = originalJumpPower
+            end
+        end)
+        
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
                 
                 lastStateChangeTime = currentTime
                 lastPlaybackState = moveState
@@ -1981,106 +1948,51 @@ local function StartStudioRecording()
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
-    task.spawn(function()
-        pcall(function()
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                return
-            end
-            
-            local hrp = char.HumanoidRootPart
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            
-            if IsTimelineMode then
-                return
-            end
-            
-            local now = tick()
-            if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-            
-            local currentPos = hrp.Position
-            local currentVelocity = hrp.AssemblyLinearVelocity
-            
-            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                lastStudioRecordTime = now
-                return
-            end
-            
-            -- ✅ TAMBAHKAN PAUSE DETECTION DI SINI:
-            local timeSinceLastFrame = now - lastStudioRecordTime
-            local isPauseDetected = timeSinceLastFrame > 0.5  -- Jika > 0.5 detik = pause
-            
-            -- ✅ JIKA ADA PAUSE, TAMBAHKAN TRANSITION FRAMES
-            if isPauseDetected and #StudioCurrentRecording.Frames > 0 then
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-                local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-                
-                -- Hitung berapa transition frames yang dibutuhkan
-                local transitionCount = math.min(
-                    math.floor(timeSinceLastFrame * RECORDING_FPS),
-                    INTERPOLATION_LOOKAHEAD * 3  -- Max 4-6 frames
-                )
-                
-                -- Buat smooth transition dari lastPos ke currentPos
-                for i = 1, transitionCount do
-                    local alpha = i / (transitionCount + 1)
-                    local interpPos = lastPos:Lerp(currentPos, alpha)
-                    
-                    -- Velocity gradual decrease -> increase
-                    local interpVel
-                    if i <= transitionCount / 2 then
-                        -- First half: slow down to stop
-                        local stopAlpha = (i * 2) / transitionCount
-                        interpVel = lastVel:Lerp(Vector3.zero, stopAlpha)
-                    else
-                        -- Second half: speed up from stop
-                        local startAlpha = ((i - transitionCount / 2) * 2) / transitionCount
-                        interpVel = Vector3.zero:Lerp(currentVelocity, startAlpha)
-                    end
-                    
-                    local cf = CFrame.new(interpPos)
-                    table.insert(StudioCurrentRecording.Frames, {
-                        Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                        LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                        UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                        MoveState = lastFrame.MoveState,
-                        WalkSpeed = lastFrame.WalkSpeed,
-                        Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
-                        IsInterpolated = true,
-                        IsPauseTransition = true  -- ✅ Mark sebagai pause transition
-                    })
-                end
-                
-                -- Update timestamp base
-                if #StudioCurrentRecording.Frames > 0 then
-                    local lastTransitionFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                    StudioCurrentRecording.StartTime = tick() - lastTransitionFrame.Timestamp
-                end
-            end
-            
-            -- Simpan frame normal seperti biasa
-            local cf = hrp.CFrame
-            table.insert(StudioCurrentRecording.Frames, {
-                Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                MoveState = GetCurrentMoveState(hum),
-                WalkSpeed = hum and hum.WalkSpeed or 16,
-                Timestamp = now - StudioCurrentRecording.StartTime
-            })
-            
-            lastStudioRecordTime = now
-            lastStudioRecordPos = currentPos
-            CurrentTimelineFrame = #StudioCurrentRecording.Frames
-            TimelinePosition = CurrentTimelineFrame
-            
-            UpdateStudioUI()
-        end)
-    end)
-end)
+                task.spawn(function()
+                    pcall(function()
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                            return
+                        end
+                        
+                        local hrp = char.HumanoidRootPart
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        
+                        if IsTimelineMode then
+                            return
+                        end
+                        
+                        local now = tick()
+                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                        
+                        local currentPos = hrp.Position
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        
+                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                            lastStudioRecordTime = now
+                            return
+                        end
+                        
+                        local cf = hrp.CFrame
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                            MoveState = GetCurrentMoveState(hum),
+                            WalkSpeed = hum and hum.WalkSpeed or 16,
+                            Timestamp = now - StudioCurrentRecording.StartTime
+                        })
+                        
+                        lastStudioRecordTime = now
+                        lastStudioRecordPos = currentPos
+                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                        TimelinePosition = CurrentTimelineFrame
+                        
+                        UpdateStudioUI()
+                    end)
+                end)
+            end)
             AddConnection(recordConnection)
         end)
     end)
@@ -2248,66 +2160,7 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
-            -- ✅ TAMBAHKAN POST-PROCESSING PAUSE DETECTION
-            local processedFrames = {}
-            local lastTimestamp = 0
-            
-            for i, frame in ipairs(StudioCurrentRecording.Frames) do
-                -- Skip jika sudah ada flag IsPauseTransition
-                if frame.IsPauseTransition then
-                    table.insert(processedFrames, frame)
-                    lastTimestamp = frame.Timestamp
-                    continue
-                end
-                
-                -- Deteksi pause yang terlewat (gap besar di timestamp)
-                if i > 1 then
-                    local timeDiff = frame.Timestamp - lastTimestamp
-                    local expectedDiff = 1 / RECORDING_FPS
-                    
-                    -- Jika gap > 0.3 detik DAN belum ada transition
-                    if timeDiff > 0.3 and timeDiff > (expectedDiff * 5) then
-                        local prevFrame = processedFrames[#processedFrames]
-                        local transitionCount = math.min(
-                            math.floor((timeDiff - expectedDiff) * RECORDING_FPS),
-                            8  -- Max 8 transition frames
-                        )
-                        
-                        -- Generate smooth transition
-                        local prevPos = Vector3.new(prevFrame.Position[1], prevFrame.Position[2], prevFrame.Position[3])
-                        local nextPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-                        local prevVel = Vector3.new(prevFrame.Velocity[1], prevFrame.Velocity[2], prevFrame.Velocity[3])
-                        local nextVel = Vector3.new(frame.Velocity[1], frame.Velocity[2], frame.Velocity[3])
-                        
-                        for j = 1, transitionCount do
-                            local alpha = j / (transitionCount + 1)
-                            local interpPos = prevPos:Lerp(nextPos, alpha)
-                            
-                            -- S-curve velocity (slow-fast-slow)
-                            local smoothAlpha = alpha * alpha * (3 - 2 * alpha)  -- Smoothstep
-                            local interpVel = prevVel:Lerp(nextVel, smoothAlpha)
-                            
-                            table.insert(processedFrames, {
-                                Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                                LookVector = prevFrame.LookVector,
-                                UpVector = prevFrame.UpVector,
-                                Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                                MoveState = prevFrame.MoveState,
-                                WalkSpeed = prevFrame.WalkSpeed,
-                                Timestamp = prevFrame.Timestamp + (j * expectedDiff),
-                                IsInterpolated = true,
-                                IsPauseTransition = true
-                            })
-                        end
-                    end
-                end
-                
-                table.insert(processedFrames, frame)
-                lastTimestamp = frame.Timestamp
-            end
-            
-            -- ✅ Gunakan processed frames alih-alih raw frames
-            local normalizedFrames = NormalizeRecordingTimestamps(processedFrames)
+            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
             
             RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
@@ -3032,48 +2885,65 @@ function StartAutoLoopAll()
                             hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
-                        if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    local moveState = frame.MoveState
-                    
-                    -- ⭐ PURE v2.1: ALWAYS trigger, NO CONDITIONS!
-                   if moveState == "Jumping" then
-    local timeSinceLastJump = tick() - lastJumpTime
+                        -- ⭐⭐ ZERO-MISS METHOD: NO CONDITIONS! ⭐⭐
+if hum then
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
     
-    if timeSinceLastJump >= JUMP_FORCE_COOLDOWN then
+    local moveState = frame.MoveState
+    
+    -- ✅ ALWAYS execute state change tanpa syarat apapun!
+    if moveState == "Jumping" then
         -- Boost JumpPower
         local originalJumpPower = hum.JumpPower
-        hum.JumpPower = math.max(originalJumpPower, 50)
+        hum.JumpPower = 50  -- Force 50
         
         -- Change state
         hum:ChangeState(Enum.HumanoidStateType.Jumping)
         
-        -- Force animation
-        ForcePlayJumpAnimation(hum)
+        -- Force animation SETIAP FRAME
+        task.spawn(function()
+            pcall(function()
+                local animator = hum:FindFirstChildOfClass("Animator")
+                if animator then
+                    -- Stop ALL animations first
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        if string.find(string.lower(track.Animation.Name or ""), "jump") or 
+                           string.find(string.lower(track.Animation.Name or ""), "fall") then
+                            track:Stop(0)
+                        end
+                    end
+                    
+                    -- Find and play jump animation
+                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                        if track.Animation and string.find(string.lower(track.Animation.Name), "jump") then
+                            track.TimePosition = 0
+                            track:Play(0, 1, 2.0)
+                            break
+                        end
+                    end
+                end
+            end)
+        end)
         
         -- Reset JumpPower
-        task.delay(0.08, function()
+        task.delay(0.05, function()
             if hum and hum.Parent then
                 hum.JumpPower = originalJumpPower
             end
         end)
         
-        lastJumpTime = tick()
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
     end
-    
-elseif moveState == "Falling" then
-    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    elseif moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end
+end
                             
                             -- Apply ShiftLock if enabled
                             if ShiftLockEnabled then
