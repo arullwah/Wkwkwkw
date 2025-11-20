@@ -1040,10 +1040,10 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    local hueSpeed = 0.25
-    local pulseFreq = 4.5
+    local hueSpeed = 3
+    local pulseFreq = 25
     local baseSize = 14
-    local sizeAmplitude = 6
+    local sizeAmplitude = 3
     local baseScale = 1.0
     local strokeMin = 0.0
     local strokeMax = 0.9
@@ -1150,11 +1150,6 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         if hum then
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
-            
-            -- ✅ SHIFT LOCK INTEGRATION
-            if ShiftLockEnabled then
-                ApplyStableShiftLock()
-            end
             
             local moveState = frame.MoveState
             
