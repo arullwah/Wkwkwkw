@@ -1043,7 +1043,7 @@ local function StartTitlePulse(titleLabel)
     local hueSpeed = 3
     local pulseFreq = 25
     local baseSize = 14
-    local sizeAmplitude = 3
+    local sizeAmplitude = 7
     local baseScale = 1.0
     local strokeMin = 0.0
     local strokeMax = 0.9
