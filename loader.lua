@@ -1119,6 +1119,7 @@ local function ForcePlayJumpAnimation(humanoid)
 end
 
 -- ========= REPLACE ApplyFrameToCharacterSmooth (Line 1090) =========
+-- ========= OPTIMIZED FRAME APPLICATION (ZERO-MISS) =========
 local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
     pcall(function()
         local char = player.Character
@@ -1137,67 +1138,67 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         -- ⭐⭐ ZERO-MISS METHOD: NO CONDITIONS! ⭐⭐
-if hum then
-    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-    hum.AutoRotate = false
-    
-    local moveState = frame.MoveState
-    
-    -- ✅ ALWAYS execute state change tanpa syarat apapun!
-    if moveState == "Jumping" then
-        -- Boost JumpPower
-        local originalJumpPower = hum.JumpPower
-        hum.JumpPower = 50  -- Force 50
-        
-        -- Change state
-        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        
-        -- Force animation SETIAP FRAME
-        task.spawn(function()
-            pcall(function()
-                local animator = hum:FindFirstChildOfClass("Animator")
-                if animator then
-                    -- Stop ALL animations first
-                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-                        if string.find(string.lower(track.Animation.Name or ""), "jump") or 
-                           string.find(string.lower(track.Animation.Name or ""), "fall") then
-                            track:Stop(0)
-                        end
-                    end
-                    
-                    -- Find and play jump animation
-                    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-                        if track.Animation and string.find(string.lower(track.Animation.Name), "jump") then
-                            track.TimePosition = 0
-                            track:Play(0, 1, 2.0)
-                            break
-                        end
-                    end
-                end
-            end)
-        end)
-        
-        -- Reset JumpPower
-        task.delay(0.05, function()
-            if hum and hum.Parent then
-                hum.JumpPower = originalJumpPower
-            end
-        end)
-        
-    elseif moveState == "Falling" then
-        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-    elseif moveState == "Climbing" then
-        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-        hum.PlatformStand = false
-    elseif moveState == "Swimming" then
-        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-    else
-        hum:ChangeState(Enum.HumanoidStateType.Running)
-    end
-end
+        if hum then
+            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.AutoRotate = false
+            
+            local moveState = frame.MoveState
+            
+            -- ✅ ALWAYS execute state change tanpa syarat apapun!
+            if moveState == "Jumping" then
+                -- Boost JumpPower
+                local originalJumpPower = hum.JumpPower
+                hum.JumpPower = 50  -- Force 50
                 
-                lastStateChangeTime = currentTime
-                lastPlaybackState = moveState
+                -- Change state
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                
+                -- Force animation SETIAP FRAME
+                task.spawn(function()
+                    pcall(function()
+                        local animator = hum:FindFirstChildOfClass("Animator")
+                        if animator then
+                            -- Stop ALL animations first
+                            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                                local animName = (track.Animation and track.Animation.Name) or ""
+                                if string.find(string.lower(animName), "jump") or 
+                                   string.find(string.lower(animName), "fall") then
+                                    track:Stop(0)
+                                end
+                            end
+                            
+                            -- Find and play jump animation
+                            for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                                local animName = (track.Animation and track.Animation.Name) or ""
+                                if string.find(string.lower(animName), "jump") then
+                                    track.TimePosition = 0
+                                    track:Play(0, 1, 2.0)
+                                    break
+                                end
+                            end
+                        end
+                    end)
+                end)
+                
+                -- Reset JumpPower
+                task.delay(0.05, function()
+                    if hum and hum.Parent then
+                        hum.JumpPower = originalJumpPower
+                    end
+                end)
+                
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
             end
         end
     end)
