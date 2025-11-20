@@ -1177,7 +1177,6 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
             
-            -- SISTEM BARU: Improved state management
             lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
                 hum, frame, lastPlaybackState, lastStateChangeTime
             )
