@@ -817,19 +817,15 @@ end
 local function GetFrameVelocity(frame)
     if not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    local settings = GetOptimalJumpSettings()
-    local velocityScale = settings.VelocityScale
-    
     local vel = Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE * velocityScale,
+        frame.Velocity[1] * VELOCITY_SCALE,
         frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE * velocityScale
+        frame.Velocity[3] * VELOCITY_SCALE
     )
     
     local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
-    local stopThreshold = math.max(1.0, CurrentWalkSpeed * 0.06)
     
-    if horizontalVel.Magnitude < stopThreshold then
+    if horizontalVel.Magnitude < STOP_VELOCITY_THRESHOLD then
         return Vector3.new(0, vel.Y, 0)
     end
     
