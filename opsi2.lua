@@ -1648,7 +1648,7 @@ WalkSpeedBox.FocusLost:Connect(function()
         WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
         PlaySound("Error")
     end
-end)
+end
 
 local function MoveRecordingUp(name)
     local currentIndex = table.find(RecordingOrder, name)
@@ -1849,6 +1849,456 @@ function UpdateRecordList()
         end
         
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
+    end)
+end
+
+-- STUDIO FUNCTIONS
+local function ApplyFrameToCharacter(frame)
+    pcall(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if not hrp or not hum then return end
+        
+        task.spawn(function()
+            local targetCFrame = GetFrameCFrame(frame)
+            hrp.CFrame = targetCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            if hum then
+                hum.WalkSpeed = 0
+                hum.AutoRotate = false
+                
+                local moveState = frame.MoveState
+                if moveState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    hum.PlatformStand = false
+                elseif moveState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                elseif moveState == "Swimming" then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+            end
+        end)
+    end)
+end
+
+local function UpdateStudioUI()
+    -- Function untuk update UI studio (placeholder)
+end
+
+local function StartStudioRecording()
+    if StudioIsRecording then return end
+    
+    task.spawn(function()
+        pcall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                return
+            end
+            
+            StudioIsRecording = true
+            IsTimelineMode = false
+            StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
+            lastStudioRecordTime = 0
+            lastStudioRecordPos = nil
+            CurrentTimelineFrame = 0
+            TimelinePosition = 0
+            
+            StartBtn.Text = "STOP"
+            StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+            
+            PlaySound("Toggle")
+            
+            recordConnection = RunService.Heartbeat:Connect(function()
+                task.spawn(function()
+                    pcall(function()
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                            return
+                        end
+                        
+                        local hrp = char.HumanoidRootPart
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        
+                        if IsTimelineMode then
+                            return
+                        end
+                        
+                        local now = tick()
+                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                        
+                        local currentPos = hrp.Position
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        
+                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                            lastStudioRecordTime = now
+                            return
+                        end
+                        
+                        local cf = hrp.CFrame
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                            MoveState = GetCurrentMoveState(hum),
+                            WalkSpeed = hum and hum.WalkSpeed or 16,
+                            Timestamp = now - StudioCurrentRecording.StartTime
+                        })
+                        
+                        lastStudioRecordTime = now
+                        lastStudioRecordPos = currentPos
+                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                        TimelinePosition = CurrentTimelineFrame
+                        
+                        UpdateStudioUI()
+                    end)
+                end)
+            end)
+            AddConnection(recordConnection)
+        end)
+    end)
+end
+
+local function StopStudioRecording()
+    StudioIsRecording = false
+    IsTimelineMode = false
+    
+    task.spawn(function()
+        pcall(function()
+            if recordConnection then
+                recordConnection:Disconnect()
+                recordConnection = nil
+            end
+            
+            StartBtn.Text = "START"
+            StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            
+            PlaySound("Toggle")
+            UpdateStudioUI()
+        end)
+    end)
+end
+
+local function GoBackTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        pcall(function()
+            IsTimelineMode = true
+            
+            local targetFrame = math.max(1, TimelinePosition - math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+            
+            TimelinePosition = targetFrame
+            CurrentTimelineFrame = targetFrame
+            
+            local frame = StudioCurrentRecording.Frames[targetFrame]
+            if frame then
+                ApplyFrameToCharacter(frame)
+                UpdateStudioUI()
+                PlaySound("Click")
+            end
+        end)
+    end)
+end
+
+local function GoNextTimeline()
+    if not StudioIsRecording or #StudioCurrentRecording.Frames == 0 then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        pcall(function()
+            IsTimelineMode = true
+            
+            local targetFrame = math.min(#StudioCurrentRecording.Frames, TimelinePosition + math.floor(RECORDING_FPS * TIMELINE_STEP_SECONDS))
+            
+            TimelinePosition = targetFrame
+            CurrentTimelineFrame = targetFrame
+            
+            local frame = StudioCurrentRecording.Frames[targetFrame]
+            if frame then
+                ApplyFrameToCharacter(frame)
+                UpdateStudioUI()
+                PlaySound("Click")
+            end
+        end)
+    end)
+end
+
+local function ResumeStudioRecording()
+    if not StudioIsRecording then
+        PlaySound("Error")
+        return
+    end
+    
+    task.spawn(function()
+        pcall(function()
+            if #StudioCurrentRecording.Frames == 0 then
+                PlaySound("Error")
+                return
+            end
+            
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                PlaySound("Error")
+                return
+            end
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
+            local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
+            
+            if TimelinePosition < #StudioCurrentRecording.Frames then
+                local newFrames = {}
+                for i = 1, TimelinePosition do
+                    table.insert(newFrames, StudioCurrentRecording.Frames[i])
+                end
+                StudioCurrentRecording.Frames = newFrames
+                
+                if #StudioCurrentRecording.Frames > 0 then
+                    local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                    StudioCurrentRecording.StartTime = tick() - lastFrame.Timestamp
+                end
+            end
+            
+            if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                local currentPos = hrp.Position
+                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
+                
+                if (currentPos - lastPos).Magnitude > 0.5 then
+                    for i = 1, INTERPOLATION_LOOKAHEAD do
+                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                        local interpPos = lastPos:Lerp(currentPos, alpha)
+                        
+                        local interpFrame = {
+                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                            LookVector = lastFrame.LookVector,
+                            UpVector = lastFrame.UpVector,
+                            Velocity = lastFrame.Velocity,
+                            MoveState = lastState,
+                            WalkSpeed = lastFrame.WalkSpeed,
+                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            IsInterpolated = true
+                        }
+                        table.insert(StudioCurrentRecording.Frames, interpFrame)
+                    end
+                    
+                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
+                end
+            end
+            
+            IsTimelineMode = false
+            lastStudioRecordTime = tick()
+            lastStudioRecordPos = hrp.Position
+            
+            if hum then
+                hum.WalkSpeed = CurrentWalkSpeed
+                hum.AutoRotate = true
+            end
+            
+            UpdateStudioUI()
+            PlaySound("Success")
+        end)
+    end)
+end
+
+local function SaveStudioRecording()
+    task.spawn(function()
+        pcall(function()
+            if #StudioCurrentRecording.Frames == 0 then
+                PlaySound("Error")
+                return
+            end
+            
+            if StudioIsRecording then
+                StopStudioRecording()
+            end
+            
+            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
+            
+            RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
+            table.insert(RecordingOrder, StudioCurrentRecording.Name)
+            checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
+            UpdateRecordList()
+            
+            PlaySound("Success")
+            
+            StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+            IsTimelineMode = false
+            CurrentTimelineFrame = 0
+            TimelinePosition = 0
+            UpdateStudioUI()
+            
+            wait(1)
+            RecordingStudio.Visible = false
+            MainFrame.Visible = true
+        end)
+    end)
+end
+
+-- SAVE/LOAD FUNCTIONS
+local function SaveToObfuscatedJSON()
+    if not hasFileSystem then
+        PlaySound("Error")
+        return
+    end
+    
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local hasCheckedRecordings = false
+    for name, checked in pairs(CheckedRecordings) do
+        if checked then
+            hasCheckedRecordings = true
+            break
+        end
+    end
+    
+    if not hasCheckedRecordings then
+        PlaySound("Error")
+        return
+    end
+    
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "3.1",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
+        
+        for _, name in ipairs(RecordingOrder) do
+            if CheckedRecordings[name] then
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
+            end
+        end
+        
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
+        
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        
+        writefile(filename, jsonString)
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+local function LoadFromObfuscatedJSON()
+    if not hasFileSystem then
+        PlaySound("Error")
+        return
+    end
+    
+    local filename = FilenameBox.Text
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
+    local success, err = pcall(function()
+        if not isfile(filename) then
+            PlaySound("Error")
+            return
+        end
+        
+        local jsonString = readfile(filename)
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+            
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
+                end
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+    end)
+    
+    if not success then
+        PlaySound("Error")
+    end
+end
+
+local function VisualizeAllPaths()
+    ClearPathVisualization()
+    
+    if not ShowPaths then return end
+    
+    pcall(function()
+        for _, name in ipairs(RecordingOrder) do
+            if PathHasBeenUsed[name] then continue end
+            
+            local recording = RecordedMovements[name]
+            if not recording or #recording < 2 then continue end
+            
+            local previousPos = Vector3.new(
+                recording[1].Position[1],
+                recording[1].Position[2], 
+                recording[1].Position[3]
+            )
+            
+            for i = 2, #recording, 3 do
+                local frame = recording[i]
+                local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+                
+                if (currentPos - previousPos).Magnitude > 0.5 then
+                    CreatePathSegment(previousPos, currentPos)
+                    previousPos = currentPos
+                end
+            end
+        end
     end)
 end
 
@@ -2603,6 +3053,46 @@ MergeBtn.MouseButton1Click:Connect(function()
     CreateMergedReplay()
 end)
 
+-- STUDIO BUTTON CONNECTIONS
+StartBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(StartBtn)
+        if StudioIsRecording then
+            StopStudioRecording()
+        else
+            StartStudioRecording()
+        end
+    end)
+end)
+
+PrevBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(PrevBtn)
+        GoBackTimeline()
+    end)
+end)
+
+NextBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(NextBtn)
+        GoNextTimeline()
+    end)
+end)
+
+ResumeBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(ResumeBtn)
+        ResumeStudioRecording()
+    end)
+end)
+
+SaveBtn.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        AnimateButtonClick(SaveBtn)
+        SaveStudioRecording()
+    end)
+end)
+
 CloseBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(CloseBtn)
     task.spawn(function()
@@ -2619,154 +3109,6 @@ CloseBtn.MouseButton1Click:Connect(function()
         end)
     end)
 end)
-
--- STUDIO FUNCTIONS
-local function VisualizeAllPaths()
-    ClearPathVisualization()
-    
-    if not ShowPaths then return end
-    
-    pcall(function()
-        for _, name in ipairs(RecordingOrder) do
-            if PathHasBeenUsed[name] then continue end
-            
-            local recording = RecordedMovements[name]
-            if not recording or #recording < 2 then continue end
-            
-            local previousPos = Vector3.new(
-                recording[1].Position[1],
-                recording[1].Position[2], 
-                recording[1].Position[3]
-            )
-            
-            for i = 2, #recording, 3 do
-                local frame = recording[i]
-                local currentPos = Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
-                
-                if (currentPos - previousPos).Magnitude > 0.5 then
-                    CreatePathSegment(previousPos, currentPos)
-                    previousPos = currentPos
-                end
-            end
-        end
-    end)
-end
-
-local function SaveToObfuscatedJSON()
-    if not hasFileSystem then
-        PlaySound("Error")
-        return
-    end
-    
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    local hasCheckedRecordings = false
-    for name, checked in pairs(CheckedRecordings) do
-        if checked then
-            hasCheckedRecordings = true
-            break
-        end
-    end
-    
-    if not hasCheckedRecordings then
-        PlaySound("Error")
-        return
-    end
-    
-    local success, err = pcall(function()
-        local saveData = {
-            Version = "3.1",
-            Obfuscated = true,
-            Checkpoints = {},
-            RecordingOrder = {},
-            CheckpointNames = {}
-        }
-        
-        for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] then
-                local frames = RecordedMovements[name]
-                if frames then
-                    local checkpointData = {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
-                    }
-                    table.insert(saveData.Checkpoints, checkpointData)
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                end
-            end
-        end
-        
-        local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
-        end
-        
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
-        saveData.ObfuscatedFrames = obfuscatedData
-        
-        local jsonString = HttpService:JSONEncode(saveData)
-        
-        writefile(filename, jsonString)
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
-
-local function LoadFromObfuscatedJSON()
-    if not hasFileSystem then
-        PlaySound("Error")
-        return
-    end
-    
-    local filename = FilenameBox.Text
-    if filename == "" then filename = "MyReplays" end
-    filename = filename .. ".json"
-    
-    local success, err = pcall(function()
-        if not isfile(filename) then
-            PlaySound("Error")
-            return
-        end
-        
-        local jsonString = readfile(filename)
-        local saveData = HttpService:JSONDecode(jsonString)
-        
-        local newRecordingOrder = saveData.RecordingOrder or {}
-        local newCheckpointNames = saveData.CheckpointNames or {}
-        
-        if saveData.Obfuscated and saveData.ObfuscatedFrames then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
-            
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                local name = checkpointData.Name
-                local frames = deobfuscatedData[name]
-                
-                if frames then
-                    RecordedMovements[name] = frames
-                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                    
-                    if not table.find(RecordingOrder, name) then
-                        table.insert(RecordingOrder, name)
-                    end
-                end
-            end
-        end
-        
-        UpdateRecordList()
-        PlaySound("Success")
-    end)
-    
-    if not success then
-        PlaySound("Error")
-    end
-end
 
 -- MINI BUTTON FUNCTIONALITY
 local miniSaveFile = "MiniButtonPos.json"
