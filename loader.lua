@@ -1153,6 +1153,10 @@ local function ApplyFrameToCharacterSmooth(frame, previousFrame, alpha)
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.AutoRotate = false
             
+            if ShiftLockEnabled then
+                ApplyStableShiftLock()
+            end
+            
             local moveState = frame.MoveState
             local currentTime = tick()
             
