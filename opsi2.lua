@@ -1,4 +1,4 @@
--- V1.0
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -30,7 +30,6 @@ local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
 local JUMP_VELOCITY_THRESHOLD = 10
-local FALL_VELOCITY_THRESHOLD = -5
 local LOOP_TRANSITION_DELAY = 0.08
 local AUTO_LOOP_RETRY_DELAY = 0.3
 local TIME_BYPASS_THRESHOLD = 0.05
@@ -39,6 +38,7 @@ local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
+local JUMP_FORCE_COOLDOWN = 0.5  -- Tambahkan ini
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0
@@ -82,6 +82,7 @@ local AutoLoop = false
 local recordConnection = nil
 local playbackConnection = nil
 local loopConnection = nil
+local jumpAnimationTrack = nil   -- Tambahkan ini
 local jumpConnection = nil
 local reverseConnection = nil
 local forwardConnection = nil
