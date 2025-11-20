@@ -1,4 +1,4 @@
-Local Players = game:GetService("Players")
+local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -24,7 +24,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008  -- ✅ Sensitif
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-local STATE_CHANGE_COOLDOWN = 0.08 -- ✅ NO COOLDOWN! (PURE v2.1)
+local STATE_CHANGE_COOLDOWN = 0.05 -- ✅ NO COOLDOWN! (PURE v2.1)
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
