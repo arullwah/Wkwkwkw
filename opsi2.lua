@@ -103,8 +103,6 @@ local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
-local lastPlaybackState = nil
-local lastStateChangeTime = 0
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
@@ -2512,8 +2510,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
 
     SaveHumanoidState()
     
@@ -2529,8 +2525,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
                 UpdatePauseMarker()
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2544,8 +2538,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
                 UpdatePauseMarker()
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2560,8 +2552,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
                 UpdatePauseMarker()
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
                 previousFrameData = nil
                 PlayBtnControl.Text = "PLAY"
                 PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2588,8 +2578,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     CheckIfPathUsed(recordingName)
                     PlaySound("Success")
                     UpdatePauseMarker()
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
                     previousFrameData = nil
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2613,8 +2601,6 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     RestoreFullUserControl()
                     CheckIfPathUsed(recordingName)
                     UpdatePauseMarker()
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
                     previousFrameData = nil
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -2627,13 +2613,25 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
                 if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                        hum, frame, lastPlaybackState, lastStateChangeTime
-                    )
-                end
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    -- ⭐ SIMPLE STATE APPLICATION (SEPERTI SCRIPT KEDUA)
+    local moveState = frame.MoveState
+    
+    if moveState == "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
                 
                 currentPlaybackFrame = nextFrame
             end
@@ -2687,8 +2685,6 @@ function StartAutoLoopAll()
     
     IsAutoLoopPlaying = true
     LoopRetryAttempts = 0
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     PlayBtnControl.Text = "STOP"
     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
@@ -2778,9 +2774,6 @@ function StartAutoLoopAll()
             local playbackStartTime = tick()
             local loopAccumulator = 0
             
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
-            
             SaveHumanoidState()
             
             IsLoopTransitioning = false
@@ -2799,8 +2792,6 @@ function StartAutoLoopAll()
                             
                             currentFrame = 1
                             playbackStartTime = tick()
-                            lastPlaybackState = nil
-                            lastStateChangeTime = 0
                             loopAccumulator = 0
                             
                             SaveHumanoidState()
@@ -2838,8 +2829,6 @@ function StartAutoLoopAll()
                         
                         currentFrame = 1
                         playbackStartTime = tick()
-                        lastPlaybackState = nil
-                        lastStateChangeTime = 0
                         loopAccumulator = 0
                         
                         SaveHumanoidState()
@@ -2892,16 +2881,25 @@ function StartAutoLoopAll()
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
                             if hum then
-                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                hum.AutoRotate = false
-                                
-                                lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                                    hum, frame, lastPlaybackState, lastStateChangeTime
-                                )
-                            end
-                        end
-                    end
-                end
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    -- ⭐ SIMPLE STATE APPLICATION (SEPERTI SCRIPT KEDUA)
+    local moveState = frame.MoveState
+    
+    if moveState == "Jumping" then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    elseif moveState == "Falling" then
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+    else
+        hum:ChangeState(Enum.HumanoidStateType.Running)
+    end
+end
                 
                 if playbackCompleted then
                     break
@@ -2909,8 +2907,6 @@ function StartAutoLoopAll()
             end
             
             RestoreFullUserControl()
-            lastPlaybackState = nil
-            lastStateChangeTime = 0
             
             if playbackCompleted then
                 PlaySound("Success")
@@ -2954,8 +2950,6 @@ function StartAutoLoopAll()
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
-        lastPlaybackState = nil
-        lastStateChangeTime = 0
         PlayBtnControl.Text = "PLAY"
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
         UpdatePlayButtonStatus()
@@ -2967,8 +2961,6 @@ function StopAutoLoopAll()
     IsAutoLoopPlaying = false
     IsPlaying = false
     IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
     
     if loopConnection then
         pcall(function() task.cancel(loopConnection) end)
@@ -2994,8 +2986,6 @@ function StopAutoLoopAll()
 end
 
 function StopPlayback()
-    lastStateChangeTime = 0
-    lastPlaybackState = nil
 
     if AutoLoop then
         StopAutoLoopAll()
