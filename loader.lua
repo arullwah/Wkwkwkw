@@ -151,6 +151,23 @@ local ShiftLockBtnControl = nil
 local ResetBtnControl = nil
 local ShowRuteBtnControl = nil
 
+-- ========= FUNCTION DECLARATIONS (FORWARD DECLARATIONS) =========
+local UpdateRecordList
+local UpdatePlayButtonStatus
+local FindNearestRecording
+local CheckIfPathUsed
+local RestoreShiftLockState
+local RestoreFullUserControl
+local PlayFromSpecificFrame
+local StopPlayback
+local StartAutoLoopAll
+local VisualizeAllPaths
+local ClearPathVisualization
+local SmartPlayRecording
+local PlayRecording
+local UpdatePauseMarker
+local CompleteCharacterReset
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -1613,12 +1630,15 @@ local function StartAutoLoopAll()
 
     loopConnection = task.spawn(function()
         while AutoLoop and IsAutoLoopPlaying do
-            if not AutoLoop or not IsAutoLoopPlaying then break end
+            if not AutoLoop or not IsAutoLoopPlaying then 
+                break 
+            end
             
             local recordingToPlay = nil
             local recordingNameToPlay = nil
             local searchAttempts = 0
             
+            -- Cari recording yang valid
             while searchAttempts < #RecordingOrder do
                 recordingNameToPlay = RecordingOrder[CurrentLoopIndex]
                 recordingToPlay = RecordedMovements[recordingNameToPlay]
@@ -1640,6 +1660,7 @@ local function StartAutoLoopAll()
                 continue
             end
             
+            -- Check character ready
             if not IsCharacterReady() then
                 if AutoRespawn then
                     ResetCharacter()
@@ -1661,7 +1682,10 @@ local function StartAutoLoopAll()
                         task.wait(0.5)
                     end
                     
-                    if not AutoLoop or not IsAutoLoopPlaying then break end
+                    if not AutoLoop or not IsAutoLoopPlaying then 
+                        break 
+                    end
+                    
                     if not IsCharacterReady() then
                         task.wait(AUTO_LOOP_RETRY_DELAY)
                         continue
@@ -1670,8 +1694,11 @@ local function StartAutoLoopAll()
                 end
             end
             
-            if not AutoLoop or not IsAutoLoopPlaying then break end
+            if not AutoLoop or not IsAutoLoopPlaying then 
+                break 
+            end
             
+            -- Setup character position
             local char = player.Character
             if char and char:FindFirstChild("HumanoidRootPart") then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -1691,6 +1718,7 @@ local function StartAutoLoopAll()
                 task.wait(0.5)
             end
             
+            -- Playback loop
             local playbackCompleted = false
             local currentFrame = 1
             local playbackStartTime = tick()
@@ -1703,8 +1731,10 @@ local function StartAutoLoopAll()
             
             IsLoopTransitioning = false
             
+            -- Main playback loop
             while AutoLoop and IsAutoLoopPlaying and currentFrame <= #recordingToPlay do
                 
+                -- Check character health
                 if not IsCharacterReady() then
                     
                     if AutoRespawn then
@@ -1715,6 +1745,7 @@ local function StartAutoLoopAll()
                             RestoreFullUserControl()
                             task.wait(0.5)
                             
+                            -- Reset playback
                             currentFrame = 1
                             playbackStartTime = tick()
                             lastPlaybackState = nil
@@ -1750,7 +1781,10 @@ local function StartAutoLoopAll()
                             task.wait(0.5)
                         end
                         
-                        if not AutoLoop or not IsAutoLoopPlaying then break end
+                        if not AutoLoop or not IsAutoLoopPlaying then 
+                            break 
+                        end
+                        
                         if not IsCharacterReady() then
                             break
                         end
@@ -1758,6 +1792,7 @@ local function StartAutoLoopAll()
                         RestoreFullUserControl()
                         task.wait(0.5)
                         
+                        -- Reset playback
                         currentFrame = 1
                         playbackStartTime = tick()
                         lastPlaybackState = nil
@@ -1769,6 +1804,7 @@ local function StartAutoLoopAll()
                     end
                 end
                 
+                -- Get character references
                 local char = player.Character
                 if not char or not char:FindFirstChild("HumanoidRootPart") then
                     task.wait(0.5)
@@ -1782,6 +1818,7 @@ local function StartAutoLoopAll()
                     break
                 end
                 
+                -- Fixed timestep playback
                 local deltaTime = task.wait()
                 loopAccumulator = loopAccumulator + deltaTime
                 
@@ -1791,6 +1828,7 @@ local function StartAutoLoopAll()
                     local currentTime = tick()
                     local effectiveTime = (currentTime - playbackStartTime) * CurrentSpeed
                     
+                    -- Find target frame
                     local targetFrame = currentFrame
                     for i = currentFrame, #recordingToPlay do
                         if GetFrameTimestamp(recordingToPlay[i]) <= effectiveTime then
@@ -1802,10 +1840,12 @@ local function StartAutoLoopAll()
                     
                     currentFrame = targetFrame
                     
+                    -- Check if completed
                     if currentFrame >= #recordingToPlay then
                         playbackCompleted = true
                     end
                     
+                    -- Apply frame if not completed
                     if not playbackCompleted then
                         local frame = recordingToPlay[currentFrame]
                         if frame then
@@ -1825,21 +1865,25 @@ local function StartAutoLoopAll()
                     end
                 end
                 
+                -- Break if playback completed
                 if playbackCompleted then
                     break
                 end
-            end
+            end -- ✅ END: Main playback while loop
             
+            -- Cleanup after playback
             RestoreFullUserControl()
             lastPlaybackState = nil
             lastStateChangeTime = nil
             
+            -- Handle completion
             if playbackCompleted then
                 PlaySound("Success")
                 CheckIfPathUsed(recordingNameToPlay)
                 
                 local isLastRecording = (CurrentLoopIndex >= #RecordingOrder)
                 
+                -- Auto reset if enabled and last recording
                 if AutoReset and isLastRecording then
                     ResetCharacter()
                     local success = WaitForRespawn()
@@ -1848,6 +1892,7 @@ local function StartAutoLoopAll()
                     end
                 end
                 
+                -- Move to next recording
                 CurrentLoopIndex = CurrentLoopIndex + 1
                 if CurrentLoopIndex > #RecordingOrder then
                     CurrentLoopIndex = 1
@@ -1859,8 +1904,11 @@ local function StartAutoLoopAll()
                     end
                 end
                 
-                if not AutoLoop or not IsAutoLoopPlaying then break end
+                if not AutoLoop or not IsAutoLoopPlaying then 
+                    break 
+                end
             else
+                -- If not completed, move to next
                 if not AutoLoop or not IsAutoLoopPlaying then
                     break
                 else
@@ -1871,14 +1919,16 @@ local function StartAutoLoopAll()
                     task.wait(AUTO_LOOP_RETRY_DELAY)
                 end
             end
-        end
+        end -- ✅ END: Main AutoLoop while loop
         
+        -- Final cleanup
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
         RestoreShiftLockState()  -- ✅ FIX: Restore ShiftLock after loop
         lastPlaybackState = nil
         lastStateChangeTime = 0
+        
         if PlayBtnControl then
             PlayBtnControl.Text = "PLAY"
             PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1888,8 +1938,8 @@ local function StartAutoLoopAll()
             LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         end
         UpdatePlayButtonStatus()
-    end)
-end
+    end) -- ✅ END: task.spawn
+end -- ✅ END: StartAutoLoopAll funct
 
 local function VisualizeAllPaths()
     ClearPathVisualization()
@@ -3383,13 +3433,12 @@ game:BindToClose(function()
     end)
 end)
 
--- ========= INITIALIZATION =========
-
+-- ========= INITIALIZATION (HARUS DI AKHIR!) =========
 UpdateRecordList()
 UpdatePlayButtonStatus()
 StartTitlePulse(Title)
 
--- Background update loop for play button status
+-- Background update loop
 task.spawn(function()
     while task.wait(2) do
         if not IsPlaying and not IsAutoLoopPlaying then
@@ -3398,7 +3447,7 @@ task.spawn(function()
     end
 end)
 
--- Auto-load default file if exists
+-- Auto-load
 if hasFileSystem then
     task.spawn(function()
         task.wait(2)
@@ -3409,7 +3458,7 @@ if hasFileSystem then
                 LoadFromObfuscatedJSON()
             end
         end)
-    end)
+    end
 end
 
 -- ========= SUCCESS MESSAGE =========
