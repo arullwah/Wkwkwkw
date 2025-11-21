@@ -1082,6 +1082,37 @@ local function StartTitlePulse(titleLabel)
     AddConnection(titlePulseConnection)
 end
 
+-- ⭐⭐⭐ TAMBAHKAN FUNGSI INI (sekitar baris 1140) ⭐⭐⭐
+local function FindNearestRecording(maxDistance)
+    if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
+        return nil, math.huge, nil
+    end
+    
+    local currentPos = player.Character.HumanoidRootPart.Position
+    local nearestRecording = nil
+    local nearestDistance = math.huge
+    local nearestName = nil
+    
+    for _, recordingName in ipairs(RecordingOrder) do
+        local recording = RecordedMovements[recordingName]
+        if recording and #recording > 0 then
+            local firstFrame = recording[1]
+            if firstFrame and firstFrame.Position then
+                local framePos = GetFramePosition(firstFrame)
+                local distance = (currentPos - framePos).Magnitude
+                
+                if distance < nearestDistance and (not maxDistance or distance <= maxDistance) then
+                    nearestDistance = distance
+                    nearestRecording = recording
+                    nearestName = recordingName
+                end
+            end
+        end
+    end
+    
+    return nearestRecording, nearestDistance, nearestName
+end
+
 local function UpdatePlayButtonStatus()
     local nearestRecording, distance = FindNearestRecording(50)
     NearestRecordingDistance = distance or math.huge
@@ -2882,8 +2913,10 @@ function StopPlayback()
     
     RestoreFullUserControl()
     
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    pcall(function()
+        local char = player.Character
+        if char then CompleteCharacterReset(char) end
+    end)
     
     PlaySound("Toggle")
     PlayBtnControl.Text = "PLAY"
