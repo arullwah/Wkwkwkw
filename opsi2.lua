@@ -1140,14 +1140,19 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    local hueSpeed = 0.25
-    local pulseFreq = 4.5
-    local baseSize = 14
-    local sizeAmplitude = 6
-    local baseScale = 1.0
-    local strokeMin = 0.0
-    local strokeMax = 0.9
-    local strokePulseFreq = 2.2
+    -- === PENGATURAN ===
+    local hueSpeed = 1             -- Kecepatan ganti warna
+    local pulseFreq = 12           -- Kecepatan denyut (Zoom In/Out)
+    local baseSize = 14            -- Ukuran font dasar
+    local sizeAmplitude = 4        -- Seberapa besar dia membesar
+    
+    -- Bagian Stroke (Garis Tepi)
+    local strokePulseFreq = 5      -- Kecepatan kedip garis tepi
+    local strokeMin = 0.0          -- Tebal
+    local strokeMax = 1.0          -- Tipis/Hilang
+
+    -- Reset TextStrokeColor biar kelihatan (Putih)
+    titleLabel.TextStrokeColor3 = Color3.fromRGB(255, 255, 255)
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1161,25 +1166,25 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
+            -- 1. Warna Pelangi (RGB)
             local hue = (t * hueSpeed) % 1
             local color = Color3.fromHSV(hue, 1, 1)
             titleLabel.TextColor3 = color
 
+            -- 2. Denyut Ukuran (Size Pulse)
+            -- Kita gunakan math.floor agar teks tetap tajam (tidak blur)
             local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5)
             local newSize = baseSize + (pulse * sizeAmplitude)
             titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
 
+            -- 3. Efek Stroke/Garis Tepi
             if titleLabel.TextStrokeTransparency ~= nil then
                 local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5)
                 local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
                 titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
-                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
             end
-
-            if titleLabel.Position and typeof(titleLabel.Position) == "UDim2" then
-                local jitter = (math.sin(t * pulseFreq * 0.5) * 2) * (pulse * 0.6)
-                titleLabel.Position = UDim2.new(titleLabel.Position.X.Scale, titleLabel.Position.X.Offset, titleLabel.Position.Y.Scale, titleLabel.Position.Y.Offset + jitter)
-            end
+            
+            -- SAYA HAPUS BAGIAN "JITTER POSISI" AGAR TIDAK GESER KE KANAN LAGI
         end)
     end)
 
