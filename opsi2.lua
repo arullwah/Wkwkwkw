@@ -41,6 +41,7 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0
+local JUMP_ANIM_COOLDOWN = 0.3
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -94,6 +95,7 @@ local CurrentPauseMarker = nil
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
+local lastJumpAnimTime = 0
 local currentPlaybackFrame = 1
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
@@ -531,25 +533,47 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     
     -- Apply state changes dengan cooldown
     if moveState == "Jumping" then
-        if lastState ~= "Jumping" then
-            -- ⭐ Trigger jump state - animasi akan otomatis play
+        if lastState ~= "Jumping" and (currentTime - lastJumpAnimTime) >= JUMP_ANIM_COOLDOWN then
+            lastJumpAnimTime = currentTime
+            
+            -- ⭐ Change state dulu
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
             
-            -- ⭐ OPTIONAL: Force play jump animation untuk memastikan
+            -- ⭐ Force play jump animation
             task.spawn(function()
                 pcall(function()
+                    local char = hum.Parent
                     local animator = hum:FindFirstChildOfClass("Animator")
+                    
                     if animator then
-                        -- Cari dan play jump animation yang sedang loaded
+                        -- Stop all jump/fall animations first
                         for _, track in pairs(animator:GetPlayingAnimationTracks()) do
                             if track.Animation then
-                                local animId = track.Animation.AnimationId
-                                -- Detect jump animation by checking common jump animation patterns
-                                if string.find(string.lower(animId), "jump") then
-                                    track:Play(0.1, 1, 1)
-                                    break
+                                local name = string.lower(track.Animation.Name or "")
+                                local id = string.lower(track.Animation.AnimationId or "")
+                                if string.find(name, "jump") or string.find(id, "jump") or 
+                                   string.find(name, "fall") or string.find(id, "fall") then
+                                    track:Stop(0)
                                 end
                             end
+                        end
+                        
+                        -- Find and play jump animation
+                        local jumpAnim = char:FindFirstChild("Jump", true)
+                        if not jumpAnim then
+                            -- Try to find in Humanoid's Animate script
+                            local animateScript = char:FindFirstChild("Animate")
+                            if animateScript then
+                                jumpAnim = animateScript:FindFirstChild("jump", true)
+                                if jumpAnim then
+                                    jumpAnim = jumpAnim:FindFirstChildOfClass("Animation")
+                                end
+                            end
+                        end
+                        
+                        if jumpAnim and jumpAnim:IsA("Animation") then
+                            local jumpTrack = animator:LoadAnimation(jumpAnim)
+                            jumpTrack:Play(0.1, 1, 1)
                         end
                     end
                 end)
@@ -559,8 +583,34 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
         end
     elseif moveState == "Falling" then
         if lastState ~= "Falling" then
-            -- ⭐ Trigger fall state - animasi akan otomatis play
             hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            
+            -- ⭐ Optional: Force play fall animation
+            task.spawn(function()
+                pcall(function()
+                    local char = hum.Parent
+                    local animator = hum:FindFirstChildOfClass("Animator")
+                    
+                    if animator then
+                        local fallAnim = char:FindFirstChild("Fall", true)
+                        if not fallAnim then
+                            local animateScript = char:FindFirstChild("Animate")
+                            if animateScript then
+                                fallAnim = animateScript:FindFirstChild("fall", true)
+                                if fallAnim then
+                                    fallAnim = fallAnim:FindFirstChildOfClass("Animation")
+                                end
+                            end
+                        end
+                        
+                        if fallAnim and fallAnim:IsA("Animation") then
+                            local fallTrack = animator:LoadAnimation(fallAnim)
+                            fallTrack:Play(0.1, 1, 1)
+                        end
+                    end
+                end)
+            end)
+            
             return "Falling", currentTime
         end
     else
