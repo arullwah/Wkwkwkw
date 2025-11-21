@@ -41,7 +41,6 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 local STOP_VELOCITY_THRESHOLD = 1.0
-local JUMP_ANIM_COOLDOWN = 0.3
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -95,7 +94,6 @@ local CurrentPauseMarker = nil
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
-local lastJumpAnimTime = 0
 local currentPlaybackFrame = 1
 local prePauseHumanoidState = nil
 local prePauseWalkSpeed = 16
@@ -526,123 +524,6 @@ local function GetCurrentMoveState(hum)
     elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
     elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
     else return "Grounded" end
-end
-
-
--- ========= IMPROVED HUMANOID STATE MANAGEMENT WITH ANIMATIONS =========
-local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    -- Deteksi state berdasarkan velocity
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < -5
-    
-    if isJumpingByVelocity and moveState ~= "Jumping" then
-        moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" then
-        moveState = "Falling"
-    end
-    
-    -- Apply state changes dengan cooldown
-    if moveState == "Jumping" then
-        if lastState ~= "Jumping" and (currentTime - lastJumpAnimTime) >= JUMP_ANIM_COOLDOWN then
-            lastJumpAnimTime = currentTime
-            
-            -- ⭐ Change state dulu
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            
-            -- ⭐ Force play jump animation
-            task.spawn(function()
-                pcall(function()
-                    local char = hum.Parent
-                    local animator = hum:FindFirstChildOfClass("Animator")
-                    
-                    if animator then
-                        -- Stop all jump/fall animations first
-                        for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-                            if track.Animation then
-                                local name = string.lower(track.Animation.Name or "")
-                                local id = string.lower(track.Animation.AnimationId or "")
-                                if string.find(name, "jump") or string.find(id, "jump") or 
-                                   string.find(name, "fall") or string.find(id, "fall") then
-                                    track:Stop(0)
-                                end
-                            end
-                        end
-                        
-                        -- Find and play jump animation
-                        local jumpAnim = char:FindFirstChild("Jump", true)
-                        if not jumpAnim then
-                            -- Try to find in Humanoid's Animate script
-                            local animateScript = char:FindFirstChild("Animate")
-                            if animateScript then
-                                jumpAnim = animateScript:FindFirstChild("jump", true)
-                                if jumpAnim then
-                                    jumpAnim = jumpAnim:FindFirstChildOfClass("Animation")
-                                end
-                            end
-                        end
-                        
-                        if jumpAnim and jumpAnim:IsA("Animation") then
-                            local jumpTrack = animator:LoadAnimation(jumpAnim)
-                            jumpTrack:Play(0.1, 1, 1)
-                        end
-                    end
-                end)
-            end)
-            
-            return "Jumping", currentTime
-        end
-    elseif moveState == "Falling" then
-        if lastState ~= "Falling" then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            
-            -- ⭐ Optional: Force play fall animation
-            task.spawn(function()
-                pcall(function()
-                    local char = hum.Parent
-                    local animator = hum:FindFirstChildOfClass("Animator")
-                    
-                    if animator then
-                        local fallAnim = char:FindFirstChild("Fall", true)
-                        if not fallAnim then
-                            local animateScript = char:FindFirstChild("Animate")
-                            if animateScript then
-                                fallAnim = animateScript:FindFirstChild("fall", true)
-                                if fallAnim then
-                                    fallAnim = fallAnim:FindFirstChildOfClass("Animation")
-                                end
-                            end
-                        end
-                        
-                        if fallAnim and fallAnim:IsA("Animation") then
-                            local fallTrack = animator:LoadAnimation(fallAnim)
-                            fallTrack:Play(0.1, 1, 1)
-                        end
-                    end
-                end)
-            end)
-            
-            return "Falling", currentTime
-        end
-    else
-        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            if moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-                hum.AutoRotate = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-            return moveState, currentTime
-        end
-    end
-    
-    return lastState, lastStateTime
 end
 
 local function ClearPathVisualization()
