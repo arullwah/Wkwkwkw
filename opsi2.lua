@@ -512,7 +512,8 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= IMPROVED HUMANOID STATE MANAGEMENT =========
+
+-- ========= IMPROVED HUMANOID STATE MANAGEMENT WITH ANIMATIONS =========
 local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     local moveState = frame.MoveState
     local frameVelocity = GetFrameVelocity(frame)
@@ -531,11 +532,34 @@ local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
     -- Apply state changes dengan cooldown
     if moveState == "Jumping" then
         if lastState ~= "Jumping" then
+            -- ⭐ Trigger jump state - animasi akan otomatis play
             hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            
+            -- ⭐ OPTIONAL: Force play jump animation untuk memastikan
+            task.spawn(function()
+                pcall(function()
+                    local animator = hum:FindFirstChildOfClass("Animator")
+                    if animator then
+                        -- Cari dan play jump animation yang sedang loaded
+                        for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                            if track.Animation then
+                                local animId = track.Animation.AnimationId
+                                -- Detect jump animation by checking common jump animation patterns
+                                if string.find(string.lower(animId), "jump") then
+                                    track:Play(0.1, 1, 1)
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end)
+            end)
+            
             return "Jumping", currentTime
         end
     elseif moveState == "Falling" then
         if lastState ~= "Falling" then
+            -- ⭐ Trigger fall state - animasi akan otomatis play
             hum:ChangeState(Enum.HumanoidStateType.Freefall)
             return "Falling", currentTime
         end
