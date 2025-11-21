@@ -11,13 +11,13 @@ wait(1)
 local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
 
 if not hasFileSystem then
-    warn("⚠️ File system tidak tersedia. Script akan berjalan tanpa fitur Save/Load.")
+    pcall(function() warn("⚠️ File system tidak tersedia. Script akan berjalan tanpa fitur Save/Load.") end)
     writefile = function() end
     readfile = function() return "" end
     isfile = function() return false end
 end
 
--- ========= OPTIMIZED CONFIGURATION (TESTED & PERFECT) =========
+-- ========= OPTIMIZED CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
@@ -89,7 +89,6 @@ local checkpointNames = {}
 local PathVisualization = {}
 local ShowPaths = false
 local PathAutoHide = true
-local CurrentPauseMarker = nil
 local playbackStartTime = 0
 local totalPausedDuration = 0
 local pauseStartTime = 0
@@ -134,7 +133,7 @@ local previousFrameData = nil
 local PathHasBeenUsed = {}
 local PathsHiddenOnce = false
 
--- ⭐ FIXED: Visual ShiftLock Variables dengan system yang lebih robust
+-- ⭐ FIXED: Visual ShiftLock Variables
 local ShiftLockVisualIndicator = nil
 local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
@@ -150,26 +149,30 @@ local SoundEffects = {
 }
 
 local function AddConnection(connection)
-    table.insert(activeConnections, connection)
+    pcall(function()
+        table.insert(activeConnections, connection)
+    end)
 end
 
 local function CleanupConnections()
-    for _, connection in ipairs(activeConnections) do
-        if connection then
-            pcall(function() connection:Disconnect() end)
+    pcall(function()
+        for _, connection in ipairs(activeConnections) do
+            if connection then
+                pcall(function() connection:Disconnect() end)
+            end
         end
-    end
-    activeConnections = {}
-    
-    if recordConnection then pcall(function() recordConnection:Disconnect() end) recordConnection = nil end
-    if playbackConnection then pcall(function() playbackConnection:Disconnect() end) playbackConnection = nil end
-    if loopConnection then pcall(function() task.cancel(loopConnection) end) loopConnection = nil end
-    if shiftLockConnection then pcall(function() shiftLockConnection:Disconnect() end) shiftLockConnection = nil end
-    if jumpConnection then pcall(function() jumpConnection:Disconnect() end) jumpConnection = nil end
-    if reverseConnection then pcall(function() reverseConnection:Disconnect() end) reverseConnection = nil end
-    if forwardConnection then pcall(function() forwardConnection:Disconnect() end) forwardConnection = nil end
-    if titlePulseConnection then pcall(function() titlePulseConnection:Disconnect() end) titlePulseConnection = nil end
-    if ShiftLockUpdateConnection then pcall(function() ShiftLockUpdateConnection:Disconnect() end) ShiftLockUpdateConnection = nil end
+        activeConnections = {}
+        
+        if recordConnection then pcall(function() recordConnection:Disconnect() end) recordConnection = nil end
+        if playbackConnection then pcall(function() playbackConnection:Disconnect() end) playbackConnection = nil end
+        if loopConnection then pcall(function() task.cancel(loopConnection) end) loopConnection = nil end
+        if shiftLockConnection then pcall(function() shiftLockConnection:Disconnect() end) shiftLockConnection = nil end
+        if jumpConnection then pcall(function() jumpConnection:Disconnect() end) jumpConnection = nil end
+        if reverseConnection then pcall(function() reverseConnection:Disconnect() end) reverseConnection = nil end
+        if forwardConnection then pcall(function() forwardConnection:Disconnect() end) forwardConnection = nil end
+        if titlePulseConnection then pcall(function() titlePulseConnection:Disconnect() end) titlePulseConnection = nil end
+        if ShiftLockUpdateConnection then pcall(function() ShiftLockUpdateConnection:Disconnect() end) ShiftLockUpdateConnection = nil end
+    end)
 end
 
 local function PlaySound(soundType)
@@ -384,24 +387,30 @@ local function DisableVisibleShiftLock()
 end
 
 local function ForceDisableShiftLock()
-    IsShiftLockForceDisabled = true
-    DisableVisibleShiftLock()
+    pcall(function()
+        IsShiftLockForceDisabled = true
+        DisableVisibleShiftLock()
+    end)
 end
 
 local function ForceEnableShiftLock()
-    IsShiftLockForceDisabled = false
-    if ShiftLockEnabled then
-        EnableVisibleShiftLock()
-    end
+    pcall(function()
+        IsShiftLockForceDisabled = false
+        if ShiftLockEnabled then
+            EnableVisibleShiftLock()
+        end
+    end)
 end
 
 local function ToggleVisibleShiftLock()
-    ShiftLockEnabled = not ShiftLockEnabled
-    if ShiftLockEnabled then
-        EnableVisibleShiftLock()
-    else
-        DisableVisibleShiftLock()
-    end
+    pcall(function()
+        ShiftLockEnabled = not ShiftLockEnabled
+        if ShiftLockEnabled then
+            EnableVisibleShiftLock()
+        else
+            DisableVisibleShiftLock()
+        end
+    end)
 end
 
 local function EnableInfiniteJump()
@@ -427,12 +436,14 @@ local function DisableInfiniteJump()
 end
 
 local function ToggleInfiniteJump()
-    InfiniteJump = not InfiniteJump
-    if InfiniteJump then
-        EnableInfiniteJump()
-    else
-        DisableInfiniteJump()
-    end
+    pcall(function()
+        InfiniteJump = not InfiniteJump
+        if InfiniteJump then
+            EnableInfiniteJump()
+        else
+            DisableInfiniteJump()
+        end
+    end)
 end
 
 local function SaveHumanoidState()
@@ -585,10 +596,6 @@ local function ClearPathVisualization()
             end
         end
         PathVisualization = {}
-        if CurrentPauseMarker and CurrentPauseMarker.Parent then
-            CurrentPauseMarker:Destroy()
-            CurrentPauseMarker = nil
-        end
     end)
 end
 
@@ -609,62 +616,6 @@ local function CreatePathSegment(startPos, endPos, color)
         return p
     end)
     return success and part or nil
-end
-
-local function CreatePauseMarker(position)
-    pcall(function()
-        if CurrentPauseMarker and CurrentPauseMarker.Parent then
-            CurrentPauseMarker:Destroy()
-            CurrentPauseMarker = nil
-        end
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "PauseMarker"
-        billboard.Size = UDim2.new(0, 200, 0, 60)
-        billboard.StudsOffset = Vector3.new(0, 3, 0)
-        billboard.AlwaysOnTop = true
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = "PAUSED"
-        label.TextColor3 = Color3.new(1, 1, 0)
-        label.TextStrokeColor3 = Color3.new(0, 0, 0)
-        label.TextStrokeTransparency = 0
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 18
-        label.TextScaled = false
-        label.Parent = billboard
-        local part = Instance.new("Part")
-        part.Name = "PauseMarkerPart"
-        part.Anchored = true
-        part.CanCollide = false
-        part.Size = Vector3.new(0.1, 0.1, 0.1)
-        part.Transparency = 1
-        part.Position = position + Vector3.new(0, 2, 0)
-        part.Parent = workspace
-        billboard.Adornee = part
-        billboard.Parent = part
-        CurrentPauseMarker = part
-        return part
-    end)
-end
-
-local function UpdatePauseMarker()
-    pcall(function()
-        if IsPaused then
-            if not CurrentPauseMarker then
-                local char = player.Character
-                if char and char:FindFirstChild("HumanoidRootPart") then
-                    local position = char.HumanoidRootPart.Position
-                    CreatePauseMarker(position)
-                end
-            end
-        else
-            if CurrentPauseMarker and CurrentPauseMarker.Parent then
-                CurrentPauseMarker:Destroy()
-                CurrentPauseMarker = nil
-            end
-        end
-    end)
 end
 
 local function ObfuscateRecordingData(recordingData)
@@ -770,11 +721,8 @@ local function CreateMergedReplay()
             
             local checkpoint = RecordedMovements[checkpointName]
             if not checkpoint or #checkpoint == 0 then 
-                warn("⚠️ Skipping empty checkpoint:", checkpointName)
                 continue 
             end
-            
-            print("✅ Merging:", checkpointName, "| Frames:", #checkpoint)
             
             if #mergedFrames > 0 and #checkpoint > 0 then
                 local lastFrame = mergedFrames[#mergedFrames]
@@ -783,8 +731,6 @@ local function CreateMergedReplay()
                 local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
                 local nextPos = Vector3.new(firstFrame.Position[1], firstFrame.Position[2], firstFrame.Position[3])
                 local distance = (lastPos - nextPos).Magnitude
-                
-                print("   📏 Distance to next:", math.floor(distance), "studs")
                 
                 local transitionCount = TRANSITION_FRAMES
                 
@@ -802,8 +748,6 @@ local function CreateMergedReplay()
                 if lastState == nextState and lastState == "Grounded" then
                     transitionCount = math.max(2, transitionCount)
                 end
-                
-                print("   🔄 Creating", transitionCount, "transition frames")
                 
                 local transitionFrames = CreateSmoothTransition(lastFrame, firstFrame, transitionCount)
                 
@@ -836,12 +780,9 @@ local function CreateMergedReplay()
         end
         
         if #mergedFrames == 0 then
-            warn("❌ Merge failed: No frames created")
             PlaySound("Error")
             return
         end
-        
-        print("✅ Merge complete! Total frames:", #mergedFrames, "| Checkpoints merged:", mergedCount)
         
         local firstTimestamp = mergedFrames[1].Timestamp
         for _, frame in ipairs(mergedFrames) do
@@ -855,9 +796,6 @@ local function CreateMergedReplay()
         
         UpdateRecordList()
         PlaySound("Success")
-        
-        print("📊 Merged replay saved as:", mergedName)
-        print("   Duration:", string.format("%.2f", mergedFrames[#mergedFrames].Timestamp), "seconds")
     end)
 end
 
@@ -1020,10 +958,6 @@ local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
     
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
-    
-    if hadLag then
-        print("⚠️ Lag terdeteksi ")
-    end
     
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
     
@@ -1259,7 +1193,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 ForceEnableShiftLock()
                 
                 CheckIfPathUsed(recordingName)
-                UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
@@ -1277,7 +1210,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 ForceEnableShiftLock()
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
-                UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
@@ -1296,7 +1228,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 ForceEnableShiftLock()
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
-                UpdatePauseMarker()
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
@@ -1327,7 +1258,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     RestoreFullUserControl()
                     CheckIfPathUsed(recordingName)
                     PlaySound("Success")
-                    UpdatePauseMarker()
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
@@ -1345,7 +1275,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     ForceEnableShiftLock()
                     RestoreFullUserControl()
                     CheckIfPathUsed(recordingName)
-                    UpdatePauseMarker()
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
@@ -1432,96 +1361,97 @@ local function PlayRecording(name)
         PlayFromSpecificFrame(recording, 1, name)
     else
         PlaySound("Error")
-        warn("❌ Recording tidak ditemukan:", name)
     end
 end
 
 -- ✅ FIXED: StopAutoLoopAll function yang benar
 local function StopAutoLoopAll()
-    AutoLoop = false
-    IsAutoLoopPlaying = false
-    IsPlaying = false
-    IsLoopTransitioning = false
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
-    
-    if loopConnection then
-        pcall(function() task.cancel(loopConnection) end)
-        loopConnection = nil
-    end
-    
-    if playbackConnection then
-        playbackConnection:Disconnect()
-        playbackConnection = nil
-    end
-    
-    RestoreFullUserControl()
-    
-    -- ⭐ FIXED: Restore ShiftLock setelah autoloop
-    ForceEnableShiftLock()
-    
     pcall(function()
+        AutoLoop = false
+        IsAutoLoopPlaying = false
+        IsPlaying = false
+        IsLoopTransitioning = false
+        lastPlaybackState = nil
+        lastStateChangeTime = 0
+        
+        if loopConnection then
+            pcall(function() task.cancel(loopConnection) end)
+            loopConnection = nil
+        end
+        
+        if playbackConnection then
+            playbackConnection:Disconnect()
+            playbackConnection = nil
+        end
+        
+        RestoreFullUserControl()
+        
+        -- ⭐ FIXED: Restore ShiftLock setelah autoloop
+        ForceEnableShiftLock()
+        
         local char = player.Character
         if char then CompleteCharacterReset(char) end
-    end)
-    
-    PlaySound("Toggle")
-    if PlayBtnControl then
-        PlayBtnControl.Text = "PLAY"
-        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    end
-    if LoopBtnControl then
-        LoopBtnControl.Text = "Loop OFF"
-        LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    end
-    UpdatePlayButtonStatus()
-end
-
--- ✅ FIXED: StopPlayback function yang benar
-local function StopPlayback()
-    lastStateChangeTime = 0
-    lastPlaybackState = nil
-
-    if AutoLoop then
-        StopAutoLoopAll()
+        
+        PlaySound("Toggle")
+        if PlayBtnControl then
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        end
         if LoopBtnControl then
             LoopBtnControl.Text = "Loop OFF"
             LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         end
-    end
-    
-    if not IsPlaying and not IsAutoLoopPlaying then return end
-    
-    IsPlaying = false
-    IsAutoLoopPlaying = false
-    IsLoopTransitioning = false
-    LastPausePosition = nil
-    LastPauseRecording = nil
-    
-    if playbackConnection then
-        playbackConnection:Disconnect()
-        playbackConnection = nil
-    end
-    
-    if loopConnection then
-        pcall(function() task.cancel(loopConnection) end)
-        loopConnection = nil
-    end
-    
-    RestoreFullUserControl()
-    
-    -- ⭐ FIXED: Restore ShiftLock setelah playback
-    ForceEnableShiftLock()
-    
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
-    
-    PlaySound("Toggle")
-    if PlayBtnControl then
-        PlayBtnControl.Text = "PLAY"
-        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    end
-    UpdatePlayButtonStatus()
+        UpdatePlayButtonStatus()
+    end)
+end
+
+-- ✅ FIXED: StopPlayback function yang benar
+local function StopPlayback()
+    pcall(function()
+        lastStateChangeTime = 0
+        lastPlaybackState = nil
+
+        if AutoLoop then
+            StopAutoLoopAll()
+            if LoopBtnControl then
+                LoopBtnControl.Text = "Loop OFF"
+                LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            end
+        end
+        
+        if not IsPlaying and not IsAutoLoopPlaying then return end
+        
+        IsPlaying = false
+        IsAutoLoopPlaying = false
+        IsLoopTransitioning = false
+        LastPausePosition = nil
+        LastPauseRecording = nil
+        
+        if playbackConnection then
+            playbackConnection:Disconnect()
+            playbackConnection = nil
+        end
+        
+        if loopConnection then
+            pcall(function() task.cancel(loopConnection) end)
+            loopConnection = nil
+        end
+        
+        RestoreFullUserControl()
+        
+        -- ⭐ FIXED: Restore ShiftLock setelah playback
+        ForceEnableShiftLock()
+        
+        local char = player.Character
+        if char then CompleteCharacterReset(char) end
+        
+        PlaySound("Toggle")
+        if PlayBtnControl then
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        end
+        UpdatePlayButtonStatus()
+    end)
 end
 
 -- ✅ FIXED: StartAutoLoopAll function yang benar
@@ -1790,12 +1720,15 @@ end
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "ByaruLRecorderElegant"
 ScreenGui.ResetOnSpawn = false
-if player:FindFirstChild("PlayerGui") then
-    ScreenGui.Parent = player.PlayerGui
-else
-    wait(2)
-    ScreenGui.Parent = player:WaitForChild("PlayerGui")
-end
+
+pcall(function()
+    if player:FindFirstChild("PlayerGui") then
+        ScreenGui.Parent = player.PlayerGui
+    else
+        wait(2)
+        ScreenGui.Parent = player:WaitForChild("PlayerGui")
+    end
+end)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.fromOffset(255, 365)
@@ -1883,19 +1816,23 @@ local function CreateControlBtn(text, x, size, color)
     corner.Parent = btn
     
     btn.MouseEnter:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {
-            BackgroundColor3 = Color3.new(
-                math.min(color.R * 1.2, 1),
-                math.min(color.G * 1.2, 1),
-                math.min(color.B * 1.2, 1)
-            )
-        }):Play()
+        pcall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.new(
+                    math.min(color.R * 1.2, 1),
+                    math.min(color.G * 1.2, 1),
+                    math.min(color.B * 1.2, 1)
+                )
+            }):Play()
+        end)
     end)
     
     btn.MouseLeave:Connect(function()
-        TweenService:Create(btn, TweenInfo.new(0.2), {
-            BackgroundColor3 = color
-        }):Play()
+        pcall(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = color
+            }):Play()
+        end)
     end)
     
     return btn
@@ -2015,19 +1952,23 @@ CheckAllCorner.CornerRadius = UDim.new(0, 4)
 CheckAllCorner.Parent = CheckAllBtn
 
 CheckAllBtn.MouseEnter:Connect(function()
-    TweenService:Create(CheckAllBtn, TweenInfo.new(0.2), {
-        BackgroundColor3 = Color3.fromRGB(
-            math.min(59 * 1.2, 255) / 255,
-            math.min(15 * 1.2, 255) / 255,
-            math.min(116 * 1.2, 255) / 255
-        )
-    }):Play()
+    pcall(function()
+        TweenService:Create(CheckAllBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(
+                math.min(59 * 1.2, 255) / 255,
+                math.min(15 * 1.2, 255) / 255,
+                math.min(116 * 1.2, 255) / 255
+            )
+        }):Play()
+    end)
 end)
 
 CheckAllBtn.MouseLeave:Connect(function()
-    TweenService:Create(CheckAllBtn, TweenInfo.new(0.2), {
-        BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    }):Play()
+    pcall(function()
+        TweenService:Create(CheckAllBtn, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        }):Play()
+    end)
 end)
 
 local RecordingsSection = Instance.new("Frame")
@@ -2112,19 +2053,23 @@ local function CreatePlaybackBtn(text, x, y, w, h, color)
     
     btn.MouseEnter:Connect(function()
         task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(
-                    math.min(color.R * 255 * 1.2, 255) / 255,
-                    math.min(color.G * 255 * 1.2, 255) / 255,
-                    math.min(color.B * 255 * 1.2, 255) / 255
-                )
-            }):Play()
+            pcall(function()
+                TweenService:Create(btn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(
+                        math.min(color.R * 255 * 1.2, 255) / 255,
+                        math.min(color.G * 255 * 1.2, 255) / 255,
+                        math.min(color.B * 255 * 1.2, 255) / 255
+                    )
+                }):Play()
+            end)
         end)
     end)
     
     btn.MouseLeave:Connect(function()
         task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+            pcall(function()
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+            end)
         end)
     end)
     
@@ -2177,19 +2122,23 @@ local function CreateStudioBtn(text, x, y, w, h, color)
     
     btn.MouseEnter:Connect(function()
         task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {
-                BackgroundColor3 = Color3.fromRGB(
-                    math.min(color.R * 255 * 1.2, 255) / 255,
-                    math.min(color.G * 255 * 1.2, 255) / 255,
-                    math.min(color.B * 255 * 1.2, 255) / 255
-                )
-            }):Play()
+            pcall(function()
+                TweenService:Create(btn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(
+                        math.min(color.R * 255 * 1.2, 255) / 255,
+                        math.min(color.G * 255 * 1.2, 255) / 255,
+                        math.min(color.B * 255 * 1.2, 255) / 255
+                    )
+                }):Play()
+            end)
         end)
     end)
     
     btn.MouseLeave:Connect(function()
         task.spawn(function()
-            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+            pcall(function()
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
+            end)
         end)
     end)
     
@@ -2211,15 +2160,17 @@ local function ValidateSpeed(speedText)
 end
 
 SpeedBox.FocusLost:Connect(function()
-    local success, result = ValidateSpeed(SpeedBox.Text)
-    if success then
-        CurrentSpeed = result
-        SpeedBox.Text = string.format("%.2f", result)
-        PlaySound("Success")
-    else
-        SpeedBox.Text = string.format("%.2f", CurrentSpeed)
-        PlaySound("Error")
-    end
+    pcall(function()
+        local success, result = ValidateSpeed(SpeedBox.Text)
+        if success then
+            CurrentSpeed = result
+            SpeedBox.Text = string.format("%.2f", result)
+            PlaySound("Success")
+        else
+            SpeedBox.Text = string.format("%.2f", CurrentSpeed)
+            PlaySound("Error")
+        end
+    end)
 end)
 
 local function ValidateWalkSpeed(walkSpeedText)
@@ -2230,22 +2181,24 @@ local function ValidateWalkSpeed(walkSpeedText)
 end
 
 WalkSpeedBox.FocusLost:Connect(function()
-    local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
-    if success then
-        CurrentWalkSpeed = result
-        WalkSpeedBox.Text = tostring(result)
-        pcall(function()
-            local char = player.Character
-            if char and char:FindFirstChildOfClass("Humanoid") then
-                char.Humanoid.WalkSpeed = CurrentWalkSpeed
-            end
-        end)
-        PlaySound("Success")
-    else
-        WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
-        PlaySound("Error")
-    end
-end)
+    pcall(function()
+        local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
+        if success then
+            CurrentWalkSpeed = result
+            WalkSpeedBox.Text = tostring(result)
+            pcall(function()
+                local char = player.Character
+                if char and char:FindFirstChildOfClass("Humanoid") then
+                    char.Humanoid.WalkSpeed = CurrentWalkSpeed
+                end
+            end)
+            PlaySound("Success")
+        else
+            WalkSpeedBox.Text = tostring(CurrentWalkSpeed)
+            PlaySound("Error")
+        end
+    end)
+end
 
 local function MoveRecordingUp(name)
     local currentIndex = table.find(RecordingOrder, name)
@@ -2397,51 +2350,62 @@ function UpdateRecordList()
             downCorner.Parent = downBtn
             
             nameBox.FocusLost:Connect(function()
-                local newName = nameBox.Text
-                if newName and newName ~= "" then
-                    checkpointNames[name] = newName
-                    PlaySound("Success")
-                end
+                pcall(function()
+                    local newName = nameBox.Text
+                    if newName and newName ~= "" then
+                        checkpointNames[name] = newName
+                        PlaySound("Success")
+                    end
+                end)
             end)
             
             checkBox.MouseButton1Click:Connect(function()
-                CheckedRecordings[name] = not CheckedRecordings[name]
-                checkBox.Text = CheckedRecordings[name] and "✓" or ""
-                AnimateButtonClick(checkBox)
+                pcall(function()
+                    CheckedRecordings[name] = not CheckedRecordings[name]
+                    checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                    AnimateButtonClick(checkBox)
+                end)
             end)
             
-            -- ✅ FIXED: Scope issue dengan menggunakan local variable
             local currentRecordingName = name
             playBtn.MouseButton1Click:Connect(function()
-                if not IsPlaying then 
-                    AnimateButtonClick(playBtn)
-                    PlayRecording(currentRecordingName) 
-                end
+                pcall(function()
+                    if not IsPlaying then 
+                        AnimateButtonClick(playBtn)
+                        PlayRecording(currentRecordingName) 
+                    end
+                end)
             end)
             
             delBtn.MouseButton1Click:Connect(function()
-                AnimateButtonClick(delBtn)
-                RecordedMovements[name] = nil
-                checkpointNames[name] = nil
-                CheckedRecordings[name] = nil
-                PathHasBeenUsed[name] = nil
-                local idx = table.find(RecordingOrder, name)
-                if idx then table.remove(RecordingOrder, idx) end
-                UpdateRecordList()
+                pcall(function()
+                    AnimateButtonClick(delBtn)
+                    RecordedMovements[name] = nil
+                    checkpointNames[name] = nil
+                    CheckedRecordings[name] = nil
+                    PathHasBeenUsed[name] = nil
+                    local idx = table.find(RecordingOrder, name)
+                    if idx then table.remove(RecordingOrder, idx) end
+                    UpdateRecordList()
+                end)
             end)
             
             upBtn.MouseButton1Click:Connect(function()
-                if index > 1 then 
-                    AnimateButtonClick(upBtn)
-                    MoveRecordingUp(name) 
-                end
+                pcall(function()
+                    if index > 1 then 
+                        AnimateButtonClick(upBtn)
+                        MoveRecordingUp(name) 
+                    end
+                end)
             end)
             
             downBtn.MouseButton1Click:Connect(function()
-                if index < #RecordingOrder then 
-                    AnimateButtonClick(downBtn)
-                    MoveRecordingDown(name) 
-                end
+                pcall(function()
+                    if index < #RecordingOrder then 
+                        AnimateButtonClick(downBtn)
+                        MoveRecordingDown(name) 
+                    end
+                end)
             end)
             
             yPos = yPos + 65
@@ -2909,230 +2873,270 @@ end
 
 -- BUTTON CONNECTIONS
 PlayBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(PlayBtnControl)
-    if IsPlaying or IsAutoLoopPlaying then
-        StopPlayback()
-    else
-        if AutoLoop then
-            StartAutoLoopAll()
+    pcall(function()
+        AnimateButtonClick(PlayBtnControl)
+        if IsPlaying or IsAutoLoopPlaying then
+            StopPlayback()
         else
-            SmartPlayRecording(50)
-        end
-    end
-end)
-
-LoopBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoopBtnControl)
-    AutoLoop = not AutoLoop
-    if AutoLoop then
-        LoopBtnControl.Text = "Loop ON"
-        LoopBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-        if not next(RecordedMovements) then
-            AutoLoop = false
-            LoopBtnControl.Text = "Loop OFF"
-            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-            PlaySound("Error")
-            return
-        end
-        if IsPlaying then
-            IsPlaying = false
-            RestoreFullUserControl()
-        end
-        StartAutoLoopAll()
-    else
-        LoopBtnControl.Text = "Loop OFF"
-        LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-        StopAutoLoopAll()
-    end
-end)
-
-JumpBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(JumpBtnControl)
-    ToggleInfiniteJump()
-    if InfiniteJump then
-        JumpBtnControl.Text = "Jump ON"
-        JumpBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-    else
-        JumpBtnControl.Text = "Jump OFF"
-        JumpBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    end
-end)
-
-RespawnBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(RespawnBtnControl)
-    AutoRespawn = not AutoRespawn
-    if AutoRespawn then
-        RespawnBtnControl.Text = "Respawn ON"
-        RespawnBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-    else
-        RespawnBtnControl.Text = "Respawn OFF"
-        RespawnBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    end
-    PlaySound("Toggle")
-end)
-
-ShiftLockBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(ShiftLockBtnControl)
-    ToggleVisibleShiftLock()
-    if ShiftLockEnabled then
-        ShiftLockBtnControl.Text = "Shift ON"
-        ShiftLockBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-    else
-        ShiftLockBtnControl.Text = "Shift OFF"
-        ShiftLockBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    end
-end)
-
-ResetBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(ResetBtnControl)
-    AutoReset = not AutoReset
-    if AutoReset then
-        ResetBtnControl.Text = "Reset ON"
-        ResetBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-    else
-        ResetBtnControl.Text = "Reset OFF"
-        ResetBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    end
-    PlaySound("Toggle")
-end)
-
-ShowRuteBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(ShowRuteBtnControl)
-    ShowPaths = not ShowPaths
-    if ShowPaths then
-        ShowRuteBtnControl.Text = "Path ON"
-        ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-        PathsHiddenOnce = false
-        PathHasBeenUsed = {}
-        VisualizeAllPaths()
-    else
-        ShowRuteBtnControl.Text = "Path OFF"
-        ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-        ClearPathVisualization()
-    end
-end)
-
-PlayBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(PlayBtn)
-    PlaybackControl.Visible = not PlaybackControl.Visible
-end)
-
-RecordBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(RecordBtn)
-    RecordingStudio.Visible = true
-end)
-
-MenuBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MenuBtn)
-    task.spawn(function()
-        local success, err = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua", true))()
-        end)
-        
-        if success then
-            PlaySound("Success")
-        else
-            PlaySound("Error")
+            if AutoLoop then
+                StartAutoLoopAll()
+            else
+                SmartPlayRecording(50)
+            end
         end
     end)
 end)
 
+LoopBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(LoopBtnControl)
+        AutoLoop = not AutoLoop
+        if AutoLoop then
+            LoopBtnControl.Text = "Loop ON"
+            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+            if not next(RecordedMovements) then
+                AutoLoop = false
+                LoopBtnControl.Text = "Loop OFF"
+                LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+                PlaySound("Error")
+                return
+            end
+            if IsPlaying then
+                IsPlaying = false
+                RestoreFullUserControl()
+            end
+            StartAutoLoopAll()
+        else
+            LoopBtnControl.Text = "Loop OFF"
+            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            StopAutoLoopAll()
+        end
+    end)
+end)
+
+JumpBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(JumpBtnControl)
+        ToggleInfiniteJump()
+        if InfiniteJump then
+            JumpBtnControl.Text = "Jump ON"
+            JumpBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        else
+            JumpBtnControl.Text = "Jump OFF"
+            JumpBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+    end)
+end)
+
+RespawnBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(RespawnBtnControl)
+        AutoRespawn = not AutoRespawn
+        if AutoRespawn then
+            RespawnBtnControl.Text = "Respawn ON"
+            RespawnBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        else
+            RespawnBtnControl.Text = "Respawn OFF"
+            RespawnBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+        PlaySound("Toggle")
+    end)
+end)
+
+ShiftLockBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(ShiftLockBtnControl)
+        ToggleVisibleShiftLock()
+        if ShiftLockEnabled then
+            ShiftLockBtnControl.Text = "Shift ON"
+            ShiftLockBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        else
+            ShiftLockBtnControl.Text = "Shift OFF"
+            ShiftLockBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+    end)
+end)
+
+ResetBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(ResetBtnControl)
+        AutoReset = not AutoReset
+        if AutoReset then
+            ResetBtnControl.Text = "Reset ON"
+            ResetBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        else
+            ResetBtnControl.Text = "Reset OFF"
+            ResetBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+        PlaySound("Toggle")
+    end)
+end)
+
+ShowRuteBtnControl.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(ShowRuteBtnControl)
+        ShowPaths = not ShowPaths
+        if ShowPaths then
+            ShowRuteBtnControl.Text = "Path ON"
+            ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+            PathsHiddenOnce = false
+            PathHasBeenUsed = {}
+            VisualizeAllPaths()
+        else
+            ShowRuteBtnControl.Text = "Path OFF"
+            ShowRuteBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            ClearPathVisualization()
+        end
+    end)
+end)
+
+PlayBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(PlayBtn)
+        PlaybackControl.Visible = not PlaybackControl.Visible
+    end)
+end)
+
+RecordBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(RecordBtn)
+        RecordingStudio.Visible = true
+    end)
+end)
+
+MenuBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        AnimateButtonClick(MenuBtn)
+        task.spawn(function()
+            local success, err = pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/library.lua", true))()
+            end)
+            
+            if success then
+                PlaySound("Success")
+            else
+                PlaySound("Error")
+            end
+        end)
+    end)
+end)
+
 SaveFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(SaveFileBtn)
-    SaveToObfuscatedJSON()
+    pcall(function()
+        AnimateButtonClick(SaveFileBtn)
+        SaveToObfuscatedJSON()
+    end)
 end)
 
 LoadFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadFileBtn)
-    LoadFromObfuscatedJSON()
+    pcall(function()
+        AnimateButtonClick(LoadFileBtn)
+        LoadFromObfuscatedJSON()
+    end)
 end)
 
 MergeBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(MergeBtn)
-    CreateMergedReplay()
+    pcall(function()
+        AnimateButtonClick(MergeBtn)
+        CreateMergedReplay()
+    end)
 end)
 
 CheckAllBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(CheckAllBtn)
-    
-    local allChecked = true
-    for _, name in ipairs(RecordingOrder) do
-        if not CheckedRecordings[name] then
-            allChecked = false
-            break
-        end
-    end
-    
-    if allChecked then
+    pcall(function()
+        AnimateButtonClick(CheckAllBtn)
+        
+        local allChecked = true
         for _, name in ipairs(RecordingOrder) do
-            CheckedRecordings[name] = false
+            if not CheckedRecordings[name] then
+                allChecked = false
+                break
+            end
         end
-        CheckAllBtn.Text = "CHECKLIST ALL"
-        CheckAllBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    else
-        for _, name in ipairs(RecordingOrder) do
-            CheckedRecordings[name] = true
+        
+        if allChecked then
+            for _, name in ipairs(RecordingOrder) do
+                CheckedRecordings[name] = false
+            end
+            CheckAllBtn.Text = "CHECKLIST ALL"
+            CheckAllBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+        else
+            for _, name in ipairs(RecordingOrder) do
+                CheckedRecordings[name] = true
+            end
+            CheckAllBtn.Text = "UNCHECKALL"
+            CheckAllBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
         end
-        CheckAllBtn.Text = "UNCHECKALL"
-        CheckAllBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
-    end
-    
-    UpdateRecordList()
-    PlaySound("Toggle")
+        
+        UpdateRecordList()
+        PlaySound("Toggle")
+    end)
 end)
 
 StartBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(StartBtn)
-        if StudioIsRecording then
-            StopStudioRecording()
-        else
-            StartStudioRecording()
-        end
+        pcall(function()
+            AnimateButtonClick(StartBtn)
+            if StudioIsRecording then
+                StopStudioRecording()
+            else
+                StartStudioRecording()
+            end
+        end)
     end)
 end)
 
 PrevBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(PrevBtn)
-        GoBackTimeline()
+        pcall(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
     end)
 end)
 
 NextBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(NextBtn)
-        GoNextTimeline()
+        pcall(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
     end)
 end)
 
 ResumeBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(ResumeBtn)
-        ResumeStudioRecording()
+        pcall(function()
+            AnimateButtonClick(ResumeBtn)
+            ResumeStudioRecording()
+        end)
     end)
 end)
 
 SaveBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
-        AnimateButtonClick(SaveBtn)
-        SaveStudioRecording()
+        pcall(function()
+            AnimateButtonClick(SaveBtn)
+            SaveStudioRecording()
+        end)
     end)
 end)
 
 CloseBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(CloseBtn)
-    task.spawn(function()
-        pcall(function()
-            if StudioIsRecording then StopStudioRecording() end
-            if IsPlaying or AutoLoop then StopPlayback() end
-            if ShiftLockEnabled then DisableVisibleShiftLock() end
-            if InfiniteJump then DisableInfiniteJump() end
-            CleanupConnections()
-            ClearPathVisualization()
-            RemoveShiftLockIndicator()
-            task.wait(0.2)
-            ScreenGui:Destroy()
+    pcall(function()
+        AnimateButtonClick(CloseBtn)
+        task.spawn(function()
+            pcall(function()
+                if StudioIsRecording then StopStudioRecording() end
+                if IsPlaying or AutoLoop then StopPlayback() end
+                if ShiftLockEnabled then DisableVisibleShiftLock() end
+                if InfiniteJump then DisableInfiniteJump() end
+                CleanupConnections()
+                ClearPathVisualization()
+                RemoveShiftLockIndicator()
+                task.wait(0.2)
+                ScreenGui:Destroy()
+            end)
         end)
     end)
 end)
@@ -3150,9 +3154,9 @@ pcall(function()
 end)
 
 MiniButton.MouseButton1Click:Connect(function()
-    pcall(PlaySound, "Click")
-    
     pcall(function()
+        PlaySound("Click")
+        
         local originalSize = MiniButton.TextSize
         TweenService:Create(MiniButton, TweenInfo.new(0.1), {
             TextSize = originalSize * 1.2
@@ -3161,11 +3165,11 @@ MiniButton.MouseButton1Click:Connect(function()
         TweenService:Create(MiniButton, TweenInfo.new(0.1), {
             TextSize = originalSize
         }):Play()
+        
+        if MainFrame then
+            MainFrame.Visible = not MainFrame.Visible
+        end
     end)
-    
-    if MainFrame then
-        MainFrame.Visible = not MainFrame.Visible
-    end
 end)
 
 local dragging = false
@@ -3173,23 +3177,25 @@ local dragStart = nil
 local startPos = nil
 
 MiniButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MiniButton.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-                pcall(function()
-                    if hasFileSystem and writefile and HttpService then
-                        local absX = MiniButton.AbsolutePosition.X
-                        local absY = MiniButton.AbsolutePosition.Y
-                        writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
-                    end
-                end)
-            end
-        end)
-    end
+    pcall(function()
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = MiniButton.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    pcall(function()
+                        if hasFileSystem and writefile and HttpService then
+                            local absX = MiniButton.AbsolutePosition.X
+                            local absY = MiniButton.AbsolutePosition.Y
+                            writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                        end
+                    end)
+                end
+            end)
+        end
+    end)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
@@ -3197,28 +3203,34 @@ UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
     if not dragStart or not startPos then return end
 
-    local delta = input.Position - dragStart
-    local newX = startPos.X.Offset + delta.X
-    local newY = startPos.Y.Offset + delta.Y
+    pcall(function()
+        local delta = input.Position - dragStart
+        local newX = startPos.X.Offset + delta.X
+        local newY = startPos.Y.Offset + delta.Y
 
-    local cam = workspace.CurrentCamera
-    local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
-    newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
-    newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
+        local cam = workspace.CurrentCamera
+        local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
+        newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
+        newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
 
-    MiniButton.Position = UDim2.fromOffset(newX, newY)
+        MiniButton.Position = UDim2.fromOffset(newX, newY)
+    end)
 end)
 
 -- INITIALIZATION
-UpdateRecordList()
-UpdatePlayButtonStatus()
-StartTitlePulse(Title)
+pcall(function()
+    UpdateRecordList()
+    UpdatePlayButtonStatus()
+    StartTitlePulse(Title)
+end)
 
 task.spawn(function()
     while task.wait(2) do
-        if not IsPlaying and not IsAutoLoopPlaying then
-            UpdatePlayButtonStatus()
-        end
+        pcall(function()
+            if not IsPlaying and not IsAutoLoopPlaying then
+                UpdatePlayButtonStatus()
+            end
+        end)
     end
 end)
 
