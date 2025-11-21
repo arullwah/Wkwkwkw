@@ -29,7 +29,8 @@ local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
-local JUMP_VELOCITY_THRESHOLD = 10
+local JUMP_VELOCITY_THRESHOLD = 5  -- ⭐ Turunkan dari 10 ke 5
+local FALLING_VELOCITY_THRESHOLD = -8  -- ⭐ Tambahkan threshold untuk falling
 local LOOP_TRANSITION_DELAY = 0.08
 local AUTO_LOOP_RETRY_DELAY = 0.3
 local TIME_BYPASS_THRESHOLD = 0.05
@@ -502,24 +503,58 @@ local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
     
     local char = hum.Parent
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        local hrp = char.HumanoidRootPart
-        local velocity = hrp.AssemblyLinearVelocity
+    if not char or not char:FindFirstChild("HumanoidRootPart") then 
+        return "Grounded" 
+    end
+    
+    local hrp = char.HumanoidRootPart
+    local velocity = hrp.AssemblyLinearVelocity
+    local verticalVelocity = velocity.Y
+    
+    -- ⭐⭐⭐ PRIORITY 1: Check Velocity First (Most Accurate)
+    if verticalVelocity > JUMP_VELOCITY_THRESHOLD then
+        return "Jumping"
+    elseif verticalVelocity < FALLING_VELOCITY_THRESHOLD then
+        return "Falling"
+    end
+    
+    -- ⭐⭐⭐ PRIORITY 2: Check Humanoid State
+    local state = hum:GetState()
+    
+    -- Special states yang pasti
+    if state == Enum.HumanoidStateType.Climbing then 
+        return "Climbing" 
+    end
+    
+    if state == Enum.HumanoidStateType.Swimming then 
+        return "Swimming" 
+    end
+    
+    -- ⭐⭐⭐ PRIORITY 3: In-Air Detection (antara jump dan falling)
+    -- Jika velocity Y antara -8 sampai 5, periksa apakah di udara
+    if math.abs(verticalVelocity) > 0.5 then
+        -- Cek apakah ada ground di bawah (raycast)
+        local rayOrigin = hrp.Position
+        local rayDirection = Vector3.new(0, -3, 0)
         
-        if velocity.Y > JUMP_VELOCITY_THRESHOLD then
-            return "Jumping"
-        elseif velocity.Y < -5 then
-            return "Falling"
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {char}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        
+        local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        -- Jika tidak ada ground, berarti di udara
+        if not rayResult then
+            if verticalVelocity > 0 then
+                return "Jumping"
+            else
+                return "Falling"
+            end
         end
     end
     
-    local state = hum:GetState()
-    if state == Enum.HumanoidStateType.Climbing then return "Climbing"
-    elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
-    elseif state == Enum.HumanoidStateType.Freefall then return "Falling"
-    elseif state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics then return "Grounded"
-    elseif state == Enum.HumanoidStateType.Swimming then return "Swimming"
-    else return "Grounded" end
+    -- Default: Grounded
+    return "Grounded"
 end
 
 local function ClearPathVisualization()
@@ -1953,15 +1988,36 @@ local function StartStudioRecording()
                         end
                         
                         local cf = hrp.CFrame
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                            MoveState = GetCurrentMoveState(hum),
-                            WalkSpeed = hum and hum.WalkSpeed or 16,
-                            Timestamp = now - StudioCurrentRecording.StartTime
-                        })
+                        local currentState = GetCurrentMoveState(hum)
+
+-- ⭐⭐⭐ Smooth state transition (avoid rapid jumping/falling flicker)
+if currentState ~= LAST_RECORDED_STATE then
+    -- Tunggu beberapa frame sebelum confirm state change
+    if not stateChangeCounter then
+        stateChangeCounter = 0
+    end
+    stateChangeCounter = stateChangeCounter + 1
+    
+    -- Setelah 3 frame berturut-turut state sama, baru ganti
+    if stateChangeCounter >= 3 then
+        LAST_RECORDED_STATE = currentState
+        stateChangeCounter = 0
+    else
+        currentState = LAST_RECORDED_STATE  -- Gunakan state sebelumnya
+    end
+else
+    stateChangeCounter = 0
+end
+
+table.insert(StudioCurrentRecording.Frames, {
+    Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+    LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+    UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+    MoveState = currentState,  -- ⭐ Gunakan smoothed state
+    WalkSpeed = hum and hum.WalkSpeed or 16,
+    Timestamp = now - StudioCurrentRecording.StartTime
+})
                         
                         lastStudioRecordTime = now
                         lastStudioRecordPos = currentPos
@@ -2546,25 +2602,43 @@ function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 hrp.AssemblyAngularVelocity = Vector3.zero
                 
                 if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    local moveState = frame.MoveState
-                    
-                    if moveState == "Jumping" then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    elseif moveState == "Falling" then
-                        hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    elseif moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                end
-                
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    local moveState = frame.MoveState
+    
+    -- ⭐⭐⭐ IMPROVED: Apply state dengan mempertimbangkan velocity
+    local currentVelocity = GetFrameVelocity(frame)
+    
+    if moveState == "Jumping" then
+        -- Pastikan velocity Y positif sebelum apply jumping
+        if currentVelocity.Y > 3 then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+        
+    elseif moveState == "Falling" then
+        -- Apply freefall state
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+        
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        
+    else
+        -- Grounded atau state lainnya
+        if currentVelocity.Y < -3 then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
+
                 currentPlaybackFrame = nextFrame
             end
         end)
@@ -2817,27 +2891,42 @@ function StartAutoLoopAll()
                             hrp.AssemblyAngularVelocity = Vector3.zero
                             
                             if hum then
-                                hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                hum.AutoRotate = false
-                                
-                                local moveState = frame.MoveState
-                                
-                                if moveState == "Jumping" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                                elseif moveState == "Falling" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                                elseif moveState == "Climbing" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                                    hum.PlatformStand = false
-                                elseif moveState == "Swimming" then
-                                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                                else
-                                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                                end
-                            end
-                        end
-                    end
-                end
+    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+    hum.AutoRotate = false
+    
+    local moveState = frame.MoveState
+    
+    -- ⭐⭐⭐ IMPROVED: Apply state dengan mempertimbangkan velocity
+    local currentVelocity = GetFrameVelocity(frame)
+    
+    if moveState == "Jumping" then
+        -- Pastikan velocity Y positif sebelum apply jumping
+        if currentVelocity.Y > 3 then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+        
+    elseif moveState == "Falling" then
+        -- Apply freefall state
+        hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        
+    elseif moveState == "Climbing" then
+        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+        hum.PlatformStand = false
+        
+    elseif moveState == "Swimming" then
+        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+        
+    else
+        -- Grounded atau state lainnya
+        if currentVelocity.Y < -3 then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        else
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end
+    end
+end
                 
                 if playbackCompleted then
                     break
