@@ -2294,6 +2294,8 @@ local function VisualizeAllPaths()
     end)
 end
 
+-- ========= PLAYBACK FUNCTIONS (FIXED ORDER) =========
+
 local function PlayRecording(name)
     if name then
         local recording = RecordedMovements[name]
@@ -2393,8 +2395,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     PlaySound("Toggle")
     
-    PlayBtnControl.Text = "STOP"
-    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    if PlayBtnControl then
+        PlayBtnControl.Text = "STOP"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    end
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         pcall(function()
@@ -2412,8 +2416,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -2431,8 +2437,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -2451,8 +2459,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
-                PlayBtnControl.Text = "PLAY"
-                PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -2483,8 +2493,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
@@ -2502,8 +2514,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
@@ -2529,6 +2543,49 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     AddConnection(playbackConnection)
     UpdatePlayButtonStatus()
 end
+
+local function StopPlayback()
+    lastStateChangeTime = 0
+    lastPlaybackState = nil
+
+    if AutoLoop then
+        StopAutoLoopAll()
+        if LoopBtnControl then
+            LoopBtnControl.Text = "Loop OFF"
+            LoopBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+    end
+    
+    if not IsPlaying and not IsAutoLoopPlaying then return end
+    
+    IsPlaying = false
+    IsAutoLoopPlaying = false
+    IsLoopTransitioning = false
+    LastPausePosition = nil
+    LastPauseRecording = nil
+    
+    if playbackConnection then
+        playbackConnection:Disconnect()
+        playbackConnection = nil
+    end
+    
+    if loopConnection then
+        pcall(function() task.cancel(loopConnection) end)
+        loopConnection = nil
+    end
+    
+    RestoreFullUserControl()
+    
+    local char = player.Character
+    if char then CompleteCharacterReset(char) end
+    
+    PlaySound("Toggle")
+    if PlayBtnControl then
+        PlayBtnControl.Text = "PLAY"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+    end
+    UpdatePlayButtonStatus()
+end              
 
 local function StartAutoLoopAll()
     if not AutoLoop then return end
