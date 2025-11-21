@@ -8,6 +8,7 @@ Perbaikan & fitur (sesuai permintaan):
 - Hotkey reopen (`.`) juga bisa membuka GUI kembali tanpa perlu re-execute.
 - Database Animations disediakan sebagai kerangka — ISI SENDIRI nanti.
 - Semua UIStroke / stroke / RGB edges dipertahankan.
+- SISTEM AUTO LOAD: Animasi otomatis diterapkan saat GUI dibuka
 ]]
 
 -- ====== Services ======
@@ -465,6 +466,45 @@ local function loadSaved()
     end)
 end
 
+-- ====== AUTO LOAD SYSTEM ======
+local function autoLoadAnimationsOnOpen()
+    if not validateCharacter() then return end
+    
+    -- Cek apakah ada animasi yang sudah disimpan
+    local hasSavedAnimations = false
+    pcall(function()
+        if isfile and isfile(SAVE_FILE) then
+            local t = HttpService:JSONDecode(readfile(SAVE_FILE))
+            if typeof(t)=="table" and next(t) ~= nil then
+                hasSavedAnimations = true
+                -- Terapkan semua animasi yang disimpan
+                for k,v in pairs(t) do
+                    setAnim(k, v)
+                end
+            end
+        end
+    end)
+    
+    -- Jika tidak ada animasi yang disimpan, terapkan default animations
+    if not hasSavedAnimations then
+        -- Pilih beberapa animasi default yang bagus
+        local defaultAnimations = {
+            Idle = Animations.Idle["Bubbly"] or {"910004836", "910009958"},
+            Walk = Animations.Walk["Bubbly"] or "910034870",
+            Run = Animations.Run["Bubbly"] or "10921057244",
+            Jump = Animations.Jump["Bubbly"] or "910016857",
+            Fall = Animations.Fall["Bubbly"] or "910001910"
+        }
+        
+        -- Terapkan default animations
+        for k,v in pairs(defaultAnimations) do
+            if Animations[k] and v then
+                setAnim(k, v)
+            end
+        end
+    end
+end
+
 -- ====== GUI ======
 local RGBConfig = {
     ENABLED = true, STROKE_THICKNESS = 2, CYCLE_SPEED = 3.0,
@@ -638,6 +678,13 @@ local function openGUI()
     end
 
     populateButtons()
+
+    -- ====== AUTO LOAD TRIGGER ======
+    -- Jalankan auto load saat GUI pertama kali dibuka
+    task.spawn(function()
+        task.wait(0.5) -- Tunggu sebentar agar GUI fully loaded
+        autoLoadAnimationsOnOpen()
+    end)
 
     -- ====== RGB Edges Integration (kept) ======
     local rgbConn = nil
@@ -822,13 +869,23 @@ Player.CharacterAdded:Connect(function()
     task.defer(function()
         task.wait(1.1)
         loadSaved()
-        if not Config.GuiClosed then openGUI() end
+        if not Config.GuiClosed then 
+            openGUI()
+            -- Auto load juga saat respawn dan GUI dibuka
+            task.wait(0.5)
+            autoLoadAnimationsOnOpen()
+        end
     end)
 end)
 
 task.defer(function()
     task.wait(0.8)
-    if validateCharacter() and not Config.GuiClosed then openGUI() end
+    if validateCharacter() and not Config.GuiClosed then 
+        openGUI()
+        -- Auto load juga saat pertama kali script dijalankan
+        task.wait(0.5)
+        autoLoadAnimationsOnOpen()
+    end
 end)
 
 -- ====== Re-Open Hotkey ======
@@ -838,7 +895,12 @@ do
         if gp then return end
         if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==REOPEN_KEY then
             if Config.GuiClosed then Config.GuiClosed=false saveConfig() end
-            if not guiOpen then openGUI() end
+            if not guiOpen then 
+                openGUI()
+                -- Auto load juga saat GUI dibuka via hotkey
+                task.wait(0.5)
+                autoLoadAnimationsOnOpen()
+            end
         end
     end)
 end
