@@ -503,6 +503,22 @@ end
 
 local function GetCurrentMoveState(hum)
     if not hum then return "Grounded" end
+    
+    -- ⭐ KUNCI: Ambil velocity DULU sebelum check state
+    local char = hum.Parent
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        local hrp = char.HumanoidRootPart
+        local velocity = hrp.AssemblyLinearVelocity
+        
+        -- ⭐ Deteksi JUMP berdasarkan VELOCITY Y (seperti script kedua!)
+        if velocity.Y > JUMP_VELOCITY_THRESHOLD then
+            return "Jumping"
+        elseif velocity.Y < -5 then
+            return "Falling"
+        end
+    end
+    
+    -- Baru check state setelah velocity check
     local state = hum:GetState()
     if state == Enum.HumanoidStateType.Climbing then return "Climbing"
     elseif state == Enum.HumanoidStateType.Jumping then return "Jumping"
