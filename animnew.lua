@@ -1807,23 +1807,25 @@ end
 local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
+    -- Matikan koneksi lama jika ada
     if titlePulseConnection then
-        SafeCall(function() titlePulseConnection:Disconnect() end)
+        pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
     end
 
     if not titleLabel then return end
 
-    local hueSpeed = 0.25
-    local pulseFreq = 4.5
-    local baseSize = 14
-    local sizeAmplitude = 6
-    local strokeMin = 0.0
-    local strokeMax = 0.9
-    local strokePulseFreq = 2.2
+    -- Simpan posisi awal agar teks tidak "hanyut" saat bergetar
+    local originalPosition = titleLabel.Position
+    -- Pastikan anchor point di tengah agar getaran dan rotasi seimbang
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    -- Sesuaikan posisi karena perubahan anchor point (opsional, sesuaikan jika perlu)
+    if originalPosition.X.Scale == 0 then 
+        originalPosition = UDim2.new(0.5, 0, originalPosition.Y.Scale, originalPosition.Y.Offset)
+    end
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
-        SafeCall(function()
+        pcall(function()
             if not titleLabel or not titleLabel.Parent then
                 if titlePulseConnection then
                     titlePulseConnection:Disconnect()
@@ -1834,28 +1836,42 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
-            -- ✅ Rainbow color
-            local hue = (t * hueSpeed) % 1
-            local color = Color3.fromHSV(hue, 1, 1)
-            titleLabel.TextColor3 = color
+            -- 1. EFEK WARNA STROBO (Sangat Cepat)
+            local hue = (t * 4) % 1 -- Kecepatan 4x
+            titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
 
-            -- ✅ Pulse size
-            local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5)
-            local newSize = baseSize + (pulse * sizeAmplitude)
-            titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
+            -- 2. UKURAN MENYENTAK (Hard Pulse)
+            -- math.abs(sin) membuat gelombang tajam seperti detak jantung kencang
+            local pulse = math.abs(math.sin(t * 20)) -- Frekuensi 20 (sangat cepat)
+            local baseSize = 14
+            local sizeAmplitude = 8 -- Ukuran membesar sampai +8
+            titleLabel.TextSize = baseSize + (pulse * sizeAmplitude)
 
-            -- ✅ Stroke pulse
+            -- 3. EFEK GEMPA & ROTASI (Chaos)
+            local shakeX = math.random(-4, 4) -- Getar Horizontal
+            local shakeY = math.random(-4, 4) -- Getar Vertikal
+            local rotate = math.random(-5, 5) -- Miring acak -5 sampai 5 derajat
+
+            titleLabel.Position = UDim2.new(
+                originalPosition.X.Scale, 
+                originalPosition.X.Offset + shakeX, 
+                originalPosition.Y.Scale, 
+                originalPosition.Y.Offset + shakeY
+            )
+            titleLabel.Rotation = rotate
+
+            -- 4. STROKE BERKEDIP KONTRAS
             if titleLabel.TextStrokeTransparency ~= nil then
-                local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5)
-                local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
-                titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
-                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
+                titleLabel.TextStrokeTransparency = 0
+                -- Warna stroke kebalikan dari warna teks
+                titleLabel.TextStrokeColor3 = Color3.fromHSV((hue + 0.5) % 1, 1, 1) 
             end
         end)
     end)
 
     AddConnection(titlePulseConnection)
 end
+
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
