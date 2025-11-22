@@ -2472,22 +2472,45 @@ function UpdateRecordList()
             checkCorner.Parent = checkBox
             
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -90, 0, 18)
-            nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-            nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
-            nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-            nameBox.Font = Enum.Font.GothamBold
-            nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Left
-            nameBox.PlaceholderText = "Name"
-            nameBox.ClearTextOnFocus = false
-            nameBox.Parent = item
-            
-            local nameBoxCorner = Instance.new("UICorner")
-            nameBoxCorner.CornerRadius = UDim.new(0, 3)
-            nameBoxCorner.Parent = nameBox
+nameBox.Size = UDim2.new(1, -90, 0, 18)
+nameBox.Position = UDim2.fromOffset(28, 5)
+
+-- ✅ BACKGROUND DARK
+nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+
+-- ✅ BORDER SETUP
+nameBox.BorderSizePixel = 2  -- Ketebalan border
+
+-- ✅ TEXT SETUP
+nameBox.Text = checkpointNames[name] or "Checkpoint1"
+nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+nameBox.TextStrokeTransparency = 0.6
+nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+nameBox.Font = Enum.Font.GothamBold
+nameBox.TextSize = 9
+nameBox.TextXAlignment = Enum.TextXAlignment.Left
+nameBox.PlaceholderText = "Name"
+nameBox.ClearTextOnFocus = false
+nameBox.Parent = item
+
+local nameBoxCorner = Instance.new("UICorner")
+nameBoxCorner.CornerRadius = UDim.new(0, 3)
+nameBoxCorner.Parent = nameBox
+
+-- ✅ ANIMATED RAINBOW BORDER (FAST!)
+task.spawn(function()
+    local hue = (index - 1) / math.max(#RecordingOrder, 1)  -- Offset per item
+    while nameBox and nameBox.Parent do
+        -- ✅ Pergantian warna cepat! (adjust 0.02 untuk lebih cepat/lambat)
+        hue = (hue + 0.02) % 1  -- 0.02 = cepat, 0.01 = medium, 0.005 = lambat
+        
+        -- ✅ Convert HSV to RGB untuk rainbow effect
+        nameBox.BorderColor3 = Color3.fromHSV(hue, 1, 1)
+        
+        -- ✅ Wait time - makin kecil makin smooth & cepat!
+        task.wait(0.03)  -- 0.03 = 30 FPS, 0.016 = 60 FPS (very smooth!)
+    end
+end)
             
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -90, 0, 14)
