@@ -1906,7 +1906,7 @@ local function StartTitlePulse(titleLabel)
     titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
     titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     titleLabel.Size = UDim2.new(1, -40, 1, 0)
-    titleLabel.TextSize = 14  -- ✅ SIZE TETAP (NO PULSE!)
+    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
     titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
     -- ✅ BUAT GRADIENT
@@ -1923,7 +1923,7 @@ local function StartTitlePulse(titleLabel)
             local t = tick()
 
             -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
-            local hue1 = (t * 0.5) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
+            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
             local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
 
             gradient.Color = ColorSequence.new{
@@ -2464,7 +2464,7 @@ function UpdateRecordList()
             
             -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -105, 0, 18)  -- ✅ FIXED: -95 instead of -90
+            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
             nameBox.BorderSizePixel = 0
@@ -2503,7 +2503,7 @@ function UpdateRecordList()
             -- ✅ INFO LABEL (FIXED POSITION!)
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
-            infoLabel.Position = UDim2.fromOffset(28, 15)
+            infoLabel.Position = UDim2.fromOffset(28, 35)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
