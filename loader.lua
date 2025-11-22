@@ -2436,6 +2436,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
+            -- ✅ ITEM FRAME
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -2446,6 +2447,7 @@ function UpdateRecordList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
@@ -2460,19 +2462,19 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
-            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED!)
+            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -90, 0, 18)
+            nameBox.Size = UDim2.new(1, -95, 0, 18)  -- ✅ FIXED: -95 instead of -90
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            nameBox.BorderSizePixel = 0  -- ✅ Matikan border native
+            nameBox.BorderSizePixel = 0
             nameBox.Text = checkpointNames[name] or "Checkpoint1"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.TextStrokeTransparency = 0.6
             nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Left
+            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
             nameBox.Parent = item
@@ -2481,14 +2483,14 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
-            -- ✅ RAINBOW BORDER PAKAI UIStroke (INI YANG WORK!)
+            -- ✅ RAINBOW BORDER (THICKNESS = 1)
             local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 2
-            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)  -- Default merah
+            nameBoxStroke.Thickness = 1  -- ✅ FIXED: 1 instead of 2
+            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
             nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             nameBoxStroke.Parent = nameBox
             
-            -- ✅ ANIMATED RAINBOW!
+            -- ✅ ANIMATED RAINBOW
             task.spawn(function()
                 local hue = (index - 1) / math.max(#RecordingOrder, 1)
                 while nameBoxStroke and nameBoxStroke.Parent do
@@ -2498,8 +2500,9 @@ function UpdateRecordList()
                 end
             end)
             
+            -- ✅ INFO LABEL (FIXED POSITION!)
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -90, 0, 14)
+            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
             infoLabel.Position = UDim2.fromOffset(28, 25)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
@@ -2514,6 +2517,7 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
+            -- ✅ PLAY BUTTON
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(38, 20)
             playBtn.Position = UDim2.new(1, -79, 0, 5)
@@ -2528,6 +2532,7 @@ function UpdateRecordList()
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
+            -- ✅ DELETE BUTTON
             local delBtn = Instance.new("TextButton")
             delBtn.Size = UDim2.fromOffset(38, 20)
             delBtn.Position = UDim2.new(1, -38, 0, 5)
@@ -2542,6 +2547,7 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
+            -- ✅ NAIK BUTTON
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(38, 20)
             upBtn.Position = UDim2.new(1, -79, 0, 30)
@@ -2556,6 +2562,7 @@ function UpdateRecordList()
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
+            -- ✅ TURUN BUTTON
             local downBtn = Instance.new("TextButton")
             downBtn.Size = UDim2.fromOffset(38, 20)
             downBtn.Position = UDim2.new(1, -38, 0, 30)
@@ -2570,6 +2577,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ✅ EVENT HANDLERS
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
