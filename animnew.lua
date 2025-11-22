@@ -1804,6 +1804,7 @@ local function StartAutoLoopAll()
 end
 
 -- ========= TITLE PULSE ANIMATION =========
+local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
     if titlePulseConnection then
@@ -1833,14 +1834,17 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
+            -- ✅ Rainbow color
             local hue = (t * hueSpeed) % 1
             local color = Color3.fromHSV(hue, 1, 1)
             titleLabel.TextColor3 = color
 
+            -- ✅ Pulse size
             local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5)
             local newSize = baseSize + (pulse * sizeAmplitude)
             titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
 
+            -- ✅ Stroke pulse
             if titleLabel.TextStrokeTransparency ~= nil then
                 local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5)
                 local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
@@ -3175,6 +3179,13 @@ local uiSuccess, uiError = pcall(function()
                 if IsPlaying or AutoLoop then StopPlayback() end
                 if ShiftLockEnabled then DisableVisibleShiftLock() end
                 if InfiniteJump then DisableInfiniteJump() end
+                
+                 -- ✅ Cleanup title pulse
+        if titlePulseConnection then
+            titlePulseConnection:Disconnect()
+            titlePulseConnection = nil
+        end
+        
                 CleanupConnections()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
