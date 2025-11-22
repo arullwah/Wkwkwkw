@@ -34,7 +34,7 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.15
+local TIMELINE_STEP_SECONDS = 0.05
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -268,16 +268,28 @@ local function CompleteCharacterReset(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return end
+    
     task.spawn(function()
         SafeCall(function()
+            -- ✅ CEK STATE DULU!
+            local currentState = humanoid:GetState()
+            
             humanoid.PlatformStand = false
-            humanoid.AutoRotate = true
             humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            -- ✅ Reset velocity KECUALI kalau Climbing!
+            if currentState ~= Enum.HumanoidStateType.Climbing then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = true
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            else
+                -- ✅ Biarkan Climbing tetap!
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = false  -- Penting untuk Climbing!
+            end
         end)
     end)
 end
@@ -512,10 +524,14 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
+            -- ✅ CEK STATE SEKARANG
+            local currentState = humanoid:GetState()
+            local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+            
             -- ✅ RESPECT ShiftLock state
             if ShiftLockEnabled then
                 humanoid.AutoRotate = false
-            else
+            elseif not isClimbing then  -- ✅ Jangan auto-rotate saat climbing!
                 humanoid.AutoRotate = true
             end
             
@@ -524,17 +540,9 @@ local function RestoreFullUserControl()
             humanoid.PlatformStand = false
             humanoid.Sit = false
             
-            -- ✅ PRESERVE state apapun yang sedang aktif!
-            local currentState = humanoid:GetState()
-            local preserveStates = {
-                [Enum.HumanoidStateType.Climbing] = true,
-                [Enum.HumanoidStateType.Swimming] = true,
-                [Enum.HumanoidStateType.Jumping] = true,
-                [Enum.HumanoidStateType.Freefall] = true
-            }
-            
-            -- ✅ Hanya restore ke Running kalau state TIDAK perlu di-preserve
-            if not preserveStates[currentState] then
+            -- ✅ Hanya restore ke Running kalau BUKAN sedang Climbing/Swimming
+            if currentState ~= Enum.HumanoidStateType.Climbing and 
+               currentState ~= Enum.HumanoidStateType.Swimming then
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end
             
@@ -550,13 +558,16 @@ local function RestoreFullUserControl()
         end
         
         if hrp then
-            -- ✅ Reset velocity kecuali kalau sedang Climbing
-            if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Climbing then
+            -- ✅ Cek state sebelum reset velocity!
+            local currentState = humanoid and humanoid:GetState()
+            
+            if currentState ~= Enum.HumanoidStateType.Climbing then
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             else
-                -- Biarkan climbing velocity tetap
+                -- ✅ Biarkan climbing velocity (PENTING!)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                -- LinearVelocity JANGAN di-reset untuk climbing!
             end
         end
     end)
@@ -1478,10 +1489,26 @@ local function StopPlayback()
         loopConnection = nil
     end
     
+    -- ✅ CEK STATE SEBELUM RESTORE!
+    local char = player.Character
+    local isClimbing = false
+    local isSwimming = false
+    
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local currentState = hum:GetState()
+            isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+            isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+        end
+    end
+    
     RestoreFullUserControl()
     
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    -- ✅ JANGAN reset kalau sedang Climbing/Swimming!
+    if char and not isClimbing and not isSwimming then
+        CompleteCharacterReset(char)
+    end
     
     PlaySound("Toggle")
     if PlayBtnControl then
