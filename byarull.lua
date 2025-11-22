@@ -1902,13 +1902,16 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- [[ PERBAIKAN POSISI ]]
-    -- Kita paksa TextLabel untuk berpusat tepat di tengah Header
+    -- ✅ SET POSISI TETAP (NO SHAKE!)
     titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
-    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Posisi tepat di tengah
-    titleLabel.Size = UDim2.new(1, -40, 1, 0) -- Beri jarak kiri-kanan biar gak nabrak tombol X
+    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
+    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
-    local baseSize = 14 -- Ukuran font normal
+    -- ✅ BUAT GRADIENT
+    local gradient = Instance.new("UIGradient")
+    gradient.Parent = titleLabel
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1919,32 +1922,18 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
-            -- 1. WARNA STROBO (Sangat Cepat)
-            local hue = (t * 8) % 1
-            titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
+            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
+            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
 
-            -- 2. DENYUT JANTUNG (Menyentak tapi tidak meledak)
-            local pulse = math.abs(math.sin(t * 18)) -- Kecepatan denyut
-            -- Batasi pembesaran font max +5 pixel agar tidak keluar header
-            titleLabel.TextSize = baseSize + (pulse * 5) 
+            gradient.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
+            }
 
-            -- 3. GETARAN (SHAKE) - DIKONTROL
-            -- Kita hanya menggeser Offset (pixel), bukan Scale (persen)
-            local shakeX = math.random(-2, 2) -- Getar 2 pixel kiri-kanan
-            local shakeY = math.random(-2, 2) -- Getar 2 pixel atas-bawah
-            
-            -- Kunci posisi di tengah (0.5, 0.5) lalu tambah getaran
-            titleLabel.Position = UDim2.new(0.5, shakeX, 0.5, shakeY)
-
-            -- 4. MIRING-MIRING (ROTASI)
-            titleLabel.Rotation = math.random(-3, 3) -- Miring max 3 derajat
-
-            -- 5. STROKE (Garis Tepi) BERKEDIP
-            if titleLabel.TextStrokeTransparency ~= nil then
-                titleLabel.TextStrokeTransparency = 0
-                -- Warna stroke invers (kebalikan) dari warna teks biar sakit mata
-                titleLabel.TextStrokeColor3 = Color3.new(1 - titleLabel.TextColor3.R, 1 - titleLabel.TextColor3.G, 1 - titleLabel.TextColor3.B)
-            end
+            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
+            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
         end)
     end)
 
@@ -2447,6 +2436,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
+            -- ✅ ITEM FRAME
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -2457,6 +2447,7 @@ function UpdateRecordList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
@@ -2471,16 +2462,19 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
+            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -90, 0, 18)
+            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
             nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
             nameBox.BorderSizePixel = 0
             nameBox.Text = checkpointNames[name] or "Checkpoint1"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameBox.TextStrokeTransparency = 0.6
+            nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Left
+            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
             nameBox.Parent = item
@@ -2489,9 +2483,27 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
+            -- ✅ RAINBOW BORDER (THICKNESS = 1)
+            local nameBoxStroke = Instance.new("UIStroke")
+            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
+            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
+            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            nameBoxStroke.Parent = nameBox
+            
+            -- ✅ ANIMATED RAINBOW
+            task.spawn(function()
+                local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                while nameBoxStroke and nameBoxStroke.Parent do
+                    hue = (hue + 0.05) % 1
+                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
+                    task.wait(0.03)
+                end
+            end)
+            
+            -- ✅ INFO LABEL (FIXED POSITION!)
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -90, 0, 14)
-            infoLabel.Position = UDim2.fromOffset(28, 25)
+            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
+            infoLabel.Position = UDim2.fromOffset(28, 35)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
@@ -2505,6 +2517,7 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
+            -- ✅ PLAY BUTTON
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(38, 20)
             playBtn.Position = UDim2.new(1, -79, 0, 5)
@@ -2519,6 +2532,7 @@ function UpdateRecordList()
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
+            -- ✅ DELETE BUTTON
             local delBtn = Instance.new("TextButton")
             delBtn.Size = UDim2.fromOffset(38, 20)
             delBtn.Position = UDim2.new(1, -38, 0, 5)
@@ -2533,6 +2547,7 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
+            -- ✅ NAIK BUTTON
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(38, 20)
             upBtn.Position = UDim2.new(1, -79, 0, 30)
@@ -2547,6 +2562,7 @@ function UpdateRecordList()
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
+            -- ✅ TURUN BUTTON
             local downBtn = Instance.new("TextButton")
             downBtn.Size = UDim2.fromOffset(38, 20)
             downBtn.Position = UDim2.new(1, -38, 0, 30)
@@ -2561,6 +2577,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ✅ EVENT HANDLERS
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
