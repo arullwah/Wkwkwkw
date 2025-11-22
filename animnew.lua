@@ -1,4 +1,5 @@
 
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -12,7 +13,7 @@ wait(1)
 local function SafeCall(func, ...)
     local success, err = pcall(func, ...)
     if not success then
-        warn("⚠️ Error:", err)
+        warn("⚠️ Error at:", debug.traceback(), "\nDetails:", err)
     end
     return success
 end
@@ -28,29 +29,27 @@ if not hasFileSystem then
 end
 
 -- ========= OPTIMIZED CONFIGURATION =========
-local RECORDING_FPS = 90
+local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.012
+local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
 local JUMP_VELOCITY_THRESHOLD = 10
-local FALL_VELOCITY_THRESHOLD = -5
-local JUMP_FALL_COOLDOWN = 0.08
-local GROUNDED_COOLDOWN = 0.0
-local CLIMBING_COOLDOWN = 0.05
-local TRANSITION_FRAMES = 8
+local STATE_CHANGE_COOLDOWN = 0.1
+local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 90
-local LOOP_TRANSITION_DELAY = 0.12
-local AUTO_LOOP_RETRY_DELAY = 0.5
-local TIME_BYPASS_THRESHOLD = 0.15
-local LAG_DETECTION_THRESHOLD = 0.2
-local MAX_LAG_FRAMES_TO_SKIP = 5
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
+local LOOP_TRANSITION_DELAY = 0.08
+local AUTO_LOOP_RETRY_DELAY = 0.3
+local TIME_BYPASS_THRESHOLD = 0.05
+local LAG_DETECTION_THRESHOLD = 0.15
+local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
-local INTERPOLATION_LOOKAHEAD = 3
+local USE_VELOCITY_PLAYBACK = false
+local INTERPOLATION_LOOKAHEAD = 2
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -90,7 +89,6 @@ local IsForwarding = false
 local IsTimelineMode = false
 local CurrentSpeed = 1.0
 local CurrentWalkSpeed = 16
-local SavedWalkSpeed = 16
 local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
@@ -156,7 +154,7 @@ local ShiftLockVisualIndicator = nil
 local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
-local WalkSpeedBeforePlayback = 16
+local ShiftLockSavedBeforePlayback = false
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -273,8 +271,8 @@ local function CompleteCharacterReset(char)
     task.spawn(function()
         SafeCall(function()
             humanoid.PlatformStand = false
-            humanoid.AutoRotate = not ShiftLockEnabled
-            humanoid.WalkSpeed = SavedWalkSpeed
+            humanoid.AutoRotate = true
+            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -284,7 +282,7 @@ local function CompleteCharacterReset(char)
     end)
 end
 
--- ========= SHIFTLOCK SYSTEM (IMPROVED) =========
+-- ========= SHIFTLOCK SYSTEM =========
 
 local function CreateShiftLockIndicator()
     SafeCall(function()
@@ -323,6 +321,7 @@ local function RemoveShiftLockIndicator()
     end)
 end
 
+-- ⭐ FIXED: ShiftLock yang PERSISTENT selama playback
 local function ApplyVisualShiftLock()
     if not ShiftLockEnabled then return end
     if not player.Character then return end
@@ -335,7 +334,7 @@ local function ApplyVisualShiftLock()
         
         if not humanoid or not hrp or not camera then return end
         
-        -- ShiftLock berfungsi di semua mode
+        -- ✅ APPLY SHIFT LOCK bahkan saat playback
         humanoid.AutoRotate = false
         
         local cameraCFrame = camera.CFrame
@@ -428,6 +427,9 @@ local function ToggleVisibleShiftLock()
     end
 end
 
+-- ⭐ REMOVED: SaveShiftLockState & RestoreShiftLockState
+-- ShiftLock sekarang PERSISTENT, tidak perlu save/restore
+
 -- ========= INFINITE JUMP =========
 
 local function EnableInfiniteJump()
@@ -493,8 +495,8 @@ local function RestoreHumanoidState()
         if not char then return end
         local humanoid = char:FindFirstChildOfClass("Humanoid")
         if humanoid then
-            humanoid.AutoRotate = ShiftLockEnabled and false or prePauseAutoRotate
-            humanoid.WalkSpeed = SavedWalkSpeed
+            humanoid.AutoRotate = prePauseAutoRotate
+            humanoid.WalkSpeed = prePauseWalkSpeed
             humanoid.JumpPower = prePauseJumpPower
             humanoid.PlatformStand = prePausePlatformStand
             humanoid.Sit = prePauseSit
@@ -510,8 +512,14 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
-            humanoid.AutoRotate = not ShiftLockEnabled
-            humanoid.WalkSpeed = SavedWalkSpeed
+            -- ✅ RESPECT ShiftLock state
+            if ShiftLockEnabled then
+                humanoid.AutoRotate = false
+            else
+                humanoid.AutoRotate = true
+            end
+            
+            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
@@ -546,71 +554,16 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
+-- ========= SMOOTH VELOCITY FUNCTION =========
 local function GetFrameVelocity(frame)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    local vel = Vector3.new(
+    -- ✅ LANGSUNG APPLY TANPA FILTERING
+    return Vector3.new(
         frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
+        frame.Velocity[2] * VELOCITY_Y_SCALE, 
         frame.Velocity[3] * VELOCITY_SCALE
     )
-    
-    return vel
-end
-
--- ========= HYBRID STATE MANAGEMENT (NEW!) =========
-
-local function ProcessHumanoidStateHybrid(hum, frame, lastState, lastStateTime)
-    if not hum or not frame then return lastState, lastStateTime end
-    
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    -- Smart detection: Jump/Fall dengan velocity check
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
-    
-    -- Override state berdasarkan velocity
-    if isJumpingByVelocity and moveState ~= "Jumping" then
-        moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" then
-        moveState = "Falling"
-    end
-    
-    -- Hybrid cooldown system
-    local cooldownRequired = 0
-    
-    if moveState == "Jumping" or moveState == "Falling" then
-        cooldownRequired = JUMP_FALL_COOLDOWN
-    elseif moveState == "Climbing" or moveState == "Swimming" then
-        cooldownRequired = CLIMBING_COOLDOWN
-    else
-        cooldownRequired = GROUNDED_COOLDOWN  -- NO COOLDOWN for grounded!
-    end
-    
-    -- Check if state change is allowed
-    if moveState ~= lastState and (currentTime - lastStateTime) >= cooldownRequired then
-        -- Apply state change
-        if moveState == "Jumping" then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-        elseif moveState == "Falling" then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-        elseif moveState == "Climbing" then
-            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-            hum.PlatformStand = false
-            hum.AutoRotate = false
-        elseif moveState == "Swimming" then
-            hum:ChangeState(Enum.HumanoidStateType.Swimming)
-        else
-            -- Grounded: INSTANT change, no delay!
-            hum:ChangeState(Enum.HumanoidStateType.Running)
-        end
-        
-        return moveState, currentTime
-    end
-    
-    return lastState, lastStateTime
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -1142,7 +1095,55 @@ local function CheckIfPathUsed(recordingName)
     end
 end
 
--- ========= PLAYBACK FUNCTIONS (IMPROVED WITH HYBRID STATE) =========
+-- ========= PLAYBACK FUNCTIONS =========
+
+-- ⭐ HYBRID: Direct Frame Application (NO State Management!)
+local function ApplyFrameDirect(frame)
+    SafeCall(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if not hrp or not hum then return end
+        
+        -- ✅ Apply CFrame
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- ✅ Apply PURE velocity (NO filtering!)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        
+        if hum then
+            -- ✅ Set WalkSpeed
+            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            
+            -- ✅ RESPECT ShiftLock state
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false -- Still false during playback
+            end
+            
+            -- ✅ Direct state application (NO cooldown!)
+            local moveState = frame.MoveState
+            
+            if moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
+    end)
+end
 
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
@@ -1159,12 +1160,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
-    
-    -- Save WalkSpeed sebelum playback
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        WalkSpeedBeforePlayback = humanoid.WalkSpeed
-    end
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1190,6 +1185,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     SaveHumanoidState()
     
+    -- ✅ ShiftLock TIDAK dimatikan saat playback!
+    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
+    
     PlaySound("Toggle")
     
     if PlayBtnControl then
@@ -1202,6 +1200,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             if not IsPlaying then
                 playbackConnection:Disconnect()
                 RestoreFullUserControl()
+                
+                -- ✅ ShiftLock tetap sesuai state user
+                -- TIDAK restore, karena sudah persistent
+                
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1292,20 +1294,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                -- Apply frame dengan hybrid state management
-                hrp.CFrame = GetFrameCFrame(frame)
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                hrp.AssemblyAngularVelocity = Vector3.zero
-                
-                if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    -- Gunakan hybrid state management
-                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidStateHybrid(
-                        hum, frame, lastPlaybackState, lastStateChangeTime
-                    )
-                end
+                -- ⭐ HYBRID: Apply frame directly
+                ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
             end
@@ -1472,11 +1462,7 @@ local function StartAutoLoopAll()
         end
     end
     
-    -- Save WalkSpeed sebelum auto-loop
-    local char = player.Character
-    if char and char:FindFirstChildOfClass("Humanoid") then
-        WalkSpeedBeforePlayback = char.Humanoid.WalkSpeed
-    end
+    -- ✅ ShiftLock TIDAK dimatikan saat auto loop!
     
     PlaySound("Toggle")
     
@@ -1572,7 +1558,11 @@ local function StartAutoLoopAll()
                     
                     if hum then
                         hum.PlatformStand = false
-                        hum.AutoRotate = false
+                        if ShiftLockEnabled then
+                            hum.AutoRotate = false
+                        else
+                            hum.AutoRotate = false
+                        end
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
                     
@@ -1622,7 +1612,11 @@ local function StartAutoLoopAll()
                                 if char and char:FindFirstChild("HumanoidRootPart") then
                                     local hum = char:FindFirstChildOfClass("Humanoid")
                                     if hum then
-                                        hum.AutoRotate = false
+                                        if ShiftLockEnabled then
+                                            hum.AutoRotate = false
+                                        else
+                                            hum.AutoRotate = false
+                                        end
                                     end
                                     char.HumanoidRootPart.CFrame = GetFrameCFrame(recordingToPlay[1])
                                     task.wait(0.1)
@@ -1706,20 +1700,8 @@ local function StartAutoLoopAll()
                         if not playbackCompleted then
                             local frame = recordingToPlay[currentFrame]
                             if frame then
-                                -- Apply frame dengan hybrid state management
-                                hrp.CFrame = GetFrameCFrame(frame)
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                                hrp.AssemblyAngularVelocity = Vector3.zero
-                                
-                                if hum then
-                                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                    hum.AutoRotate = false
-                                    
-                                    -- Gunakan hybrid state management
-                                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidStateHybrid(
-                                        hum, frame, lastPlaybackState, lastStateChangeTime
-                                    )
-                                end
+                                -- ⭐ HYBRID: Apply frame directly
+                                ApplyFrameDirect(frame)
                             end
                         end
                     end
@@ -1874,7 +1856,11 @@ local function ApplyFrameToCharacter(frame)
             
             if hum then
                 hum.WalkSpeed = 0
-                hum.AutoRotate = not ShiftLockEnabled
+                if ShiftLockEnabled then
+                    hum.AutoRotate = false
+                else
+                    hum.AutoRotate = false
+                end
                 
                 local moveState = frame.MoveState
                 if moveState == "Climbing" then
@@ -2110,7 +2096,11 @@ local function ResumeStudioRecording()
             
             if hum then
                 hum.WalkSpeed = lastWalkSpeed
-                hum.AutoRotate = not ShiftLockEnabled
+                if ShiftLockEnabled then
+                    hum.AutoRotate = false
+                else
+                    hum.AutoRotate = true
+                end
             end
             
             UpdateStudioUI()
@@ -2183,32 +2173,40 @@ local function SaveToObfuscatedJSON()
     end
     
     local success, err = pcall(function()
-        local recordingsToObfuscate = {}
-        local recordingOrder = {}
-        local checkpointNamesData = {}
+        local saveData = {
+            Version = "3.3",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
         
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
                 local frames = RecordedMovements[name]
                 if frames then
-                    recordingsToObfuscate[name] = frames
-                    table.insert(recordingOrder, name)
-                    checkpointNamesData[name] = checkpointNames[name]
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
                 end
             end
         end
         
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
         
-        local saveData = {
-            Version = "3.3",
-            Obfuscated = true,
-            Data = obfuscatedData,
-            RecordingOrder = recordingOrder,
-            CheckpointNames = checkpointNamesData
-        }
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
         
         local jsonString = HttpService:JSONEncode(saveData)
+        
         writefile(filename, jsonString)
         PlaySound("Success")
     end)
@@ -2237,23 +2235,24 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        if saveData.Obfuscated and saveData.Data then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.Data)
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
-            for recordingName, frames in pairs(deobfuscatedData) do
-                RecordedMovements[recordingName] = frames
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
                 
-                if saveData.CheckpointNames and saveData.CheckpointNames[recordingName] then
-                    checkpointNames[recordingName] = saveData.CheckpointNames[recordingName]
+                if frames then
+                    RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
-                
-                if not table.find(RecordingOrder, recordingName) then
-                    table.insert(RecordingOrder, recordingName)
-                end
-            end
-            
-            if saveData.RecordingOrder then
-                RecordingOrder = saveData.RecordingOrder
             end
         end
         
@@ -2914,7 +2913,7 @@ local uiSuccess, uiError = pcall(function()
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+        if walkSpeed < 8 or walkSpeed > 1000 then return false, "WalkSpeed must be between 8 and 1000" end
         return true, walkSpeed
     end
 
@@ -2922,7 +2921,6 @@ local uiSuccess, uiError = pcall(function()
         local success, result = ValidateWalkSpeed(WalkSpeedBox.Text)
         if success then
             CurrentWalkSpeed = result
-            SavedWalkSpeed = result
             WalkSpeedBox.Text = tostring(result)
             SafeCall(function()
                 local char = player.Character
@@ -3263,7 +3261,6 @@ end)
 player.CharacterAdded:Connect(function(char)
     task.wait(0.5)
     SafeCall(function()
-        -- Restore ShiftLock jika sebelumnya enabled
         if ShiftLockEnabled then
             task.wait(0.5)
             CreateShiftLockIndicator()
@@ -3278,10 +3275,9 @@ player.CharacterAdded:Connect(function(char)
             end
         end
         
-        -- Restore WalkSpeed
         local humanoid = char:WaitForChild("Humanoid", 2)
         if humanoid then
-            humanoid.WalkSpeed = SavedWalkSpeed
+            humanoid.WalkSpeed = CurrentWalkSpeed
         end
     end)
 end)
@@ -3312,7 +3308,6 @@ UpdateRecordList()
 UpdatePlayButtonStatus()
 StartTitlePulse(Title)
 
--- Update play button status setiap 2 detik
 task.spawn(function()
     while task.wait(2) do
         if not IsPlaying and not IsAutoLoopPlaying then
@@ -3321,7 +3316,6 @@ task.spawn(function()
     end
 end)
 
--- Auto-load file jika ada
 if hasFileSystem then
     task.spawn(function()
         task.wait(2)
@@ -3335,13 +3329,16 @@ if hasFileSystem then
     end)
 end
 
--- Success sound
 task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
 
-print("✅ ByaruL Recorder v3.3 - HYBRID STATE MANAGEMENT")
-print("✅ ShiftLock berfungsi di semua mode")
-print("✅ WalkSpeed restoration implemented")
-print("✅ Smooth di semua kondisi (jump, fall, grounded)")
+print("✅ ByaruL Recorder v3.3 HYBRID - Loaded Successfully!")
+print("⭐ Features:")
+print("   - Pure Velocity Playback (NO filtering)")
+print("   - Direct State Application (NO cooldown)")
+print("   - Persistent ShiftLock System")
+print("   - Perfect Jump/Fall Detection")
+print("   - Smooth on Uneven Terrain")
+print("   - All Original Features Preserved")
