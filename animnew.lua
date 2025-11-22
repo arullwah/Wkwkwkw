@@ -2058,33 +2058,49 @@ local function StartStudioRecording()
                         local currentPos = hrp.Position
                         local currentVelocity = hrp.AssemblyLinearVelocity
                         
-                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                            lastStudioRecordTime = now
-                            return
-                        end
-                        
-                        local cf = hrp.CFrame
-                        local currentWalkSpeed = hum and hum.WalkSpeed or 16
-                        
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                            MoveState = GetCurrentMoveState(hum),
-                            WalkSpeed = currentWalkSpeed,
-                            Timestamp = now - StudioCurrentRecording.StartTime
-                        })
-                        
-                        lastStudioRecordTime = now
-                        lastStudioRecordPos = currentPos
-                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                        TimelinePosition = CurrentTimelineFrame
-                        
-                        UpdateStudioUI()
-                    end)
-                end)
-            end)
+                        if lastStudioRecordPos then
+                local posDiff = (currentPos - lastStudioRecordPos).Magnitude
+                local velMagnitude = currentVelocity.Magnitude
+                
+                -- Skip frame HANYA kalau:
+                -- 1. Posisi tidak berubah (<0.008 studs)
+                -- 2. Velocity sangat kecil (<0.5 studs/s)
+                -- 3. Humanoid tidak jumping/falling
+                local currentState = GetCurrentMoveState(hum)
+                local isMoving = posDiff >= MIN_DISTANCE_THRESHOLD or 
+                                velMagnitude > 0.5 or
+                                currentState == "Jumping" or 
+                                currentState == "Falling"
+                
+                if not isMoving then
+                    -- ✅ Tetap update timestamp (penting untuk timing!)
+                    lastStudioRecordTime = now
+                    return
+                end
+            end
+            
+            local cf = hrp.CFrame
+            local currentWalkSpeed = hum and hum.WalkSpeed or 16
+            
+            table.insert(StudioCurrentRecording.Frames, {
+                Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                MoveState = GetCurrentMoveState(hum),
+                WalkSpeed = currentWalkSpeed,
+                Timestamp = now - StudioCurrentRecording.StartTime
+            })
+            
+            lastStudioRecordTime = now
+            lastStudioRecordPos = currentPos
+            CurrentTimelineFrame = #StudioCurrentRecording.Frames
+            TimelinePosition = CurrentTimelineFrame
+            
+            UpdateStudioUI()
+        end)
+    end)
+end)
             AddConnection(recordConnection)
         end)
     end)
