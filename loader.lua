@@ -34,7 +34,7 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.15
+local TIMELINE_STEP_SECONDS = 0.05
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -120,6 +120,8 @@ local prePauseSit = false
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
 local IsAutoLoopPlaying = false
+local LastKnownWalkSpeed = 16  
+local WalkSpeedBeforePlayback = 16
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
@@ -268,16 +270,42 @@ local function CompleteCharacterReset(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return end
+    
     task.spawn(function()
         SafeCall(function()
+            local currentState = humanoid:GetState()
+            
             humanoid.PlatformStand = false
-            humanoid.AutoRotate = true
-            humanoid.WalkSpeed = CurrentWalkSpeed
+            
+            // ✅ RESTORE WALKSPEED YANG BENAR!
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed
+            end
+            
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            if currentState == Enum.HumanoidStateType.Climbing then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = false
+                
+            elseif currentState == Enum.HumanoidStateType.Swimming then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            elseif currentState == Enum.HumanoidStateType.Jumping or
+                   currentState == Enum.HumanoidStateType.Freefall then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            else
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = true
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
         end)
     end)
 end
@@ -504,6 +532,7 @@ local function RestoreHumanoidState()
     end)
 end
 
+// ✅ UPDATE RestoreFullUserControl() - Line 892
 local function RestoreFullUserControl()
     SafeCall(function()
         local char = player.Character
@@ -512,18 +541,40 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
-            -- ✅ RESPECT ShiftLock state
+            local currentState = humanoid:GetState()
+            
             if ShiftLockEnabled then
+                humanoid.AutoRotate = false
+            elseif currentState == Enum.HumanoidStateType.Climbing then
                 humanoid.AutoRotate = false
             else
                 humanoid.AutoRotate = true
             end
             
-            humanoid.WalkSpeed = CurrentWalkSpeed
+            // ✅ RESTORE WALKSPEED YANG BENAR!
+            // Priority:
+            // 1. LastKnownWalkSpeed (dari frame terakhir replay)
+            // 2. WalkSpeedBeforePlayback (sebelum replay dimulai)
+            // 3. CurrentWalkSpeed (dari TextBox, fallback)
+            
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed  // ✅ Pakai yang terakhir!
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback  // ✅ Backup
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed  // ✅ Fallback
+            end
+            
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            if currentState ~= Enum.HumanoidStateType.Climbing and 
+               currentState ~= Enum.HumanoidStateType.Swimming and
+               currentState ~= Enum.HumanoidStateType.Jumping and
+               currentState ~= Enum.HumanoidStateType.Freefall then
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
             
             if ShiftLockEnabled then
                 humanoid.CameraOffset = ShiftLockCameraOffset
@@ -537,8 +588,16 @@ local function RestoreFullUserControl()
         end
         
         if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            local currentState = humanoid and humanoid:GetState()
+            
+            if currentState == Enum.HumanoidStateType.Running or
+               currentState == Enum.HumanoidStateType.RunningNoPhysics or
+               currentState == Enum.HumanoidStateType.Landed then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            else
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
         end
     end)
 end
@@ -554,19 +613,22 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ⭐ HYBRID: Pure Velocity (NO FILTERING!)
-local function GetFrameVelocity(frame)
+-- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
+local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    -- ✅ DIRECT velocity tanpa threshold filtering
-    return Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE,
-        frame.Velocity[3] * VELOCITY_SCALE
-    )
+    local velocityX = frame.Velocity[1] * VELOCITY_SCALE
+    local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
+    local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
+    
+    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
+    if moveState == "Grounded" or moveState == nil then
+        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
+    end
+    
+    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
+    return Vector3.new(velocityX, velocityY, velocityZ)
 end
-
--- ⭐ REMOVED: ProcessHumanoidState function (tidak diperlukan lagi)
 
 -- ========= PATH VISUALIZATION =========
 
@@ -1099,7 +1161,6 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- ⭐ HYBRID: Direct Frame Application (NO State Management!)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1110,38 +1171,69 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame
+        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply PURE velocity (NO filtering!)
-        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-        if hum then
-            -- ✅ Set WalkSpeed
-            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+       if hum then
+            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.WalkSpeed = frameWalkSpeed
             
-            -- ✅ RESPECT ShiftLock state
+            // ✅ TRACK WALKSPEED TERAKHIR!
+            LastKnownWalkSpeed = frameWalkSpeed
+            
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
-                hum.AutoRotate = false -- Still false during playback
+                hum.AutoRotate = false
             end
             
-            -- ✅ Direct state application (NO cooldown!)
+            -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
             local moveState = frame.MoveState
+            local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+            local currentTime = tick()
             
+            -- ✅ DETEKSI JUMP/FALL berdasarkan VELOCITY (PRESISI!)
+            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+            local isFallingByVelocity = frameVelocity.Y < -5
+            
+            -- ✅ Override HANYA untuk Jump/Fall
+            if isJumpingByVelocity and moveState ~= "Jumping" then
+                moveState = "Jumping"
+            elseif isFallingByVelocity and moveState ~= "Falling" then
+                moveState = "Falling"
+            end
+            
+            -- ✅ Apply state: Jump/Fall LANGSUNG, sisanya pakai cooldown
             if moveState == "Jumping" then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                if lastPlaybackState ~= "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    lastPlaybackState = "Jumping"
+                    lastStateChangeTime = currentTime
+                end
             elseif moveState == "Falling" then
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            elseif moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                if lastPlaybackState ~= "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    lastPlaybackState = "Falling"
+                    lastStateChangeTime = currentTime
+                end
             else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
+                -- ✅ Untuk Climbing/Swimming/Running: TETAP SMOOTH dengan cooldown!
+                if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                    lastPlaybackState = moveState
+                    lastStateChangeTime = currentTime
+                end
             end
         end
     end)
@@ -1154,6 +1246,12 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         PlaySound("Error")
         return
+    end
+    
+    // ✅ SIMPAN WALKSPEED SEBELUM PLAYBACK!
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        WalkSpeedBeforePlayback = hum.WalkSpeed  // ✅ Backup!
     end
 
     IsPlaying = true
@@ -1383,9 +1481,22 @@ local function StopAutoLoopAll()
     
     RestoreFullUserControl()
     
+    // ✅ CEK STATE SEBELUM RESET!
     SafeCall(function()
         local char = player.Character
-        if char then CompleteCharacterReset(char) end
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local currentState = hum:GetState()
+                local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+                local isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+                
+                // ✅ HANYA reset kalau AMAN!
+                if not isClimbing and not isSwimming then
+                    CompleteCharacterReset(char)
+                end
+            end
+        end
     end)
     
     PlaySound("Toggle")
@@ -1430,10 +1541,29 @@ local function StopPlayback()
         loopConnection = nil
     end
     
+    local char = player.Character
+    local isClimbing = false
+    local isSwimming = false
+    
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local currentState = hum:GetState()
+            isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+            isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+        end
+    end
+    
     RestoreFullUserControl()
     
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    if char and not isClimbing and not isSwimming then
+        CompleteCharacterReset(char)
+    end
+    
+    // ✅ RESET TRACKING (opsional, tergantung behavior yang diinginkan)
+    // Kalau mau WalkSpeed persisten ANTAR replay, jangan reset!
+    // LastKnownWalkSpeed = 0
+    // WalkSpeedBeforePlayback = 0
     
     PlaySound("Toggle")
     if PlayBtnControl then
@@ -1775,54 +1905,66 @@ local function StartAutoLoopAll()
 end
 
 -- ========= TITLE PULSE ANIMATION =========
+local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
+    -- Matikan koneksi lama
     if titlePulseConnection then
-        SafeCall(function() titlePulseConnection:Disconnect() end)
+        pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
     end
 
     if not titleLabel then return end
 
-    local hueSpeed = 0.25
-    local pulseFreq = 4.5
-    local baseSize = 14
-    local sizeAmplitude = 6
-    local strokeMin = 0.0
-    local strokeMax = 0.9
-    local strokePulseFreq = 2.2
+    -- [[ PERBAIKAN POSISI ]]
+    -- Kita paksa TextLabel untuk berpusat tepat di tengah Header
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
+    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Posisi tepat di tengah
+    titleLabel.Size = UDim2.new(1, -40, 1, 0) -- Beri jarak kiri-kanan biar gak nabrak tombol X
+
+    local baseSize = 14 -- Ukuran font normal
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
-        SafeCall(function()
+        pcall(function()
             if not titleLabel or not titleLabel.Parent then
-                if titlePulseConnection then
-                    titlePulseConnection:Disconnect()
-                    titlePulseConnection = nil
-                end
+                if titlePulseConnection then titlePulseConnection:Disconnect() end
                 return
             end
 
             local t = tick()
 
-            local hue = (t * hueSpeed) % 1
-            local color = Color3.fromHSV(hue, 1, 1)
-            titleLabel.TextColor3 = color
+            -- 1. WARNA STROBO (Sangat Cepat)
+            local hue = (t * 8) % 1
+            titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
 
-            local pulse = 0.5 + (math.sin(t * pulseFreq) * 0.5)
-            local newSize = baseSize + (pulse * sizeAmplitude)
-            titleLabel.TextSize = math.max(8, math.floor(newSize + 0.5))
+            -- 2. DENYUT JANTUNG (Menyentak tapi tidak meledak)
+            local pulse = math.abs(math.sin(t * 18)) -- Kecepatan denyut
+            -- Batasi pembesaran font max +5 pixel agar tidak keluar header
+            titleLabel.TextSize = baseSize + (pulse * 5) 
 
+            -- 3. GETARAN (SHAKE) - DIKONTROL
+            -- Kita hanya menggeser Offset (pixel), bukan Scale (persen)
+            local shakeX = math.random(-2, 2) -- Getar 2 pixel kiri-kanan
+            local shakeY = math.random(-2, 2) -- Getar 2 pixel atas-bawah
+            
+            -- Kunci posisi di tengah (0.5, 0.5) lalu tambah getaran
+            titleLabel.Position = UDim2.new(0.5, shakeX, 0.5, shakeY)
+
+            -- 4. MIRING-MIRING (ROTASI)
+            titleLabel.Rotation = math.random(-3, 3) -- Miring max 3 derajat
+
+            -- 5. STROKE (Garis Tepi) BERKEDIP
             if titleLabel.TextStrokeTransparency ~= nil then
-                local strokePulse = 0.5 + (math.sin(t * strokePulseFreq) * 0.5)
-                local strokeTransparency = strokeMin + (strokePulse * (strokeMax - strokeMin))
-                titleLabel.TextStrokeTransparency = math.clamp(strokeTransparency, 0, 1)
-                titleLabel.TextStrokeColor3 = Color3.new(0,0,0)
+                titleLabel.TextStrokeTransparency = 0
+                -- Warna stroke invers (kebalikan) dari warna teks biar sakit mata
+                titleLabel.TextStrokeColor3 = Color3.new(1 - titleLabel.TextColor3.R, 1 - titleLabel.TextColor3.G, 1 - titleLabel.TextColor3.B)
             end
         end)
     end)
 
     AddConnection(titlePulseConnection)
 end
+
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
@@ -1850,35 +1992,50 @@ local function ApplyFrameToCharacter(frame)
         
         if not hrp or not hum then return end
         
-        task.spawn(function()
-            local targetCFrame = GetFrameCFrame(frame)
-            hrp.CFrame = targetCFrame
+        local moveState = frame.MoveState
+        
+        -- ✅ SET STATE DULU SEBELUM APPLY CFRAME!
+        if hum then
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false
+            end
+            
+            -- ✅ Apply state SEBELUM teleport
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                hum.WalkSpeed = 0  -- Lock movement saat timeline mode
+            elseif moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                hum.WalkSpeed = 0
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                hum.WalkSpeed = 0
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                hum.WalkSpeed = 0
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+                hum.WalkSpeed = 0
+            end
+        end
+        
+        -- ✅ WAIT untuk state apply
+        task.wait(0.05)
+        
+        -- ✅ BARU apply CFrame & velocity
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- ✅ Jangan reset velocity kalau climbing!
+        if moveState == "Climbing" then
+            -- Biarkan climbing physics jalan natural
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        else
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            
-            if hum then
-                hum.WalkSpeed = 0
-                if ShiftLockEnabled then
-                    hum.AutoRotate = false
-                else
-                    hum.AutoRotate = false
-                end
-                
-                local moveState = frame.MoveState
-                if moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    hum.PlatformStand = false
-                elseif moveState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif moveState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end
-        end)
+        end
     end)
 end
 
@@ -2915,7 +3072,7 @@ local uiSuccess, uiError = pcall(function()
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or speed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+        if walkSpeed < 8 or walkSpeed > 1000 then return false, "WalkSpeed must be between 8 and 1000" end
         return true, walkSpeed
     end
 
@@ -3146,6 +3303,13 @@ local uiSuccess, uiError = pcall(function()
                 if IsPlaying or AutoLoop then StopPlayback() end
                 if ShiftLockEnabled then DisableVisibleShiftLock() end
                 if InfiniteJump then DisableInfiniteJump() end
+                
+                 -- ✅ Cleanup title pulse
+        if titlePulseConnection then
+            titlePulseConnection:Disconnect()
+            titlePulseConnection = nil
+        end
+        
                 CleanupConnections()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
@@ -3231,6 +3395,10 @@ local uiSuccess, uiError = pcall(function()
             MiniButton.Position = UDim2.fromOffset(newX, newY)
         end)
     end)
+    
+    -- ✅ START TITLE PULSE (TAMBAHKAN INI!)
+    StartTitlePulse(Title)
+    
 end)
 
 if not uiSuccess then
@@ -3308,7 +3476,6 @@ end)
 
 UpdateRecordList()
 UpdatePlayButtonStatus()
-StartTitlePulse(Title)
 
 task.spawn(function()
     while task.wait(2) do
@@ -3335,12 +3502,3 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
-
-print("✅ ByaruL Recorder v3.3 HYBRID - Loaded Successfully!")
-print("⭐ Features:")
-print("   - Pure Velocity Playback (NO filtering)")
-print("   - Direct State Application (NO cooldown)")
-print("   - Persistent ShiftLock System")
-print("   - Perfect Jump/Fall Detection")
-print("   - Smooth on Uneven Terrain")
-print("   - All Original Features Preserved")
