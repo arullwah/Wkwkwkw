@@ -120,6 +120,8 @@ local prePauseSit = false
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
 local IsAutoLoopPlaying = false
+local LastKnownWalkSpeed = 16  
+local WalkSpeedBeforePlayback = 16
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
@@ -271,24 +273,37 @@ local function CompleteCharacterReset(char)
     
     task.spawn(function()
         SafeCall(function()
-            -- ✅ CEK STATE DULU!
             local currentState = humanoid:GetState()
             
             humanoid.PlatformStand = false
-            humanoid.WalkSpeed = CurrentWalkSpeed
+            
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed
+            end
+            
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
             
-            -- ✅ Reset velocity KECUALI kalau Climbing!
-            if currentState ~= Enum.HumanoidStateType.Climbing then
+            if currentState == Enum.HumanoidStateType.Climbing then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = false
+                
+            elseif currentState == Enum.HumanoidStateType.Swimming then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            elseif currentState == Enum.HumanoidStateType.Jumping or
+                   currentState == Enum.HumanoidStateType.Freefall then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            else
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                 humanoid.AutoRotate = true
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
-            else
-                -- ✅ Biarkan Climbing tetap!
-                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                humanoid.AutoRotate = false  -- Penting untuk Climbing!
             end
         end)
     end)
@@ -524,25 +539,32 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
-            -- ✅ CEK STATE SEKARANG
             local currentState = humanoid:GetState()
-            local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
             
-            -- ✅ RESPECT ShiftLock state
             if ShiftLockEnabled then
                 humanoid.AutoRotate = false
-            elseif not isClimbing then  -- ✅ Jangan auto-rotate saat climbing!
+            elseif currentState == Enum.HumanoidStateType.Climbing then
+                humanoid.AutoRotate = false
+            else
                 humanoid.AutoRotate = true
+            end          
+            
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed  
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback  
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed 
             end
             
-            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
             
-            -- ✅ Hanya restore ke Running kalau BUKAN sedang Climbing/Swimming
             if currentState ~= Enum.HumanoidStateType.Climbing and 
-               currentState ~= Enum.HumanoidStateType.Swimming then
+               currentState ~= Enum.HumanoidStateType.Swimming and
+               currentState ~= Enum.HumanoidStateType.Jumping and
+               currentState ~= Enum.HumanoidStateType.Freefall then
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end
             
@@ -558,16 +580,15 @@ local function RestoreFullUserControl()
         end
         
         if hrp then
-            -- ✅ Cek state sebelum reset velocity!
             local currentState = humanoid and humanoid:GetState()
             
-            if currentState ~= Enum.HumanoidStateType.Climbing then
+            if currentState == Enum.HumanoidStateType.Running or
+               currentState == Enum.HumanoidStateType.RunningNoPhysics or
+               currentState == Enum.HumanoidStateType.Landed then
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             else
-                -- ✅ Biarkan climbing velocity (PENTING!)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                -- LinearVelocity JANGAN di-reset untuk climbing!
             end
         end
     end)
@@ -1149,8 +1170,11 @@ local function ApplyFrameDirect(frame)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-        if hum then
-            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+       if hum then
+            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.WalkSpeed = frameWalkSpeed
+            
+            LastKnownWalkSpeed = frameWalkSpeed
             
             if ShiftLockEnabled then
                 hum.AutoRotate = false
@@ -1213,6 +1237,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         PlaySound("Error")
         return
+    end  
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
 
     IsPlaying = true
@@ -1444,7 +1473,18 @@ local function StopAutoLoopAll()
     
     SafeCall(function()
         local char = player.Character
-        if char then CompleteCharacterReset(char) end
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local currentState = hum:GetState()
+                local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+                local isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+                
+                if not isClimbing and not isSwimming then
+                    CompleteCharacterReset(char)
+                end
+            end
+        end
     end)
     
     PlaySound("Toggle")
@@ -1489,7 +1529,6 @@ local function StopPlayback()
         loopConnection = nil
     end
     
-    -- ✅ CEK STATE SEBELUM RESTORE!
     local char = player.Character
     local isClimbing = false
     local isSwimming = false
@@ -1505,10 +1544,12 @@ local function StopPlayback()
     
     RestoreFullUserControl()
     
-    -- ✅ JANGAN reset kalau sedang Climbing/Swimming!
     if char and not isClimbing and not isSwimming then
         CompleteCharacterReset(char)
     end
+    
+     LastKnownWalkSpeed = 0
+     WalkSpeedBeforePlayback = 0
     
     PlaySound("Toggle")
     if PlayBtnControl then
@@ -1861,13 +1902,16 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- [[ PERBAIKAN POSISI ]]
-    -- Kita paksa TextLabel untuk berpusat tepat di tengah Header
+    -- ✅ SET POSISI TETAP (NO SHAKE!)
     titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
-    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Posisi tepat di tengah
-    titleLabel.Size = UDim2.new(1, -40, 1, 0) -- Beri jarak kiri-kanan biar gak nabrak tombol X
+    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
+    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
-    local baseSize = 14 -- Ukuran font normal
+    -- ✅ BUAT GRADIENT
+    local gradient = Instance.new("UIGradient")
+    gradient.Parent = titleLabel
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1878,32 +1922,18 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
-            -- 1. WARNA STROBO (Sangat Cepat)
-            local hue = (t * 8) % 1
-            titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
+            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
+            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
 
-            -- 2. DENYUT JANTUNG (Menyentak tapi tidak meledak)
-            local pulse = math.abs(math.sin(t * 18)) -- Kecepatan denyut
-            -- Batasi pembesaran font max +5 pixel agar tidak keluar header
-            titleLabel.TextSize = baseSize + (pulse * 5) 
+            gradient.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
+            }
 
-            -- 3. GETARAN (SHAKE) - DIKONTROL
-            -- Kita hanya menggeser Offset (pixel), bukan Scale (persen)
-            local shakeX = math.random(-2, 2) -- Getar 2 pixel kiri-kanan
-            local shakeY = math.random(-2, 2) -- Getar 2 pixel atas-bawah
-            
-            -- Kunci posisi di tengah (0.5, 0.5) lalu tambah getaran
-            titleLabel.Position = UDim2.new(0.5, shakeX, 0.5, shakeY)
-
-            -- 4. MIRING-MIRING (ROTASI)
-            titleLabel.Rotation = math.random(-3, 3) -- Miring max 3 derajat
-
-            -- 5. STROKE (Garis Tepi) BERKEDIP
-            if titleLabel.TextStrokeTransparency ~= nil then
-                titleLabel.TextStrokeTransparency = 0
-                -- Warna stroke invers (kebalikan) dari warna teks biar sakit mata
-                titleLabel.TextStrokeColor3 = Color3.new(1 - titleLabel.TextColor3.R, 1 - titleLabel.TextColor3.G, 1 - titleLabel.TextColor3.B)
-            end
+            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
+            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
         end)
     end)
 
@@ -2150,10 +2180,12 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
+            -- ✅ FIX 1: Ambil data frame terakhir yang VALID
             local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
             local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
             local lastWalkSpeed = lastRecordedFrame and lastRecordedFrame.WalkSpeed or 16
             
+            -- ✅ FIX 2: TRUNCATE frames setelah TimelinePosition
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
@@ -2167,27 +2199,152 @@ local function ResumeStudioRecording()
                 end
             end
             
+            -- ✅ FIX 3: RESET PHYSICS sebelum mulai interpolation
+            if hum and hrp then
+                -- Reset velocity
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+                -- Reset humanoid state
+                hum.PlatformStand = false
+                hum.Sit = false
+                
+                -- Set state yang sesuai
+                if lastState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                elseif lastState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                elseif lastState == "Climbing" then
+                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                elseif lastState == "Swimming" then
+                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                else
+                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                end
+                
+                -- Wait untuk state apply
+                task.wait(0.1)
+            end
+            
+            -- ✅ FIX 4: Pastikan karakter di posisi EXACT frame terakhir
+            local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+            local exactCFrame = GetFrameCFrame(lastFrame)
+            hrp.CFrame = exactCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            
+            task.wait(0.15)  -- ← Naikkan dari 0.1 ke 0.15
+            
+            -- ✅ FIX 5: Interpolation dengan CURRENT position as baseline
             if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
-                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                local currentPos = hrp.Position
+                local currentPos = hrp.Position  -- ← Posisi REAL sekarang
                 local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
                 
-                if (currentPos - lastPos).Magnitude > 0.5 then
-                    for i = 1, INTERPOLATION_LOOKAHEAD do
-                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                local distance = (currentPos - lastPos).Magnitude
+                
+                -- ⚠️ HANYA interpolasi kalau ada jarak signifikan
+                if distance > 0.05 then  -- ← Threshold lebih ketat
+                    
+                    local dynamicLookahead = INTERPOLATION_LOOKAHEAD
+                    
+                    -- Dynamic adjustment berdasarkan jarak
+                    if distance > 10 then
+                        dynamicLookahead = math.min(INTERPOLATION_LOOKAHEAD * 2, 16)
+                    elseif distance > 5 then
+                        dynamicLookahead = math.min(INTERPOLATION_LOOKAHEAD * 1.5, 12)
+                    elseif distance > 1 then
+                        dynamicLookahead = INTERPOLATION_LOOKAHEAD
+                    else
+                        -- Jarak kecil = less interpolation
+                        dynamicLookahead = math.max(2, math.floor(INTERPOLATION_LOOKAHEAD / 2))
+                    end
+                    
+                    for i = 1, dynamicLookahead do
+                        local rawAlpha = i / (dynamicLookahead + 1)
+                        
+                        -- Ease InOut Cubic
+                        local alpha = rawAlpha < 0.5 
+                            and 4 * rawAlpha * rawAlpha * rawAlpha 
+                            or 1 - math.pow(-2 * rawAlpha + 2, 3) / 2
+                        
                         local interpPos = lastPos:Lerp(currentPos, alpha)
                         
-                        local interpFrame = {
+                        -- ✅ FIX 6: Interpolasi LookVector lebih smart
+                        local lastLook = Vector3.new(
+                            lastFrame.LookVector[1], 
+                            lastFrame.LookVector[2], 
+                            lastFrame.LookVector[3]
+                        )
+                        
+                        -- Gunakan movement direction ATAU preserve last look
+                        local movementDir = (currentPos - lastPos)
+                        local horizontalDir = Vector3.new(movementDir.X, 0, movementDir.Z)
+                        
+                        local targetLook = horizontalDir.Magnitude > 0.01 
+                            and horizontalDir.Unit 
+                            or lastLook
+                        
+                        local interpLook = lastLook:Lerp(targetLook, alpha).Unit
+                        
+                        -- Interpolasi UpVector (preserve climbing/swimming orientation)
+                        local lastUp = Vector3.new(
+                            lastFrame.UpVector[1], 
+                            lastFrame.UpVector[2], 
+                            lastFrame.UpVector[3]
+                        )
+                        
+                        local targetUp = lastState == "Climbing" 
+                            and lastUp  -- Preserve climbing angle
+                            or Vector3.new(0, 1, 0)  -- Normal upright
+                        
+                        local interpUp = lastUp:Lerp(targetUp, alpha).Unit
+                        
+                        -- ✅ FIX 7: Velocity yang context-aware
+                        local lastVel = Vector3.new(
+                            lastFrame.Velocity[1], 
+                            lastFrame.Velocity[2], 
+                            lastFrame.Velocity[3]
+                        )
+                        
+                        -- Calculate expected velocity
+                        local frameDistance = (currentPos - interpPos).Magnitude
+                        local expectedSpeed = frameDistance * RECORDING_FPS
+                        
+                        local velocityDirection = (currentPos - interpPos).Unit
+                        local expectedVel = velocityDirection * expectedSpeed
+                        
+                        -- Blend old velocity dengan expected velocity
+                        local interpVel = lastVel:Lerp(expectedVel, alpha)
+                        
+                        -- ✅ FIX 8: Smart Y velocity berdasarkan state
+                        if lastState == "Grounded" or lastState == "Running" then
+                            -- Zero Y untuk grounded
+                            interpVel = Vector3.new(interpVel.X, 0, interpVel.Z)
+                        elseif lastState == "Jumping" then
+                            -- Preserve atau add upward velocity
+                            interpVel = Vector3.new(interpVel.X, math.max(interpVel.Y, 20), interpVel.Z)
+                        elseif lastState == "Falling" then
+                            -- Downward velocity
+                            interpVel = Vector3.new(interpVel.X, math.min(interpVel.Y, -5), interpVel.Z)
+                        end
+                        
+                        -- WalkSpeed interpolation
+                        local currentWS = hum and hum.WalkSpeed or 16
+                        local interpWS = lastFrame.WalkSpeed + (currentWS - lastFrame.WalkSpeed) * alpha
+                        
+                        -- ✅ FIX 9: Timestamp yang seamless
+                        local frameTime = lastFrame.Timestamp + (i * (1/RECORDING_FPS))
+                        
+                        table.insert(StudioCurrentRecording.Frames, {
                             Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                            LookVector = lastFrame.LookVector,
-                            UpVector = lastFrame.UpVector,
-                            Velocity = lastFrame.Velocity,
+                            LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
+                            UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
+                            Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
                             MoveState = lastState,
-                            WalkSpeed = lastWalkSpeed,
-                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            WalkSpeed = interpWS,
+                            Timestamp = frameTime,
                             IsInterpolated = true
-                        }
-                        table.insert(StudioCurrentRecording.Frames, interpFrame)
+                        })
                     end
                     
                     StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
@@ -2406,6 +2563,7 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
+            -- ✅ ITEM FRAME
             local item = Instance.new("Frame")
             item.Size = UDim2.new(1, -6, 0, 60)
             item.Position = UDim2.new(0, 3, 0, yPos)
@@ -2416,6 +2574,7 @@ function UpdateRecordList()
             corner.CornerRadius = UDim.new(0, 4)
             corner.Parent = item
             
+            -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
             checkBox.Position = UDim2.fromOffset(5, 5)
@@ -2430,16 +2589,19 @@ function UpdateRecordList()
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
+            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -90, 0, 18)
+            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
             nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
             nameBox.BorderSizePixel = 0
             nameBox.Text = checkpointNames[name] or "Checkpoint1"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameBox.TextStrokeTransparency = 0.6
+            nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Left
+            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
             nameBox.Parent = item
@@ -2448,9 +2610,27 @@ function UpdateRecordList()
             nameBoxCorner.CornerRadius = UDim.new(0, 3)
             nameBoxCorner.Parent = nameBox
             
+            -- ✅ RAINBOW BORDER (THICKNESS = 1)
+            local nameBoxStroke = Instance.new("UIStroke")
+            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
+            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
+            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            nameBoxStroke.Parent = nameBox
+            
+            -- ✅ ANIMATED RAINBOW
+            task.spawn(function()
+                local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                while nameBoxStroke and nameBoxStroke.Parent do
+                    hue = (hue + 0.05) % 1
+                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
+                    task.wait(0.03)
+                end
+            end)
+            
+            -- ✅ INFO LABEL (FIXED POSITION!)
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -90, 0, 14)
-            infoLabel.Position = UDim2.fromOffset(28, 25)
+            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
+            infoLabel.Position = UDim2.fromOffset(28, 35)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
@@ -2464,6 +2644,7 @@ function UpdateRecordList()
             infoLabel.TextXAlignment = Enum.TextXAlignment.Left
             infoLabel.Parent = item
             
+            -- ✅ PLAY BUTTON
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.fromOffset(38, 20)
             playBtn.Position = UDim2.new(1, -79, 0, 5)
@@ -2478,6 +2659,7 @@ function UpdateRecordList()
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
+            -- ✅ DELETE BUTTON
             local delBtn = Instance.new("TextButton")
             delBtn.Size = UDim2.fromOffset(38, 20)
             delBtn.Position = UDim2.new(1, -38, 0, 5)
@@ -2492,6 +2674,7 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
+            -- ✅ NAIK BUTTON
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.fromOffset(38, 20)
             upBtn.Position = UDim2.new(1, -79, 0, 30)
@@ -2506,6 +2689,7 @@ function UpdateRecordList()
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
+            -- ✅ TURUN BUTTON
             local downBtn = Instance.new("TextButton")
             downBtn.Size = UDim2.fromOffset(38, 20)
             downBtn.Position = UDim2.new(1, -38, 0, 30)
@@ -2520,6 +2704,7 @@ function UpdateRecordList()
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
+            -- ✅ EVENT HANDLERS
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
