@@ -2885,20 +2885,6 @@ local uiSuccess, uiError = pcall(function()
     Title.TextXAlignment = Enum.TextXAlignment.Center
     Title.Parent = Header
 
-    CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.fromOffset(20, 20)
-    CloseBtn.Position = UDim2.new(1, -20, 0.5, -10)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    CloseBtn.Text = "X"
-    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
-    CloseBtn.Font = Enum.Font.GothamBold
-    CloseBtn.TextSize = 12
-    CloseBtn.Parent = Header
-
-    local CloseCorner = Instance.new("UICorner")
-    CloseCorner.CornerRadius = UDim.new(0, 4)
-    CloseCorner.Parent = CloseBtn
-
     local Content = Instance.new("Frame")
     Content.Size = UDim2.new(1, -6, 1, -38)
     Content.Position = UDim2.new(0, 3, 0, 36)
@@ -3506,28 +3492,28 @@ local uiSuccess, uiError = pcall(function()
     end)
 
     CloseBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(CloseBtn)
-        task.spawn(function()
-            SafeCall(function()
-                if StudioIsRecording then StopStudioRecording() end
-                if IsPlaying or AutoLoop then StopPlayback() end
-                if ShiftLockEnabled then DisableVisibleShiftLock() end
-                if InfiniteJump then DisableInfiniteJump() end
-                
-                 -- ✅ Cleanup title pulse
-        if titlePulseConnection then
-            titlePulseConnection:Disconnect()
-            titlePulseConnection = nil
-        end
-        
-                CleanupConnections()
-                ClearPathVisualization()
-                RemoveShiftLockIndicator()
-                task.wait(0.2)
-                ScreenGui:Destroy()
-            end)
+    AnimateButtonClick(CloseBtn)
+    task.spawn(function()
+        SafeCall(function()
+            if StudioIsRecording then StopStudioRecording() end
+            if IsPlaying or AutoLoop then StopPlayback() end
+            if ShiftLockEnabled then DisableVisibleShiftLock() end
+            if InfiniteJump then DisableInfiniteJump() end
+            
+            -- ✅ Cleanup title pulse
+            if titlePulseConnection then
+                titlePulseConnection:Disconnect()
+                titlePulseConnection = nil
+            end
+            
+            CleanupConnections()
+            ClearPathVisualization()
+            RemoveShiftLockIndicator()
+            task.wait(0.2)
+            ScreenGui:Destroy()
         end)
     end)
+end)
 
     -- ========= MINI BUTTON FUNCTIONALITY =========
 
@@ -3542,101 +3528,189 @@ local uiSuccess, uiError = pcall(function()
         end
     end)
 
-    -- ========= TRIPLE TAP CLOSE SYSTEM (ENHANCED) =========
+-- ========= TRIPLE TAP CLOSE SYSTEM (PURPLE THEME) =========
 local tapCount = 0
 local lastTapTime = 0
-local TAP_WINDOW = 1.0
+local TAP_WINDOW = 1.0  -- 1 detik untuk 3x tap
 local tapResetConnection = nil
-local progressRing = nil
 
--- Create progress ring around MiniButton
-local function CreateProgressRing()
-    SafeCall(function()
-        if progressRing then progressRing:Destroy() end
-        
-        progressRing = Instance.new("ImageLabel")
-        progressRing.Size = UDim2.fromOffset(50, 50)
-        progressRing.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 5)
-        progressRing.BackgroundTransparency = 1
-        progressRing.Image = "rbxassetid://3570695787"  -- Circle image
-        progressRing.ImageColor3 = Color3.fromRGB(100, 255, 150)
-        progressRing.ImageTransparency = 0.5
-        progressRing.Parent = ScreenGui
-        
-        -- Rotate animation
-        local rotation = 0
-        local rotateConnection = RunService.RenderStepped:Connect(function(dt)
-            rotation = rotation + (dt * 180)  -- 180 degrees per second
-            progressRing.Rotation = rotation
-        end)
-        
-        -- Auto cleanup
-        task.delay(TAP_WINDOW, function()
-            if rotateConnection then rotateConnection:Disconnect() end
-            if progressRing then
-                local fadeTween = TweenService:Create(progressRing, TweenInfo.new(0.3), {
-                    ImageTransparency = 1
-                })
-                fadeTween:Play()
-                fadeTween.Completed:Wait()
-                progressRing:Destroy()
-                progressRing = nil
-            end
-        end)
-    end)
-end
-
--- Update progress ring color
-local function UpdateProgressRing(tap)
-    SafeCall(function()
-        if not progressRing then return end
-        
-        local colors = {
-            Color3.fromRGB(100, 255, 150),  -- Tap 1: Green
-            Color3.fromRGB(255, 200, 0),    -- Tap 2: Yellow
-            Color3.fromRGB(255, 50, 50)     -- Tap 3: Red
-        }
-        
-        TweenService:Create(progressRing, TweenInfo.new(0.2), {
-            ImageColor3 = colors[tap] or colors[1],
-            ImageTransparency = 0.3
-        }):Play()
-    end)
-end
-
--- Show tap count text
+-- Show tap count indicator
 local function ShowTapFeedback(count)
     SafeCall(function()
         local indicator = Instance.new("TextLabel")
-        indicator.Size = UDim2.fromOffset(40, 40)
-        indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X, 0, MiniButton.AbsolutePosition.Y)
-        indicator.AnchorPoint = Vector2.new(0.5, 0.5)
-        indicator.BackgroundTransparency = 1
+        indicator.Size = UDim2.fromOffset(50, 25)
+        indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 30)
+        indicator.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        indicator.BackgroundTransparency = 0.2
         indicator.Text = count .. "/3"
         indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
         indicator.Font = Enum.Font.GothamBold
-        indicator.TextSize = 20
-        indicator.TextStrokeTransparency = 0
+        indicator.TextSize = 16
+        indicator.TextStrokeTransparency = 0.5
+        indicator.BorderSizePixel = 0
         indicator.Parent = ScreenGui
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = indicator
         
         -- Pop animation
         indicator.TextSize = 0
-        TweenService:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            TextSize = 24
+        TweenService:Create(indicator, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            TextSize = 16
         }):Play()
         
-        task.wait(0.3)
-        
-        TweenService:Create(indicator, TweenInfo.new(0.2), {
-            TextTransparency = 1,
-            TextStrokeTransparency = 1
-        }):Play()
-        
-        task.delay(0.2, function()
+        -- Fade out after 0.6s
+        task.delay(0.6, function()
+            local fadeTween = TweenService:Create(indicator, TweenInfo.new(0.3), {
+                BackgroundTransparency = 1,
+                TextTransparency = 1,
+                TextStrokeTransparency = 1
+            })
+            fadeTween:Play()
+            fadeTween.Completed:Wait()
             indicator:Destroy()
         end)
     end)
 end
+
+-- Pulse MiniButton with color
+local function PulseMiniButton(color, scale)
+    SafeCall(function()
+        local originalColor = MiniButton.BackgroundColor3
+        local originalSize = MiniButton.Size
+        local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+        
+        -- Pulse animation
+        TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = color,
+            Size = targetSize
+        }):Play()
+        
+        task.wait(0.1)
+        
+        TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = originalColor,
+            Size = originalSize
+        }):Play()
+    end)
+end
+
+-- Main click handler
+MiniButton.MouseButton1Click:Connect(function()
+    local currentTime = tick()
+    
+    -- Reset jika sudah lewat dari TAP_WINDOW
+    if currentTime - lastTapTime > TAP_WINDOW then
+        tapCount = 0
+    end
+    
+    -- Increment tap count
+    tapCount = tapCount + 1
+    lastTapTime = currentTime
+    
+    -- ========= TAP 1: NORMAL TOGGLE =========
+    if tapCount == 1 then
+        -- Sound effect
+        SafeCall(function() 
+            PlaySound("Click")
+        end)
+        
+        -- Toggle MainFrame (behavior normal)
+        SafeCall(function()
+            local originalSize = MiniButton.TextSize
+            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                TextSize = originalSize * 1.2
+            }):Play()
+            task.wait(0.1)
+            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                TextSize = originalSize
+            }):Play()
+        end)
+        
+        if MainFrame then
+            MainFrame.Visible = not MainFrame.Visible
+        end
+        
+        -- Visual feedback
+        ShowTapFeedback(1)
+        PulseMiniButton(Color3.fromRGB(59, 15, 116), 1.1)  -- Purple, scale 1.1x
+        
+    -- ========= TAP 2: WARNING =========
+    elseif tapCount == 2 then
+        SafeCall(function() 
+            PlaySound("Toggle")
+        end)
+        
+        ShowTapFeedback(2)
+        PulseMiniButton(Color3.fromRGB(89, 45, 146), 1.15)  -- Lighter purple, scale 1.15x
+        
+    -- ========= TAP 3: CLOSE! =========
+    elseif tapCount >= 3 then
+        SafeCall(function() 
+            PlaySound("Success")
+        end)
+        
+        ShowTapFeedback(3)
+        PulseMiniButton(Color3.fromRGB(119, 75, 176), 1.2)  -- Even lighter purple, scale 1.2x
+        
+        -- Delay untuk user lihat feedback
+        task.wait(0.3)
+        
+        -- Execute close sequence
+        task.spawn(function()
+            SafeCall(function()
+                -- Stop all systems
+                if StudioIsRecording then StopStudioRecording() end
+                if IsPlaying or AutoLoop then StopPlayback() end
+                if ShiftLockEnabled then DisableVisibleShiftLock() end
+                if InfiniteJump then DisableInfiniteJump() end
+                
+                -- Cleanup title pulse
+                if titlePulseConnection then
+                    titlePulseConnection:Disconnect()
+                    titlePulseConnection = nil
+                end
+                
+                -- Cleanup connections
+                CleanupConnections()
+                ClearPathVisualization()
+                RemoveShiftLockIndicator()
+                
+                -- Fade out animation
+                local mainTween = TweenService:Create(MainFrame, TweenInfo.new(0.4), {
+                    BackgroundTransparency = 1
+                })
+                
+                local miniTween = TweenService:Create(MiniButton, TweenInfo.new(0.4), {
+                    BackgroundTransparency = 1,
+                    TextTransparency = 1
+                })
+                
+                mainTween:Play()
+                miniTween:Play()
+                miniTween.Completed:Wait()
+                
+                task.wait(0.1)
+                ScreenGui:Destroy()
+            end)
+        end)
+        
+        -- Reset tap count
+        tapCount = 0
+    end
+    
+    -- Auto-reset setelah TAP_WINDOW
+    if tapResetConnection then
+        task.cancel(tapResetConnection)
+    end
+    
+    tapResetConnection = task.delay(TAP_WINDOW, function()
+        if tapCount < 3 then
+            tapCount = 0
+        end
+    end)
+end)
 
 MiniButton.MouseButton1Click:Connect(function()
     local currentTime = tick()
