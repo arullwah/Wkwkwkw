@@ -36,7 +36,7 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.05
 local JUMP_VELOCITY_THRESHOLD = 10
-local STATE_CHANGE_COOLDOWN = 0.1
+local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -49,8 +49,7 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 1.5  -- Untuk semua state
-local INTERPOLATION_LOOKAHEAD_JUMP = 24  -- Khusus Jump/Fall (lebih banyak!)
+local INTERPOLATION_LOOKAHEAD = 4
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -2181,7 +2180,6 @@ local function ResumeStudioRecording()
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildOfClass("Humanoid")
             
-            -- ✅ Get last frame data
             local lastRecordedFrame = StudioCurrentRecording.Frames[TimelinePosition]
             local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
             local lastWalkSpeed = lastRecordedFrame and lastRecordedFrame.WalkSpeed or 16
@@ -2200,99 +2198,67 @@ local function ResumeStudioRecording()
                 end
             end
             
-            -- ✅ RESET PHYSICS
-            if hum and hrp then
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                hum.PlatformStand = false
-                hum.Sit = false
-                
-                if lastState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif lastState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif lastState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                elseif lastState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
-                
-                task.wait(0.2)
-            end
-            
-            -- ✅ RE-APPLY exact position
-            local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-            hrp.CFrame = GetFrameCFrame(lastFrame)
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            
-            task.wait(0.3)  -- ← Wait untuk settle
-            
-            -- ✅ ⭐ INI YANG BARU: CREATE TRANSITION FRAMES!
-            if #StudioCurrentRecording.Frames > 0 then
-                -- Sample current state (setelah user gerak/diam)
+            -- ✅ ORIGINAL INTERPOLATION (yang sudah 98% bagus!)
+            if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
+                local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
                 local currentPos = hrp.Position
-                local currentCFrame = hrp.CFrame
-                local currentVelocity = hrp.AssemblyLinearVelocity
-                local currentState = GetCurrentMoveState(hum)
-                local currentWalkSpeed = hum and hum.WalkSpeed or 16
+                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
                 
-                -- Create "virtual next frame" dari posisi current
-                local nextFrame = {
-                    Position = {currentPos.X, currentPos.Y, currentPos.Z},
-                    LookVector = {currentCFrame.LookVector.X, currentCFrame.LookVector.Y, currentCFrame.LookVector.Z},
-                    UpVector = {currentCFrame.UpVector.X, currentCFrame.UpVector.Y, currentCFrame.UpVector.Z},
-                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                    MoveState = currentState,
-                    WalkSpeed = currentWalkSpeed,
-                    Timestamp = lastFrame.Timestamp + 0.1  -- Offset sedikit
-                }
-                
-                -- ✅ Hitung jumlah transition frames berdasarkan STATE CHANGE
-                local transitionCount = TRANSITION_FRAMES  -- Default 6
-                
-                -- Kalau state berubah = butuh lebih banyak transition!
-                if lastState ~= currentState then
-                    if lastState == "Jumping" or lastState == "Falling" or 
-                       currentState == "Jumping" or currentState == "Falling" then
-                        transitionCount = 12  -- ← Jump/Fall = 12 frames
-                    else
-                        transitionCount = 8   -- ← State change lain = 8 frames
+                if (currentPos - lastPos).Magnitude > 0.5 then
+                    for i = 1, INTERPOLATION_LOOKAHEAD do
+                        local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
+                        
+                        local interpPos = lastPos:Lerp(currentPos, alpha)
+                        
+                        local lastLook = Vector3.new(
+                            lastFrame.LookVector[1], 
+                            lastFrame.LookVector[2], 
+                            lastFrame.LookVector[3]
+                        )
+                        
+                        local movementDir = (currentPos - lastPos).Unit
+                        local targetLook = movementDir.Magnitude > 0.01 
+                            and movementDir 
+                            or lastLook
+                        
+                        local interpLook = lastLook:Lerp(targetLook, alpha).Unit
+                        
+                        local lastUp = Vector3.new(
+                            lastFrame.UpVector[1], 
+                            lastFrame.UpVector[2], 
+                            lastFrame.UpVector[3]
+                        )
+                        local interpUp = lastUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
+                        
+                        local lastVel = Vector3.new(
+                            lastFrame.Velocity[1], 
+                            lastFrame.Velocity[2], 
+                            lastFrame.Velocity[3]
+                        )
+                        
+                        local expectedVel = (currentPos - interpPos) * RECORDING_FPS
+                        local interpVel = lastVel:Lerp(expectedVel, alpha)
+                        
+                        local currentWS = hum and hum.WalkSpeed or 16
+                        local interpWS = lastFrame.WalkSpeed + (currentWS - lastFrame.WalkSpeed) * alpha
+                        
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                            LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
+                            UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
+                            Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                            MoveState = lastState,
+                            WalkSpeed = interpWS,
+                            Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
+                            IsInterpolated = true
+                        })
                     end
-                else
-                    -- Same state, cek velocity change
-                    local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-                    local currentVel = Vector3.new(nextFrame.Velocity[1], nextFrame.Velocity[2], nextFrame.Velocity[3])
-                    local velDiff = (currentVel - lastVel).Magnitude
                     
-                    if velDiff > 10 then
-                        transitionCount = 8   -- ← Big velocity change
-                    elseif velDiff > 3 then
-                        transitionCount = 6   -- ← Medium change
-                    else
-                        transitionCount = 4   -- ← Small change
-                    end
+                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 end
-                
-                print("🔄 Creating " .. transitionCount .. " transition frames (" .. lastState .. " → " .. currentState .. ")")
-                
-                -- ✅ USE CreateSmoothTransition! (fungsi yang sudah ada!)
-                local transitionFrames = CreateSmoothTransition(lastFrame, nextFrame, transitionCount)
-                
-                -- ✅ Insert transition frames
-                for _, tFrame in ipairs(transitionFrames) do
-                    table.insert(StudioCurrentRecording.Frames, tFrame)
-                end
-                
-                print("✅ Added " .. #transitionFrames .. " transition frames")
-                
-                -- Update StartTime
-                StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
             end
             
-            -- ✅ Resume recording
+            -- ✅ ⭐ INSTANT RESTORE (ini yang penting!)
             IsTimelineMode = false
             lastStudioRecordTime = tick()
             lastStudioRecordPos = hrp.Position
@@ -2308,8 +2274,6 @@ local function ResumeStudioRecording()
             
             UpdateStudioUI()
             PlaySound("Success")
-            
-            print("🎬 Resume complete! Total frames: " .. #StudioCurrentRecording.Frames)
         end)
     end)
 end
