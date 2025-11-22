@@ -277,7 +277,6 @@ local function CompleteCharacterReset(char)
             
             humanoid.PlatformStand = false
             
-            // ✅ RESTORE WALKSPEED YANG BENAR!
             if LastKnownWalkSpeed > 0 then
                 humanoid.WalkSpeed = LastKnownWalkSpeed
             elseif WalkSpeedBeforePlayback > 0 then
@@ -532,7 +531,6 @@ local function RestoreHumanoidState()
     end)
 end
 
-// ✅ UPDATE RestoreFullUserControl() - Line 892
 local function RestoreFullUserControl()
     SafeCall(function()
         local char = player.Character
@@ -549,20 +547,14 @@ local function RestoreFullUserControl()
                 humanoid.AutoRotate = false
             else
                 humanoid.AutoRotate = true
-            end
-            
-            // ✅ RESTORE WALKSPEED YANG BENAR!
-            // Priority:
-            // 1. LastKnownWalkSpeed (dari frame terakhir replay)
-            // 2. WalkSpeedBeforePlayback (sebelum replay dimulai)
-            // 3. CurrentWalkSpeed (dari TextBox, fallback)
+            end          
             
             if LastKnownWalkSpeed > 0 then
-                humanoid.WalkSpeed = LastKnownWalkSpeed  // ✅ Pakai yang terakhir!
+                humanoid.WalkSpeed = LastKnownWalkSpeed  
             elseif WalkSpeedBeforePlayback > 0 then
-                humanoid.WalkSpeed = WalkSpeedBeforePlayback  // ✅ Backup
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback  
             else
-                humanoid.WalkSpeed = CurrentWalkSpeed  // ✅ Fallback
+                humanoid.WalkSpeed = CurrentWalkSpeed 
             end
             
             humanoid.JumpPower = prePauseJumpPower or 50
@@ -1182,7 +1174,6 @@ local function ApplyFrameDirect(frame)
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             
-            // ✅ TRACK WALKSPEED TERAKHIR!
             LastKnownWalkSpeed = frameWalkSpeed
             
             if ShiftLockEnabled then
@@ -1246,12 +1237,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         PlaySound("Error")
         return
-    end
-    
-    // ✅ SIMPAN WALKSPEED SEBELUM PLAYBACK!
+    end  
+
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
-        WalkSpeedBeforePlayback = hum.WalkSpeed  // ✅ Backup!
+        WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
 
     IsPlaying = true
@@ -1481,7 +1471,6 @@ local function StopAutoLoopAll()
     
     RestoreFullUserControl()
     
-    // ✅ CEK STATE SEBELUM RESET!
     SafeCall(function()
         local char = player.Character
         if char then
@@ -1491,7 +1480,6 @@ local function StopAutoLoopAll()
                 local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
                 local isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
                 
-                // ✅ HANYA reset kalau AMAN!
                 if not isClimbing and not isSwimming then
                     CompleteCharacterReset(char)
                 end
@@ -1560,10 +1548,8 @@ local function StopPlayback()
         CompleteCharacterReset(char)
     end
     
-    // ✅ RESET TRACKING (opsional, tergantung behavior yang diinginkan)
-    // Kalau mau WalkSpeed persisten ANTAR replay, jangan reset!
-    // LastKnownWalkSpeed = 0
-    // WalkSpeedBeforePlayback = 0
+     LastKnownWalkSpeed = 0
+     WalkSpeedBeforePlayback = 0
     
     PlaySound("Toggle")
     if PlayBtnControl then
