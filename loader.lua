@@ -1902,13 +1902,16 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- [[ PERBAIKAN POSISI ]]
-    -- Kita paksa TextLabel untuk berpusat tepat di tengah Header
+    -- ✅ SET POSISI TETAP (NO SHAKE!)
     titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
-    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Posisi tepat di tengah
-    titleLabel.Size = UDim2.new(1, -40, 1, 0) -- Beri jarak kiri-kanan biar gak nabrak tombol X
+    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    titleLabel.Size = UDim2.new(1, -40, 1, 0)
+    titleLabel.TextSize = 14  -- ✅ SIZE TETAP (NO PULSE!)
+    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
-    local baseSize = 14 -- Ukuran font normal
+    -- ✅ BUAT GRADIENT
+    local gradient = Instance.new("UIGradient")
+    gradient.Parent = titleLabel
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1919,32 +1922,18 @@ local function StartTitlePulse(titleLabel)
 
             local t = tick()
 
-            -- 1. WARNA STROBO (Sangat Cepat)
-            local hue = (t * 8) % 1
-            titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
+            local hue1 = (t * 0.5) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
+            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
 
-            -- 2. DENYUT JANTUNG (Menyentak tapi tidak meledak)
-            local pulse = math.abs(math.sin(t * 18)) -- Kecepatan denyut
-            -- Batasi pembesaran font max +5 pixel agar tidak keluar header
-            titleLabel.TextSize = baseSize + (pulse * 5) 
+            gradient.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
+                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
+            }
 
-            -- 3. GETARAN (SHAKE) - DIKONTROL
-            -- Kita hanya menggeser Offset (pixel), bukan Scale (persen)
-            local shakeX = math.random(-2, 2) -- Getar 2 pixel kiri-kanan
-            local shakeY = math.random(-2, 2) -- Getar 2 pixel atas-bawah
-            
-            -- Kunci posisi di tengah (0.5, 0.5) lalu tambah getaran
-            titleLabel.Position = UDim2.new(0.5, shakeX, 0.5, shakeY)
-
-            -- 4. MIRING-MIRING (ROTASI)
-            titleLabel.Rotation = math.random(-3, 3) -- Miring max 3 derajat
-
-            -- 5. STROKE (Garis Tepi) BERKEDIP
-            if titleLabel.TextStrokeTransparency ~= nil then
-                titleLabel.TextStrokeTransparency = 0
-                -- Warna stroke invers (kebalikan) dari warna teks biar sakit mata
-                titleLabel.TextStrokeColor3 = Color3.new(1 - titleLabel.TextColor3.R, 1 - titleLabel.TextColor3.G, 1 - titleLabel.TextColor3.B)
-            end
+            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
+            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
         end)
     end)
 
