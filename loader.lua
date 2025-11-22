@@ -2464,7 +2464,7 @@ function UpdateRecordList()
             
             -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -95, 0, 18)  -- ✅ FIXED: -95 instead of -90
+            nameBox.Size = UDim2.new(1, -105, 0, 18)  -- ✅ FIXED: -95 instead of -90
             nameBox.Position = UDim2.fromOffset(28, 5)
             nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
             nameBox.BorderSizePixel = 0
@@ -2485,7 +2485,7 @@ function UpdateRecordList()
             
             -- ✅ RAINBOW BORDER (THICKNESS = 1)
             local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 1  -- ✅ FIXED: 1 instead of 2
+            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
             nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
             nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             nameBoxStroke.Parent = nameBox
@@ -2494,7 +2494,7 @@ function UpdateRecordList()
             task.spawn(function()
                 local hue = (index - 1) / math.max(#RecordingOrder, 1)
                 while nameBoxStroke and nameBoxStroke.Parent do
-                    hue = (hue + 0.02) % 1
+                    hue = (hue + 0.05) % 1
                     nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
                     task.wait(0.03)
                 end
@@ -2503,7 +2503,7 @@ function UpdateRecordList()
             -- ✅ INFO LABEL (FIXED POSITION!)
             local infoLabel = Instance.new("TextLabel")
             infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
-            infoLabel.Position = UDim2.fromOffset(28, 25)
+            infoLabel.Position = UDim2.fromOffset(28, 15)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
