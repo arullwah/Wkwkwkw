@@ -2028,7 +2028,6 @@ end
 local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
-    -- Matikan koneksi lama
     if titlePulseConnection then
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
@@ -2036,16 +2035,22 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- ✅ SET POSISI TETAP (NO SHAKE!)
-    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
     titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     titleLabel.Size = UDim2.new(1, -40, 1, 0)
-    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
-    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
+    titleLabel.TextSize = 20
+    titleLabel.Rotation = 0
 
-    -- ✅ BUAT GRADIENT
     local gradient = Instance.new("UIGradient")
     gradient.Parent = titleLabel
+
+    local fullText = "ByaruL Recorder"
+    local currentIndex = 0
+    local typeSpeed = 0.1  -- Speed in seconds per character
+    local pauseAfterComplete = 2  -- Pause 2 seconds before restart
+    local lastUpdateTime = tick()
+    local isPaused = false
+    local pauseStartTime = 0
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -2054,20 +2059,41 @@ local function StartTitlePulse(titleLabel)
                 return
             end
 
-            local t = tick()
-
-            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
-            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
-            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
-
+            local now = tick()
+            
+            -- ✅ Rainbow gradient (always animate)
+            local hue1 = (now * 1.2) % 1
+            local hue2 = (hue1 + 0.3) % 1
+            
             gradient.Color = ColorSequence.new{
                 ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
                 ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
                 ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
             }
+            gradient.Offset = Vector2.new(math.sin(now * 2) * 0.5, 0)
 
-            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
-            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
+            -- ✅ Typewriter effect
+            if isPaused then
+                if now - pauseStartTime >= pauseAfterComplete then
+                    isPaused = false
+                    currentIndex = 0
+                    lastUpdateTime = now
+                end
+            else
+                if now - lastUpdateTime >= typeSpeed then
+                    currentIndex = currentIndex + 1
+                    
+                    if currentIndex > #fullText then
+                        isPaused = true
+                        pauseStartTime = now
+                        titleLabel.Text = fullText
+                    else
+                        titleLabel.Text = string.sub(fullText, 1, currentIndex)
+                    end
+                    
+                    lastUpdateTime = now
+                end
+            end
         end)
     end)
 
