@@ -878,19 +878,16 @@ local function PostProcessRecording(frames)
         end
     end
     
-    local newTimestamp = 0
-    for i = 1, #processed do
-        if i == 1 then
-            processed[i].Timestamp = 0
-        else
-            newTimestamp = newTimestamp + (1/60)
-            processed[i].Timestamp = newTimestamp
-        end
-    end
+    -- ✅ FIXED: JANGAN re-normalize timestamps!
+    -- Biarkan timestamp asli, cuma hapus frame idle
     
     print("✅ Smart aggressive: " .. #frames .. " → " .. #processed .. " frames")
-    if #processed > 0 then
-        print("   Compression ratio: " .. string.format("%.1f", (#frames / #processed)) .. "x")
+    if #processed > 0 and #frames > 0 then
+        local originalDuration = frames[#frames].Timestamp
+        local newDuration = processed[#processed].Timestamp
+        print("   Original duration: " .. string.format("%.2f", originalDuration) .. "s")
+        print("   New duration: " .. string.format("%.2f", newDuration) .. "s")
+        print("   Speed increase: " .. string.format("%.1f", (originalDuration / newDuration)) .. "x")
     end
     
     return processed
