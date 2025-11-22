@@ -2200,19 +2200,13 @@ local function ResumeStudioRecording()
                 end
             end
             
-            -- ✅ RESET PHYSICS COMPLETE
+            -- ✅ RESET PHYSICS
             if hum and hrp then
-                -- Zero ALL velocities
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                hrp.RotVelocity = Vector3.new(0, 0, 0)
-                
-                -- Reset humanoid
                 hum.PlatformStand = false
                 hum.Sit = false
-                hum.AutoRotate = true
                 
-                -- Force state sesuai last frame
                 if lastState == "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 elseif lastState == "Falling" then
@@ -2225,173 +2219,77 @@ local function ResumeStudioRecording()
                     hum:ChangeState(Enum.HumanoidStateType.Running)
                 end
                 
-                -- CRITICAL: Wait untuk state settle
-                task.wait(0.2)  -- ← Dari 0.1 → 0.2
+                task.wait(0.2)
             end
             
-            -- ✅ RE-APPLY exact last frame position
+            -- ✅ RE-APPLY exact position
             local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-            local exactCFrame = GetFrameCFrame(lastFrame)
-            hrp.CFrame = exactCFrame
+            hrp.CFrame = GetFrameCFrame(lastFrame)
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             
-            -- CRITICAL: Extra wait untuk physics settle
-            task.wait(0.25)  -- ← Dari 0.15 → 0.25
+            task.wait(0.3)  -- ← Wait untuk settle
             
-            -- ✅ AGGRESSIVE INTERPOLATION
+            -- ✅ ⭐ INI YANG BARU: CREATE TRANSITION FRAMES!
             if #StudioCurrentRecording.Frames > 0 then
+                -- Sample current state (setelah user gerak/diam)
                 local currentPos = hrp.Position
-                local lastPos = Vector3.new(lastFrame.Position[1], lastFrame.Position[2], lastFrame.Position[3])
-                local distance = (currentPos - lastPos).Magnitude
+                local currentCFrame = hrp.CFrame
+                local currentVelocity = hrp.AssemblyLinearVelocity
+                local currentState = GetCurrentMoveState(hum)
+                local currentWalkSpeed = hum and hum.WalkSpeed or 16
                 
-                -- ⚠️ ALWAYS interpolate (bahkan jarak 0.01 studs!)
-                if distance > 0.001 then  -- ← Threshold SANGAT KETAT!
-                    
-                    -- ✅ Dynamic lookahead berdasarkan STATE dan DISTANCE
-                    local baseLookahead
-                    
-                    -- Jump/Fall butuh LEBIH BANYAK frames
-                    if lastState == "Jumping" or lastState == "Falling" then
-                        baseLookahead = INTERPOLATION_LOOKAHEAD_JUMP or 24
+                -- Create "virtual next frame" dari posisi current
+                local nextFrame = {
+                    Position = {currentPos.X, currentPos.Y, currentPos.Z},
+                    LookVector = {currentCFrame.LookVector.X, currentCFrame.LookVector.Y, currentCFrame.LookVector.Z},
+                    UpVector = {currentCFrame.UpVector.X, currentCFrame.UpVector.Y, currentCFrame.UpVector.Z},
+                    Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                    MoveState = currentState,
+                    WalkSpeed = currentWalkSpeed,
+                    Timestamp = lastFrame.Timestamp + 0.1  -- Offset sedikit
+                }
+                
+                -- ✅ Hitung jumlah transition frames berdasarkan STATE CHANGE
+                local transitionCount = TRANSITION_FRAMES  -- Default 6
+                
+                -- Kalau state berubah = butuh lebih banyak transition!
+                if lastState ~= currentState then
+                    if lastState == "Jumping" or lastState == "Falling" or 
+                       currentState == "Jumping" or currentState == "Falling" then
+                        transitionCount = 12  -- ← Jump/Fall = 12 frames
                     else
-                        baseLookahead = INTERPOLATION_LOOKAHEAD or 16
+                        transitionCount = 8   -- ← State change lain = 8 frames
                     end
-                    
-                    -- Scale dengan jarak
-                    local dynamicLookahead
-                    if distance > 10 then
-                        dynamicLookahead = math.min(baseLookahead * 2, 40)
-                    elseif distance > 5 then
-                        dynamicLookahead = math.min(baseLookahead * 1.5, 30)
-                    elseif distance > 1 then
-                        dynamicLookahead = baseLookahead
-                    else
-                        dynamicLookahead = math.max(8, math.floor(baseLookahead * 0.5))
-                    end
-                    
-                    print("🔄 Interpolating: " .. dynamicLookahead .. " frames for distance " .. math.floor(distance * 100) / 100)
-                    
-                    -- ✅ SUPER SMOOTH INTERPOLATION
-                    for i = 1, dynamicLookahead do
-                        local rawAlpha = i / (dynamicLookahead + 1)
-                        
-                        -- ✅ SINE EASE (lebih gentle dari Cubic!)
-                        local alpha = -(math.cos(math.pi * rawAlpha) - 1) / 2
-                        
-                        -- Position lerp
-                        local interpPos = lastPos:Lerp(currentPos, alpha)
-                        
-                        -- ✅ LookVector: gunakan movement direction
-                        local lastLook = Vector3.new(
-                            lastFrame.LookVector[1], 
-                            lastFrame.LookVector[2], 
-                            lastFrame.LookVector[3]
-                        )
-                        
-                        local movementDir = (currentPos - lastPos)
-                        local horizontalDir = Vector3.new(movementDir.X, 0, movementDir.Z)
-                        
-                        local targetLook
-                        if horizontalDir.Magnitude > 0.01 then
-                            targetLook = horizontalDir.Unit
-                        else
-                            targetLook = lastLook
-                        end
-                        
-                        local interpLook = lastLook:Lerp(targetLook, alpha * 0.8).Unit  -- ← Slower rotation
-                        
-                        -- ✅ UpVector: preserve untuk Climbing, smooth untuk lainnya
-                        local lastUp = Vector3.new(
-                            lastFrame.UpVector[1], 
-                            lastFrame.UpVector[2], 
-                            lastFrame.UpVector[3]
-                        )
-                        
-                        local targetUp
-                        if lastState == "Climbing" then
-                            targetUp = lastUp
-                        else
-                            targetUp = Vector3.new(0, 1, 0)
-                        end
-                        
-                        local interpUp = lastUp:Lerp(targetUp, alpha).Unit
-                        
-                        -- ✅ VELOCITY: Smooth acceleration
-                        local lastVel = Vector3.new(
-                            lastFrame.Velocity[1], 
-                            lastFrame.Velocity[2], 
-                            lastFrame.Velocity[3]
-                        )
-                        
-                        -- Expected velocity ke target
-                        local distanceToTarget = (currentPos - interpPos).Magnitude
-                        local timeToTarget = (dynamicLookahead - i + 1) / RECORDING_FPS
-                        local expectedSpeed = distanceToTarget / timeToTarget
-                        
-                        local velocityDirection = (currentPos - interpPos)
-                        if velocityDirection.Magnitude > 0.01 then
-                            velocityDirection = velocityDirection.Unit
-                        else
-                            velocityDirection = Vector3.new(0, 0, 0)
-                        end
-                        
-                        local expectedVel = velocityDirection * expectedSpeed
-                        
-                        -- Blend old → expected velocity
-                        local interpVel = lastVel:Lerp(expectedVel, alpha)
-                        
-                        -- ✅ STATE-AWARE Y VELOCITY
-                        if lastState == "Grounded" or lastState == "Running" then
-                            -- Zero Y untuk smooth di tanah
-                            interpVel = Vector3.new(interpVel.X, 0, interpVel.Z)
-                            
-                        elseif lastState == "Jumping" then
-                            -- Preserve upward velocity, tapi gradually decay
-                            local upwardVel = math.max(interpVel.Y, 10 * (1 - alpha))
-                            interpVel = Vector3.new(interpVel.X, upwardVel, interpVel.Z)
-                            
-                        elseif lastState == "Falling" then
-                            -- Gradual downward velocity
-                            local downwardVel = math.min(interpVel.Y, -5 * alpha)
-                            interpVel = Vector3.new(interpVel.X, downwardVel, interpVel.Z)
-                            
-                        elseif lastState == "Climbing" then
-                            -- Preserve climbing velocity
-                            interpVel = lastVel:Lerp(expectedVel, alpha * 0.5)
-                        end
-                        
-                        -- ✅ WalkSpeed smooth lerp
-                        local currentWS = hum and hum.WalkSpeed or 16
-                        local interpWS = lastFrame.WalkSpeed + (currentWS - lastFrame.WalkSpeed) * alpha
-                        
-                        -- ✅ SEAMLESS TIMESTAMP
-                        -- Overlap sedikit untuk avoid gap
-                        local baseTime = lastFrame.Timestamp
-                        local timePerFrame = 1 / RECORDING_FPS
-                        local overlapFactor = 0.95  -- 5% overlap
-                        local frameTime = baseTime + (i * timePerFrame * overlapFactor)
-                        
-                        -- ✅ Insert interpolated frame
-                        table.insert(StudioCurrentRecording.Frames, {
-                            Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                            LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
-                            UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
-                            Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                            MoveState = lastState,
-                            WalkSpeed = interpWS,
-                            Timestamp = frameTime,
-                            IsInterpolated = true
-                        })
-                    end
-                    
-                    print("✅ Added " .. dynamicLookahead .. " interpolation frames")
-                    
-                    -- Update StartTime
-                    StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 else
-                    print("⏭️ Skip interpolation (distance too small: " .. distance .. ")")
+                    -- Same state, cek velocity change
+                    local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
+                    local currentVel = Vector3.new(nextFrame.Velocity[1], nextFrame.Velocity[2], nextFrame.Velocity[3])
+                    local velDiff = (currentVel - lastVel).Magnitude
+                    
+                    if velDiff > 10 then
+                        transitionCount = 8   -- ← Big velocity change
+                    elseif velDiff > 3 then
+                        transitionCount = 6   -- ← Medium change
+                    else
+                        transitionCount = 4   -- ← Small change
+                    end
                 end
+                
+                print("🔄 Creating " .. transitionCount .. " transition frames (" .. lastState .. " → " .. currentState .. ")")
+                
+                -- ✅ USE CreateSmoothTransition! (fungsi yang sudah ada!)
+                local transitionFrames = CreateSmoothTransition(lastFrame, nextFrame, transitionCount)
+                
+                -- ✅ Insert transition frames
+                for _, tFrame in ipairs(transitionFrames) do
+                    table.insert(StudioCurrentRecording.Frames, tFrame)
+                end
+                
+                print("✅ Added " .. #transitionFrames .. " transition frames")
+                
+                -- Update StartTime
+                StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
             end
             
             -- ✅ Resume recording
