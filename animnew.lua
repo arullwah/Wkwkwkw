@@ -34,7 +34,7 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.05
+local TIMELINE_STEP_SECONDS = 0.15
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -1807,7 +1807,7 @@ end
 local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
-    -- Matikan koneksi lama jika ada
+    -- Matikan koneksi lama
     if titlePulseConnection then
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
@@ -1815,56 +1815,48 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- Simpan posisi awal agar teks tidak "hanyut" saat bergetar
-    local originalPosition = titleLabel.Position
-    -- Pastikan anchor point di tengah agar getaran dan rotasi seimbang
-    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-    -- Sesuaikan posisi karena perubahan anchor point (opsional, sesuaikan jika perlu)
-    if originalPosition.X.Scale == 0 then 
-        originalPosition = UDim2.new(0.5, 0, originalPosition.Y.Scale, originalPosition.Y.Offset)
-    end
+    -- [[ PERBAIKAN POSISI ]]
+    -- Kita paksa TextLabel untuk berpusat tepat di tengah Header
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
+    titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Posisi tepat di tengah
+    titleLabel.Size = UDim2.new(1, -40, 1, 0) -- Beri jarak kiri-kanan biar gak nabrak tombol X
+
+    local baseSize = 14 -- Ukuran font normal
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
             if not titleLabel or not titleLabel.Parent then
-                if titlePulseConnection then
-                    titlePulseConnection:Disconnect()
-                    titlePulseConnection = nil
-                end
+                if titlePulseConnection then titlePulseConnection:Disconnect() end
                 return
             end
 
             local t = tick()
 
-            -- 1. EFEK WARNA STROBO (Sangat Cepat)
-            local hue = (t * 4) % 1 -- Kecepatan 4x
+            -- 1. WARNA STROBO (Sangat Cepat)
+            local hue = (t * 8) % 1
             titleLabel.TextColor3 = Color3.fromHSV(hue, 1, 1)
 
-            -- 2. UKURAN MENYENTAK (Hard Pulse)
-            -- math.abs(sin) membuat gelombang tajam seperti detak jantung kencang
-            local pulse = math.abs(math.sin(t * 20)) -- Frekuensi 20 (sangat cepat)
-            local baseSize = 14
-            local sizeAmplitude = 8 -- Ukuran membesar sampai +8
-            titleLabel.TextSize = baseSize + (pulse * sizeAmplitude)
+            -- 2. DENYUT JANTUNG (Menyentak tapi tidak meledak)
+            local pulse = math.abs(math.sin(t * 18)) -- Kecepatan denyut
+            -- Batasi pembesaran font max +5 pixel agar tidak keluar header
+            titleLabel.TextSize = baseSize + (pulse * 5) 
 
-            -- 3. EFEK GEMPA & ROTASI (Chaos)
-            local shakeX = math.random(-4, 4) -- Getar Horizontal
-            local shakeY = math.random(-4, 4) -- Getar Vertikal
-            local rotate = math.random(-5, 5) -- Miring acak -5 sampai 5 derajat
+            -- 3. GETARAN (SHAKE) - DIKONTROL
+            -- Kita hanya menggeser Offset (pixel), bukan Scale (persen)
+            local shakeX = math.random(-2, 2) -- Getar 2 pixel kiri-kanan
+            local shakeY = math.random(-2, 2) -- Getar 2 pixel atas-bawah
+            
+            -- Kunci posisi di tengah (0.5, 0.5) lalu tambah getaran
+            titleLabel.Position = UDim2.new(0.5, shakeX, 0.5, shakeY)
 
-            titleLabel.Position = UDim2.new(
-                originalPosition.X.Scale, 
-                originalPosition.X.Offset + shakeX, 
-                originalPosition.Y.Scale, 
-                originalPosition.Y.Offset + shakeY
-            )
-            titleLabel.Rotation = rotate
+            -- 4. MIRING-MIRING (ROTASI)
+            titleLabel.Rotation = math.random(-3, 3) -- Miring max 3 derajat
 
-            -- 4. STROKE BERKEDIP KONTRAS
+            -- 5. STROKE (Garis Tepi) BERKEDIP
             if titleLabel.TextStrokeTransparency ~= nil then
                 titleLabel.TextStrokeTransparency = 0
-                -- Warna stroke kebalikan dari warna teks
-                titleLabel.TextStrokeColor3 = Color3.fromHSV((hue + 0.5) % 1, 1, 1) 
+                -- Warna stroke invers (kebalikan) dari warna teks biar sakit mata
+                titleLabel.TextStrokeColor3 = Color3.new(1 - titleLabel.TextColor3.R, 1 - titleLabel.TextColor3.G, 1 - titleLabel.TextColor3.B)
             end
         end)
     end)
@@ -1899,35 +1891,50 @@ local function ApplyFrameToCharacter(frame)
         
         if not hrp or not hum then return end
         
-        task.spawn(function()
-            local targetCFrame = GetFrameCFrame(frame)
-            hrp.CFrame = targetCFrame
+        local moveState = frame.MoveState
+        
+        -- ✅ SET STATE DULU SEBELUM APPLY CFRAME!
+        if hum then
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false
+            end
+            
+            -- ✅ Apply state SEBELUM teleport
+            if moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+                hum.WalkSpeed = 0  -- Lock movement saat timeline mode
+            elseif moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                hum.WalkSpeed = 0
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                hum.WalkSpeed = 0
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                hum.WalkSpeed = 0
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+                hum.WalkSpeed = 0
+            end
+        end
+        
+        -- ✅ WAIT untuk state apply
+        task.wait(0.05)
+        
+        -- ✅ BARU apply CFrame & velocity
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- ✅ Jangan reset velocity kalau climbing!
+        if moveState == "Climbing" then
+            -- Biarkan climbing physics jalan natural
+            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        else
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            
-            if hum then
-                hum.WalkSpeed = 0
-                if ShiftLockEnabled then
-                    hum.AutoRotate = false
-                else
-                    hum.AutoRotate = false
-                end
-                
-                local moveState = frame.MoveState
-                if moveState == "Climbing" then
-                    hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    hum.PlatformStand = false
-                elseif moveState == "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif moveState == "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif moveState == "Swimming" then
-                    hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                else
-                    hum:ChangeState(Enum.HumanoidStateType.Running)
-                end
-            end
-        end)
+        end
     end)
 end
 
