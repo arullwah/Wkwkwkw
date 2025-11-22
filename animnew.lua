@@ -1195,11 +1195,17 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     end
 
-    playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        SafeCall(function()
-            if not IsPlaying then
-                playbackConnection:Disconnect()
-                RestoreFullUserControl()
+    -- ========= FIXED PLAYBACK CONNECTION =========
+playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
+    SafeCall(function()
+        if not IsPlaying then
+            -- ✅ SAFE DISCONNECT - simpan reference lokal
+            local conn = playbackConnection
+            playbackConnection = nil
+            if conn then
+                conn:Disconnect()
+            end
+            RestoreFullUserControl()
                 
                 -- ✅ ShiftLock tetap sesuai state user
                 -- TIDAK restore, karena sudah persistent
