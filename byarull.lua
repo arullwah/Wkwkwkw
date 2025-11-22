@@ -36,7 +36,7 @@ local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.05
 local JUMP_VELOCITY_THRESHOLD = 10
-local STATE_CHANGE_COOLDOWN = 0.1
+local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -1894,7 +1894,6 @@ end
 local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
-    -- Matikan koneksi lama
     if titlePulseConnection then
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
@@ -1902,16 +1901,39 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- ✅ SET POSISI TETAP (NO SHAKE!)
-    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
+    -- ✅ Clear existing text
+    titleLabel.Text = ""
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
     titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     titleLabel.Size = UDim2.new(1, -40, 1, 0)
-    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
-    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
-    -- ✅ BUAT GRADIENT
-    local gradient = Instance.new("UIGradient")
-    gradient.Parent = titleLabel
+    -- ✅ Create container for individual letters
+    local letterContainer = Instance.new("Frame")
+    letterContainer.Size = UDim2.new(1, 0, 1, 0)
+    letterContainer.BackgroundTransparency = 1
+    letterContainer.Parent = titleLabel
+
+    local fullText = "ByaruL Recorder"
+    local letters = {}
+    local letterWidth = 15  -- Width per character
+
+    -- ✅ Create individual letter labels
+    for i = 1, #fullText do
+        local char = string.sub(fullText, i, i)
+        
+        local letterLabel = Instance.new("TextLabel")
+        letterLabel.Size = UDim2.fromOffset(letterWidth, 32)
+        letterLabel.Position = UDim2.fromOffset((i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2), 0)
+        letterLabel.BackgroundTransparency = 1
+        letterLabel.Text = char
+        letterLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        letterLabel.Font = Enum.Font.GothamBold
+        letterLabel.TextSize = 20
+        letterLabel.TextStrokeTransparency = 0.5
+        letterLabel.Parent = letterContainer
+        
+        table.insert(letters, letterLabel)
+    end
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1920,26 +1942,26 @@ local function StartTitlePulse(titleLabel)
                 return
             end
 
-            local t = tick()
-
-            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
-            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
-            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
-
-            gradient.Color = ColorSequence.new{
-                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
-                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
-            }
-
-            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
-            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
+            local now = tick()
+            
+            -- ✅ Animate each letter
+            for i, letter in ipairs(letters) do
+                -- Wave motion
+                local offset = math.sin(now * 3 + i * 0.5) * 8  -- Amplitude 8 pixels
+                letter.Position = UDim2.fromOffset(
+                    (i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2),
+                    offset
+                )
+                
+                -- Rainbow color per letter
+                local hue = (now * 0.5 + i * 0.05) % 1
+                letter.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            end
         end)
     end)
 
     AddConnection(titlePulseConnection)
 end
-
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
@@ -3392,8 +3414,12 @@ local uiSuccess, uiError = pcall(function()
 
             local cam = workspace.CurrentCamera
             local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
-            newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
-            newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
+            local margin = 4
+local btnWidth = MiniButton.AbsoluteSize.X
+local btnHeight = MiniButton.AbsoluteSize.Y
+
+newX = math.clamp(newX, -btnWidth + margin, vx - margin)
+newY = math.clamp(newY, -btnHeight + margin, vy - margin)
 
             MiniButton.Position = UDim2.fromOffset(newX, newY)
         end)
