@@ -1,3 +1,5 @@
+
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -33,13 +35,8 @@ local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.15
-
--- ⭐ PERFECT JUMP/FALL DETECTION SYSTEM dari script kedua
-local JUMP_VELOCITY_THRESHOLD = 12
-local FALL_VELOCITY_THRESHOLD = -8
-local STATE_CHANGE_COOLDOWN = 0.08
-local CLIMB_VELOCITY_THRESHOLD = 5
-
+local JUMP_VELOCITY_THRESHOLD = 10
+local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
 local PLAYBACK_FIXED_TIMESTEP = 1 / 60
@@ -120,13 +117,8 @@ local prePauseAutoRotate = true
 local prePauseJumpPower = 50
 local prePausePlatformStand = false
 local prePauseSit = false
-
--- ⭐ IMPROVED STATE MANAGEMENT SYSTEM
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
-local lastAppliedVelocityY = 0
-local stateChangeCooldown = 0
-
 local IsAutoLoopPlaying = false
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
@@ -329,6 +321,7 @@ local function RemoveShiftLockIndicator()
     end)
 end
 
+-- ⭐ FIXED: ShiftLock yang PERSISTENT selama playback
 local function ApplyVisualShiftLock()
     if not ShiftLockEnabled then return end
     if not player.Character then return end
@@ -341,6 +334,7 @@ local function ApplyVisualShiftLock()
         
         if not humanoid or not hrp or not camera then return end
         
+        -- ✅ APPLY SHIFT LOCK bahkan saat playback
         humanoid.AutoRotate = false
         
         local cameraCFrame = camera.CFrame
@@ -433,6 +427,9 @@ local function ToggleVisibleShiftLock()
     end
 end
 
+-- ⭐ REMOVED: SaveShiftLockState & RestoreShiftLockState
+-- ShiftLock sekarang PERSISTENT, tidak perlu save/restore
+
 -- ========= INFINITE JUMP =========
 
 local function EnableInfiniteJump()
@@ -515,6 +512,7 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
+            -- ✅ RESPECT ShiftLock state
             if ShiftLockEnabled then
                 humanoid.AutoRotate = false
             else
@@ -556,61 +554,11 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= PERFECT JUMP/FALL/CLIMB SYSTEM =========
-
-local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    -- ⭐ VELOCITY-BASED STATE CORRECTION (RAHASIA SUKSES!)
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < FALL_VELOCITY_THRESHOLD
-    local isClimbingByVelocity = math.abs(frameVelocity.Y) > CLIMB_VELOCITY_THRESHOLD and moveState == "Climbing"
-    
-    -- Priority: Velocity detection > Recorded state
-    if isJumpingByVelocity and moveState ~= "Jumping" then
-        moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" then
-        moveState = "Falling"
-    end
-    
-    -- Apply state dengan cooldown untuk menghindari spam
-    if moveState == "Jumping" then
-        if lastState ~= "Jumping" or (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            return "Jumping", currentTime
-        end
-    elseif moveState == "Falling" then
-        if lastState ~= "Falling" or (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            return "Falling", currentTime
-        end
-    elseif moveState == "Climbing" then
-        if lastState ~= "Climbing" or (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            hum:ChangeState(Enum.HumanoidStateType.Climbing)
-            hum.PlatformStand = false
-            hum.AutoRotate = false
-            return "Climbing", currentTime
-        end
-    else
-        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            if moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-            return moveState, currentTime
-        end
-    end
-    
-    return lastState, lastStateTime
-end
-
 -- ========= SMOOTH VELOCITY FUNCTION =========
 local function GetFrameVelocity(frame)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
+    -- ✅ LANGSUNG APPLY TANPA FILTERING
     return Vector3.new(
         frame.Velocity[1] * VELOCITY_SCALE,
         frame.Velocity[2] * VELOCITY_Y_SCALE, 
@@ -1149,7 +1097,7 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- ⭐ HYBRID: Direct Frame Application dengan PERFECT STATE SYSTEM
+-- ⭐ HYBRID: Direct Frame Application (NO State Management!)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1178,10 +1126,21 @@ local function ApplyFrameDirect(frame)
                 hum.AutoRotate = false -- Still false during playback
             end
             
-            -- ⭐ PERFECT STATE APPLICATION dengan velocity-based detection
-            lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                hum, frame, lastPlaybackState, lastStateChangeTime
-            )
+            -- ✅ Direct state application (NO cooldown!)
+            local moveState = frame.MoveState
+            
+            if moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
         end
     end)
 end
@@ -1202,10 +1161,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackAccumulator = 0
     previousFrameData = nil
     
-    -- ⭐ RESET STATE TRACKING
-    lastPlaybackState = nil
-    lastStateChangeTime = 0
-    
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
     local currentPos = hrp.Position
@@ -1225,10 +1180,14 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
+    lastPlaybackState = nil
+    lastStateChangeTime = 0
 
     SaveHumanoidState()
     
     -- ✅ ShiftLock TIDAK dimatikan saat playback!
+    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
+    
     PlaySound("Toggle")
     
     if PlayBtnControl then
@@ -1236,16 +1195,14 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     end
 
-    -- ========= FIXED PLAYBACK CONNECTION =========
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                local conn = playbackConnection
-                playbackConnection = nil
-                if conn then
-                    conn:Disconnect()
-                end
+                playbackConnection:Disconnect()
                 RestoreFullUserControl()
+                
+                -- ✅ ShiftLock tetap sesuai state user
+                -- TIDAK restore, karena sudah persistent
                 
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
@@ -1337,7 +1294,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                -- ⭐ HYBRID: Apply frame langsung dengan PERFECT STATE SYSTEM
+                -- ⭐ HYBRID: Apply frame directly
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
@@ -1504,6 +1461,8 @@ local function StartAutoLoopAll()
             playbackConnection = nil
         end
     end
+    
+    -- ✅ ShiftLock TIDAK dimatikan saat auto loop!
     
     PlaySound("Toggle")
     
@@ -1741,7 +1700,7 @@ local function StartAutoLoopAll()
                         if not playbackCompleted then
                             local frame = recordingToPlay[currentFrame]
                             if frame then
-                                -- ⭐ HYBRID: Apply frame langsung dengan PERFECT STATE SYSTEM
+                                -- ⭐ HYBRID: Apply frame directly
                                 ApplyFrameDirect(frame)
                             end
                         end
@@ -1903,18 +1862,14 @@ local function ApplyFrameToCharacter(frame)
                     hum.AutoRotate = false
                 end
                 
-                -- ⭐ GUNAKAN PERFECT STATE SYSTEM di studio mode juga
                 local moveState = frame.MoveState
-                local frameVelocity = GetFrameVelocity(frame)
-                
-                -- Velocity-based correction
-                if frameVelocity.Y > JUMP_VELOCITY_THRESHOLD then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                elseif frameVelocity.Y < FALL_VELOCITY_THRESHOLD then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                elseif moveState == "Climbing" then
+                if moveState == "Climbing" then
                     hum:ChangeState(Enum.HumanoidStateType.Climbing)
                     hum.PlatformStand = false
+                elseif moveState == "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                elseif moveState == "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
                 elseif moveState == "Swimming" then
                     hum:ChangeState(Enum.HumanoidStateType.Swimming)
                 else
@@ -3380,10 +3335,10 @@ task.spawn(function()
 end)
 
 print("✅ ByaruL Recorder v3.3 HYBRID - Loaded Successfully!")
-print("⭐ UPGRADED FEATURES:")
-print("   - PERFECT Jump/Fall/Climb Detection (Velocity-Based)")
-print("   - State Change Cooldown System")
-print("   - All Original Features Preserved")
-print("   - Smooth Movement on Uneven Terrain")
+print("⭐ Features:")
+print("   - Pure Velocity Playback (NO filtering)")
+print("   - Direct State Application (NO cooldown)")
 print("   - Persistent ShiftLock System")
-print("   - Pure Velocity Playback")
+print("   - Perfect Jump/Fall Detection")
+print("   - Smooth on Uneven Terrain")
+print("   - All Original Features Preserved")
