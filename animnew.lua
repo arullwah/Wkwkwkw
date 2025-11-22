@@ -809,7 +809,12 @@ local function PostProcessRecording(frames)
     
     local processed = {}
     local IDLE_THRESHOLD = 0.5
-    local lastKeptIndex = 0
+    local MIN_IDLE_TO_COMPRESS = 0.5  -- Idle > 0.5s akan di-compress
+    local COMPRESSED_IDLE_DURATION = 0.3  -- Jadi 0.3s (natural pause)
+    
+    local idleStartIndex = nil
+    local idleStartTime = nil
+    local timeOffset = 0  -- Track berapa banyak waktu yang di-compress
     
     for i = 1, #frames do
         local currentFrame = frames[i]
@@ -817,77 +822,114 @@ local function PostProcessRecording(frames)
         local currentSpeed = currentVel.Magnitude
         local currentState = currentFrame.MoveState
         
-        local isMoving = currentSpeed >= IDLE_THRESHOLD
-        local isImportantFrame = false
+        local isIdle = currentSpeed < IDLE_THRESHOLD
         
-        if isMoving then
-            isImportantFrame = true
-        end
+        -- ✅ CREATE adjusted frame dengan timestamp baru
+        local adjustedFrame = {
+            Position = currentFrame.Position,
+            LookVector = currentFrame.LookVector,
+            UpVector = currentFrame.UpVector,
+            Velocity = currentFrame.Velocity,
+            MoveState = currentFrame.MoveState,
+            WalkSpeed = currentFrame.WalkSpeed,
+            Timestamp = currentFrame.Timestamp - timeOffset
+        }
         
-        if i > 1 then
-            local prevFrame = frames[i - 1]
-            local prevState = prevFrame.MoveState
-            
-            if currentState ~= prevState then
-                if currentState == "Jumping" or 
-                   currentState == "Falling" or 
-                   currentState == "Climbing" or 
-                   currentState == "Swimming" then
-                    isImportantFrame = true
-                    print("🔄 State change: " .. prevState .. " → " .. currentState)
+        if isIdle then
+            -- ✅ DETECT idle start
+            if not idleStartIndex then
+                idleStartIndex = i
+                idleStartTime = currentFrame.Timestamp
+                table.insert(processed, adjustedFrame)  -- Keep first idle frame
+            end
+        else
+            -- ✅ DETECT idle end (mulai gerak lagi)
+            if idleStartIndex then
+                local idleDuration = currentFrame.Timestamp - idleStartTime
+                
+                -- ⚠️ COMPRESS idle jika > threshold
+                if idleDuration > MIN_IDLE_TO_COMPRESS then
+                    local timeToRemove = idleDuration - COMPRESSED_IDLE_DURATION
+                    timeOffset = timeOffset + timeToRemove
+                    
+                    print("⏩ Compressed idle: " .. string.format("%.2f", idleDuration) .. "s → " .. string.format("%.2f", COMPRESSED_IDLE_DURATION) .. "s")
+                    
+                    -- ✅ Adjust timestamp untuk frame ini
+                    adjustedFrame.Timestamp = currentFrame.Timestamp - timeOffset
                 end
                 
-                if currentState == "Jumping" and lastKeptIndex > 0 then
-                    if i > 1 and #processed > 0 then
-                        local alreadyAdded = false
-                        if processed[#processed].Timestamp == prevFrame.Timestamp then
-                            alreadyAdded = true
-                        end
+                idleStartIndex = nil
+                idleStartTime = nil
+            end
+            
+            -- ✅ Check state changes untuk Jump/Climb
+            if i > 1 then
+                local prevFrame = frames[i - 1]
+                local prevState = prevFrame.MoveState
+                
+                if currentState ~= prevState then
+                    if currentState == "Jumping" or 
+                       currentState == "Falling" or 
+                       currentState == "Climbing" or 
+                       currentState == "Swimming" then
+                        print("🔄 State change: " .. prevState .. " → " .. currentState)
                         
-                        if not alreadyAdded then
-                            table.insert(processed, prevFrame)
-                            print("⬆️ Added jump prep frame")
+                        -- ✅ Add prep frame jika jump
+                        if currentState == "Jumping" and #processed > 0 then
+                            local lastProcessed = processed[#processed]
+                            if lastProcessed.Timestamp ~= (prevFrame.Timestamp - timeOffset) then
+                                table.insert(processed, {
+                                    Position = prevFrame.Position,
+                                    LookVector = prevFrame.LookVector,
+                                    UpVector = prevFrame.UpVector,
+                                    Velocity = prevFrame.Velocity,
+                                    MoveState = prevFrame.MoveState,
+                                    WalkSpeed = prevFrame.WalkSpeed,
+                                    Timestamp = prevFrame.Timestamp - timeOffset
+                                })
+                                print("⬆️ Added jump prep frame")
+                            end
                         end
                     end
                 end
             end
-        end
-        
-        if i > 1 and i < #frames then
-            local prevVel = Vector3.new(frames[i-1].Velocity[1], frames[i-1].Velocity[2], frames[i-1].Velocity[3])
-            local nextVel = Vector3.new(frames[i+1].Velocity[1], frames[i+1].Velocity[2], frames[i+1].Velocity[3])
             
-            if currentSpeed < IDLE_THRESHOLD and nextVel.Y > 10 then
-                isImportantFrame = true
-                print("⬆️ Pre-jump frame detected")
+            -- ✅ Detect pre-jump dan landing
+            if i > 1 and i < #frames then
+                local prevVel = Vector3.new(frames[i-1].Velocity[1], frames[i-1].Velocity[2], frames[i-1].Velocity[3])
+                local nextVel = Vector3.new(frames[i+1].Velocity[1], frames[i+1].Velocity[2], frames[i+1].Velocity[3])
+                
+                if currentSpeed < IDLE_THRESHOLD and nextVel.Y > 10 then
+                    print("⬆️ Pre-jump detected")
+                end
+                
+                if prevVel.Y > 5 and currentVel.Y < 1 then
+                    print("⬇️ Landing detected")
+                end
             end
             
-            if prevVel.Y > 5 and currentVel.Y < 1 then
-                isImportantFrame = true
-                print("⬇️ Landing frame detected")
-            end
-        end
-        
-        if i == 1 or i == #frames then
-            isImportantFrame = true
-        end
-        
-        if isImportantFrame then
-            table.insert(processed, currentFrame)
-            lastKeptIndex = i
+            table.insert(processed, adjustedFrame)
         end
     end
     
-    -- ✅ FIXED: JANGAN re-normalize timestamps!
-    -- Biarkan timestamp asli, cuma hapus frame idle
+    -- ✅ Handle idle di akhir recording
+    if idleStartIndex then
+        local idleDuration = frames[#frames].Timestamp - idleStartTime
+        if idleDuration > MIN_IDLE_TO_COMPRESS then
+            local timeToRemove = idleDuration - COMPRESSED_IDLE_DURATION
+            timeOffset = timeOffset + timeToRemove
+            print("⏩ Compressed idle at end: " .. string.format("%.2f", idleDuration) .. "s → " .. string.format("%.2f", COMPRESSED_IDLE_DURATION) .. "s")
+        end
+    end
     
-    print("✅ Smart aggressive: " .. #frames .. " → " .. #processed .. " frames")
+    print("✅ Smart compression: " .. #frames .. " → " .. #processed .. " frames")
     if #processed > 0 and #frames > 0 then
         local originalDuration = frames[#frames].Timestamp
         local newDuration = processed[#processed].Timestamp
-        print("   Original duration: " .. string.format("%.2f", originalDuration) .. "s")
-        print("   New duration: " .. string.format("%.2f", newDuration) .. "s")
-        print("   Speed increase: " .. string.format("%.1f", (originalDuration / newDuration)) .. "x")
+        local timeSaved = originalDuration - newDuration
+        print("   Original: " .. string.format("%.2f", originalDuration) .. "s")
+        print("   Compressed: " .. string.format("%.2f", newDuration) .. "s")
+        print("   Time saved: " .. string.format("%.2f", timeSaved) .. "s")
     end
     
     return processed
