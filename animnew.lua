@@ -49,7 +49,7 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 16  -- Untuk semua state
+local INTERPOLATION_LOOKAHEAD = 1.5  -- Untuk semua state
 local INTERPOLATION_LOOKAHEAD_JUMP = 24  -- Khusus Jump/Fall (lebih banyak!)
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
