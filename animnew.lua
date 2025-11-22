@@ -34,7 +34,7 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.05
+local TIMELINE_STEP_SECONDS = 0.15
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -523,7 +523,20 @@ local function RestoreFullUserControl()
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            -- ✅ PRESERVE state apapun yang sedang aktif!
+            local currentState = humanoid:GetState()
+            local preserveStates = {
+                [Enum.HumanoidStateType.Climbing] = true,
+                [Enum.HumanoidStateType.Swimming] = true,
+                [Enum.HumanoidStateType.Jumping] = true,
+                [Enum.HumanoidStateType.Freefall] = true
+            }
+            
+            -- ✅ Hanya restore ke Running kalau state TIDAK perlu di-preserve
+            if not preserveStates[currentState] then
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
             
             if ShiftLockEnabled then
                 humanoid.CameraOffset = ShiftLockCameraOffset
@@ -537,8 +550,14 @@ local function RestoreFullUserControl()
         end
         
         if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            -- ✅ Reset velocity kecuali kalau sedang Climbing
+            if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Climbing then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            else
+                -- Biarkan climbing velocity tetap
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
         end
     end)
 end
@@ -3401,12 +3420,3 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
-
-print("✅ ByaruL Recorder v3.3 HYBRID - Loaded Successfully!")
-print("⭐ Features:")
-print("   - Pure Velocity Playback (NO filtering)")
-print("   - Direct State Application (NO cooldown)")
-print("   - Persistent ShiftLock System")
-print("   - Perfect Jump/Fall Detection")
-print("   - Smooth on Uneven Terrain")
-print("   - All Original Features Preserved")
