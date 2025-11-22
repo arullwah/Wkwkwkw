@@ -50,6 +50,9 @@ local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 4
+local MOVING_THRESHOLD = 1.0
+local TRANSITION_FRAMES_DECEL = 8
+local TRANSITION_FRAMES_ACCEL = 8
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -799,6 +802,125 @@ local function FindNearestFrame(recording, position)
         end
     end
     return nearestFrame, nearestDistance
+end
+
+-- ⭐⭐⭐ TAMBAHKAN FUNGSI BARU DI SINI ⭐⭐⭐
+-- ✅ POST-PROCESS: Add smooth decel/accel transitions
+local function PostProcessRecording(frames)
+    if not frames or #frames < 3 then return frames end
+    
+    local processed = {}
+    local MOVING_THRESHOLD = 1.0  -- Velocity > 1.0 = moving
+    local TRANSITION_FRAMES_DECEL = 4  -- 4 frames untuk slowdown
+    local TRANSITION_FRAMES_ACCEL = 4  -- 4 frames untuk speedup
+    
+    for i = 1, #frames do
+        local currentFrame = frames[i]
+        table.insert(processed, currentFrame)
+        
+        -- Cek transisi ke frame berikutnya
+        if i < #frames then
+            local nextFrame = frames[i + 1]
+            
+            local currentVel = Vector3.new(currentFrame.Velocity[1], currentFrame.Velocity[2], currentFrame.Velocity[3])
+            local nextVel = Vector3.new(nextFrame.Velocity[1], nextFrame.Velocity[2], nextFrame.Velocity[3])
+            
+            local currentSpeed = currentVel.Magnitude
+            local nextSpeed = nextVel.Magnitude
+            
+            local isMoving = currentSpeed > MOVING_THRESHOLD
+            local nextIsMoving = nextSpeed > MOVING_THRESHOLD
+            
+            -- ✅ DETECT: Moving → Idle (DECELERATION)
+            if isMoving and not nextIsMoving then
+                local transitionCount = TRANSITION_FRAMES_DECEL
+                
+                print("🔻 Decel transition: " .. math.floor(currentSpeed) .. " → 0")
+                
+                for j = 1, transitionCount do
+                    local alpha = j / (transitionCount + 1)
+                    
+                    -- ✅ EASE OUT CUBIC (smooth deceleration)
+                    local easeAlpha = 1 - math.pow(1 - alpha, 3)
+                    
+                    local currentPos = Vector3.new(currentFrame.Position[1], currentFrame.Position[2], currentFrame.Position[3])
+                    local nextPos = Vector3.new(nextFrame.Position[1], nextFrame.Position[2], nextFrame.Position[3])
+                    local interpPos = currentPos:Lerp(nextPos, easeAlpha)
+                    
+                    local currentLook = Vector3.new(currentFrame.LookVector[1], currentFrame.LookVector[2], currentFrame.LookVector[3])
+                    local nextLook = Vector3.new(nextFrame.LookVector[1], nextFrame.LookVector[2], nextFrame.LookVector[3])
+                    local interpLook = currentLook:Lerp(nextLook, alpha).Unit
+                    
+                    local currentUp = Vector3.new(currentFrame.UpVector[1], currentFrame.UpVector[2], currentFrame.UpVector[3])
+                    local interpUp = currentUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
+                    
+                    -- ✅ SMOOTH velocity deceleration
+                    local interpVel = currentVel:Lerp(nextVel, easeAlpha)
+                    
+                    local interpWS = currentFrame.WalkSpeed + (nextFrame.WalkSpeed - currentFrame.WalkSpeed) * easeAlpha
+                    
+                    local timeGap = nextFrame.Timestamp - currentFrame.Timestamp
+                    local interpTime = currentFrame.Timestamp + (timeGap * alpha * 0.5)  -- First half of gap
+                    
+                    table.insert(processed, {
+                        Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                        LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
+                        UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
+                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                        MoveState = currentFrame.MoveState,
+                        WalkSpeed = interpWS,
+                        Timestamp = interpTime,
+                        IsDecelTransition = true
+                    })
+                end
+            
+            -- ✅ DETECT: Idle → Moving (ACCELERATION)
+            elseif not isMoving and nextIsMoving then
+                local transitionCount = TRANSITION_FRAMES_ACCEL
+                
+                print("🔺 Accel transition: 0 → " .. math.floor(nextSpeed))
+                
+                for j = 1, transitionCount do
+                    local alpha = j / (transitionCount + 1)
+                    
+                    -- ✅ EASE IN CUBIC (smooth acceleration)
+                    local easeAlpha = alpha * alpha * alpha
+                    
+                    local currentPos = Vector3.new(currentFrame.Position[1], currentFrame.Position[2], currentFrame.Position[3])
+                    local nextPos = Vector3.new(nextFrame.Position[1], nextFrame.Position[2], nextFrame.Position[3])
+                    local interpPos = currentPos:Lerp(nextPos, easeAlpha)
+                    
+                    local currentLook = Vector3.new(currentFrame.LookVector[1], currentFrame.LookVector[2], currentFrame.LookVector[3])
+                    local nextLook = Vector3.new(nextFrame.LookVector[1], nextFrame.LookVector[2], nextFrame.LookVector[3])
+                    local interpLook = currentLook:Lerp(nextLook, alpha).Unit
+                    
+                    local currentUp = Vector3.new(currentFrame.UpVector[1], currentFrame.UpVector[2], currentFrame.UpVector[3])
+                    local interpUp = currentUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
+                    
+                    -- ✅ SMOOTH velocity acceleration
+                    local interpVel = currentVel:Lerp(nextVel, easeAlpha)
+                    
+                    local interpWS = currentFrame.WalkSpeed + (nextFrame.WalkSpeed - currentFrame.WalkSpeed) * easeAlpha
+                    
+                    local timeGap = nextFrame.Timestamp - currentFrame.Timestamp
+                    local interpTime = currentFrame.Timestamp + (timeGap * 0.5) + (timeGap * alpha * 0.5)  -- Second half of gap
+                    
+                    table.insert(processed, {
+                        Position = {interpPos.X, interpPos.Y, interpPos.Z},
+                        LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
+                        UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
+                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                        MoveState = nextFrame.MoveState,
+                        WalkSpeed = interpWS,
+                        Timestamp = interpTime,
+                        IsAccelTransition = true
+                    })
+                end
+            end
+        end
+    end
+    
+    return processed
 end
 
 -- ========= LAG COMPENSATION =========
@@ -2038,44 +2160,39 @@ local function StartStudioRecording()
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
-                task.spawn(function()
-                    SafeCall(function()
-                        local char = player.Character
-                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                            return
-                        end
-                        
-                        local hrp = char.HumanoidRootPart
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        
-                        if IsTimelineMode then
-                            return
-                        end
-                        
-                        local now = tick()
-                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-                        
-                        local currentPos = hrp.Position
-                        local currentVelocity = hrp.AssemblyLinearVelocity
-                        
-                        if lastStudioRecordPos then
-                local posDiff = (currentPos - lastStudioRecordPos).Magnitude
-                local velMagnitude = currentVelocity.Magnitude
-                
-                -- Skip frame HANYA kalau:
-                -- 1. Posisi tidak berubah (<0.008 studs)
-                -- 2. Velocity sangat kecil (<0.5 studs/s)
-                -- 3. Humanoid tidak jumping/falling
-                local currentState = GetCurrentMoveState(hum)
-                local isMoving = posDiff >= MIN_DISTANCE_THRESHOLD or 
-                                velMagnitude > 0.5 or
-                                currentState == "Jumping" or 
-                                currentState == "Falling"
-                
-                if not isMoving then
-                    -- ✅ Tetap update timestamp (penting untuk timing!)
-                    lastStudioRecordTime = now
-                    return
+    task.spawn(function()
+        SafeCall(function()
+            local char = player.Character
+            if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                return
+            end
+            
+            local hrp = char.HumanoidRootPart
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if IsTimelineMode then
+                return
+            end
+            
+            local now = tick()
+            if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+            
+            local currentPos = hrp.Position
+            local currentVelocity = hrp.AssemblyLinearVelocity
+            
+            -- ✅ ALWAYS RECORD (jangan skip idle!)
+            -- Tapi skip kalau posisi benar-benar duplicate
+            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                -- ⚠️ HANYA skip kalau velocity JUGA 0 (benar-benar diam!)
+                if currentVelocity.Magnitude < 0.01 and #StudioCurrentRecording.Frames > 0 then
+                    local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
+                    local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
+                    
+                    -- Skip HANYA kalau frame sebelumnya juga idle
+                    if lastVel.Magnitude < 0.01 then
+                        lastStudioRecordTime = now
+                        return
+                    end
                 end
             end
             
@@ -2306,7 +2423,11 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
-            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
+            -- ✅ Step 1: Post-process (add smooth transitions)
+            local processedFrames = PostProcessRecording(StudioCurrentRecording.Frames)
+            
+            -- ✅ Step 2: Normalize timestamps
+            local normalizedFrames = NormalizeRecordingTimestamps(processedFrames)
             
             RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
