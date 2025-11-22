@@ -804,120 +804,93 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
--- ⭐⭐⭐ TAMBAHKAN FUNGSI BARU DI SINI ⭐⭐⭐
--- ✅ POST-PROCESS: Add smooth decel/accel transitions
 local function PostProcessRecording(frames)
     if not frames or #frames < 3 then return frames end
     
     local processed = {}
-    local MOVING_THRESHOLD = 1.0  -- Velocity > 1.0 = moving
-    local TRANSITION_FRAMES_DECEL = 4  -- 4 frames untuk slowdown
-    local TRANSITION_FRAMES_ACCEL = 4  -- 4 frames untuk speedup
+    local IDLE_THRESHOLD = 0.5
+    local lastKeptIndex = 0
     
     for i = 1, #frames do
         local currentFrame = frames[i]
-        table.insert(processed, currentFrame)
+        local currentVel = Vector3.new(currentFrame.Velocity[1], currentFrame.Velocity[2], currentFrame.Velocity[3])
+        local currentSpeed = currentVel.Magnitude
+        local currentState = currentFrame.MoveState
         
-        -- Cek transisi ke frame berikutnya
-        if i < #frames then
-            local nextFrame = frames[i + 1]
+        local isMoving = currentSpeed >= IDLE_THRESHOLD
+        local isImportantFrame = false
+        
+        if isMoving then
+            isImportantFrame = true
+        end
+        
+        if i > 1 then
+            local prevFrame = frames[i - 1]
+            local prevState = prevFrame.MoveState
             
-            local currentVel = Vector3.new(currentFrame.Velocity[1], currentFrame.Velocity[2], currentFrame.Velocity[3])
-            local nextVel = Vector3.new(nextFrame.Velocity[1], nextFrame.Velocity[2], nextFrame.Velocity[3])
-            
-            local currentSpeed = currentVel.Magnitude
-            local nextSpeed = nextVel.Magnitude
-            
-            local isMoving = currentSpeed > MOVING_THRESHOLD
-            local nextIsMoving = nextSpeed > MOVING_THRESHOLD
-            
-            -- ✅ DETECT: Moving → Idle (DECELERATION)
-            if isMoving and not nextIsMoving then
-                local transitionCount = TRANSITION_FRAMES_DECEL
-                
-                print("🔻 Decel transition: " .. math.floor(currentSpeed) .. " → 0")
-                
-                for j = 1, transitionCount do
-                    local alpha = j / (transitionCount + 1)
-                    
-                    -- ✅ EASE OUT CUBIC (smooth deceleration)
-                    local easeAlpha = 1 - math.pow(1 - alpha, 3)
-                    
-                    local currentPos = Vector3.new(currentFrame.Position[1], currentFrame.Position[2], currentFrame.Position[3])
-                    local nextPos = Vector3.new(nextFrame.Position[1], nextFrame.Position[2], nextFrame.Position[3])
-                    local interpPos = currentPos:Lerp(nextPos, easeAlpha)
-                    
-                    local currentLook = Vector3.new(currentFrame.LookVector[1], currentFrame.LookVector[2], currentFrame.LookVector[3])
-                    local nextLook = Vector3.new(nextFrame.LookVector[1], nextFrame.LookVector[2], nextFrame.LookVector[3])
-                    local interpLook = currentLook:Lerp(nextLook, alpha).Unit
-                    
-                    local currentUp = Vector3.new(currentFrame.UpVector[1], currentFrame.UpVector[2], currentFrame.UpVector[3])
-                    local interpUp = currentUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
-                    
-                    -- ✅ SMOOTH velocity deceleration
-                    local interpVel = currentVel:Lerp(nextVel, easeAlpha)
-                    
-                    local interpWS = currentFrame.WalkSpeed + (nextFrame.WalkSpeed - currentFrame.WalkSpeed) * easeAlpha
-                    
-                    local timeGap = nextFrame.Timestamp - currentFrame.Timestamp
-                    local interpTime = currentFrame.Timestamp + (timeGap * alpha * 0.5)  -- First half of gap
-                    
-                    table.insert(processed, {
-                        Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                        LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
-                        UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
-                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                        MoveState = currentFrame.MoveState,
-                        WalkSpeed = interpWS,
-                        Timestamp = interpTime,
-                        IsDecelTransition = true
-                    })
+            if currentState ~= prevState then
+                if currentState == "Jumping" or 
+                   currentState == "Falling" or 
+                   currentState == "Climbing" or 
+                   currentState == "Swimming" then
+                    isImportantFrame = true
+                    print("🔄 State change: " .. prevState .. " → " .. currentState)
                 end
-            
-            -- ✅ DETECT: Idle → Moving (ACCELERATION)
-            elseif not isMoving and nextIsMoving then
-                local transitionCount = TRANSITION_FRAMES_ACCEL
                 
-                print("🔺 Accel transition: 0 → " .. math.floor(nextSpeed))
-                
-                for j = 1, transitionCount do
-                    local alpha = j / (transitionCount + 1)
-                    
-                    -- ✅ EASE IN CUBIC (smooth acceleration)
-                    local easeAlpha = alpha * alpha * alpha
-                    
-                    local currentPos = Vector3.new(currentFrame.Position[1], currentFrame.Position[2], currentFrame.Position[3])
-                    local nextPos = Vector3.new(nextFrame.Position[1], nextFrame.Position[2], nextFrame.Position[3])
-                    local interpPos = currentPos:Lerp(nextPos, easeAlpha)
-                    
-                    local currentLook = Vector3.new(currentFrame.LookVector[1], currentFrame.LookVector[2], currentFrame.LookVector[3])
-                    local nextLook = Vector3.new(nextFrame.LookVector[1], nextFrame.LookVector[2], nextFrame.LookVector[3])
-                    local interpLook = currentLook:Lerp(nextLook, alpha).Unit
-                    
-                    local currentUp = Vector3.new(currentFrame.UpVector[1], currentFrame.UpVector[2], currentFrame.UpVector[3])
-                    local interpUp = currentUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
-                    
-                    -- ✅ SMOOTH velocity acceleration
-                    local interpVel = currentVel:Lerp(nextVel, easeAlpha)
-                    
-                    local interpWS = currentFrame.WalkSpeed + (nextFrame.WalkSpeed - currentFrame.WalkSpeed) * easeAlpha
-                    
-                    local timeGap = nextFrame.Timestamp - currentFrame.Timestamp
-                    local interpTime = currentFrame.Timestamp + (timeGap * 0.5) + (timeGap * alpha * 0.5)  -- Second half of gap
-                    
-                    table.insert(processed, {
-                        Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                        LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
-                        UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
-                        Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
-                        MoveState = nextFrame.MoveState,
-                        WalkSpeed = interpWS,
-                        Timestamp = interpTime,
-                        IsAccelTransition = true
-                    })
+                if currentState == "Jumping" and lastKeptIndex > 0 then
+                    if i > 1 and #processed > 0 then
+                        local alreadyAdded = false
+                        if processed[#processed].Timestamp == prevFrame.Timestamp then
+                            alreadyAdded = true
+                        end
+                        
+                        if not alreadyAdded then
+                            table.insert(processed, prevFrame)
+                            print("⬆️ Added jump prep frame")
+                        end
+                    end
                 end
             end
         end
+        
+        if i > 1 and i < #frames then
+            local prevVel = Vector3.new(frames[i-1].Velocity[1], frames[i-1].Velocity[2], frames[i-1].Velocity[3])
+            local nextVel = Vector3.new(frames[i+1].Velocity[1], frames[i+1].Velocity[2], frames[i+1].Velocity[3])
+            
+            if currentSpeed < IDLE_THRESHOLD and nextVel.Y > 10 then
+                isImportantFrame = true
+                print("⬆️ Pre-jump frame detected")
+            end
+            
+            if prevVel.Y > 5 and currentVel.Y < 1 then
+                isImportantFrame = true
+                print("⬇️ Landing frame detected")
+            end
+        end
+        
+        if i == 1 or i == #frames then
+            isImportantFrame = true
+        end
+        
+        if isImportantFrame then
+            table.insert(processed, currentFrame)
+            lastKeptIndex = i
+        end
+    end
+    
+    local newTimestamp = 0
+    for i = 1, #processed do
+        if i == 1 then
+            processed[i].Timestamp = 0
+        else
+            newTimestamp = newTimestamp + (1/60)
+            processed[i].Timestamp = newTimestamp
+        end
+    end
+    
+    print("✅ Smart aggressive: " .. #frames .. " → " .. #processed .. " frames")
+    if #processed > 0 then
+        print("   Compression ratio: " .. string.format("%.1f", (#frames / #processed)) .. "x")
     end
     
     return processed
