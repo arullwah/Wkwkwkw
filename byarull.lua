@@ -34,7 +34,7 @@ local MAX_FRAMES = 30000
 local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.15
+local TIMELINE_STEP_SECONDS = 0.05
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.1
 local TRANSITION_FRAMES = 6
@@ -120,6 +120,8 @@ local prePauseSit = false
 local lastPlaybackState = nil
 local lastStateChangeTime = 0
 local IsAutoLoopPlaying = false
+local LastKnownWalkSpeed = 16  
+local WalkSpeedBeforePlayback = 16
 local CurrentLoopIndex = 1
 local LoopPauseStartTime = 0
 local LoopTotalPausedDuration = 0
@@ -268,16 +270,41 @@ local function CompleteCharacterReset(char)
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return end
+    
     task.spawn(function()
         SafeCall(function()
+            local currentState = humanoid:GetState()
+            
             humanoid.PlatformStand = false
-            humanoid.AutoRotate = true
-            humanoid.WalkSpeed = CurrentWalkSpeed
+            
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed
+            end
+            
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.Sit = false
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            if currentState == Enum.HumanoidStateType.Climbing then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = false
+                
+            elseif currentState == Enum.HumanoidStateType.Swimming then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            elseif currentState == Enum.HumanoidStateType.Jumping or
+                   currentState == Enum.HumanoidStateType.Freefall then
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                
+            else
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                humanoid.AutoRotate = true
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
         end)
     end)
 end
@@ -512,18 +539,34 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
-            -- ✅ RESPECT ShiftLock state
+            local currentState = humanoid:GetState()
+            
             if ShiftLockEnabled then
+                humanoid.AutoRotate = false
+            elseif currentState == Enum.HumanoidStateType.Climbing then
                 humanoid.AutoRotate = false
             else
                 humanoid.AutoRotate = true
+            end          
+            
+            if LastKnownWalkSpeed > 0 then
+                humanoid.WalkSpeed = LastKnownWalkSpeed  
+            elseif WalkSpeedBeforePlayback > 0 then
+                humanoid.WalkSpeed = WalkSpeedBeforePlayback  
+            else
+                humanoid.WalkSpeed = CurrentWalkSpeed 
             end
             
-            humanoid.WalkSpeed = CurrentWalkSpeed
             humanoid.JumpPower = prePauseJumpPower or 50
             humanoid.PlatformStand = false
             humanoid.Sit = false
-            humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            
+            if currentState ~= Enum.HumanoidStateType.Climbing and 
+               currentState ~= Enum.HumanoidStateType.Swimming and
+               currentState ~= Enum.HumanoidStateType.Jumping and
+               currentState ~= Enum.HumanoidStateType.Freefall then
+                humanoid:ChangeState(Enum.HumanoidStateType.Running)
+            end
             
             if ShiftLockEnabled then
                 humanoid.CameraOffset = ShiftLockCameraOffset
@@ -537,8 +580,16 @@ local function RestoreFullUserControl()
         end
         
         if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            local currentState = humanoid and humanoid:GetState()
+            
+            if currentState == Enum.HumanoidStateType.Running or
+               currentState == Enum.HumanoidStateType.RunningNoPhysics or
+               currentState == Enum.HumanoidStateType.Landed then
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            else
+                hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            end
         end
     end)
 end
@@ -1119,8 +1170,11 @@ local function ApplyFrameDirect(frame)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-        if hum then
-            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+       if hum then
+            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.WalkSpeed = frameWalkSpeed
+            
+            LastKnownWalkSpeed = frameWalkSpeed
             
             if ShiftLockEnabled then
                 hum.AutoRotate = false
@@ -1183,6 +1237,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if not char or not char:FindFirstChild("HumanoidRootPart") then
         PlaySound("Error")
         return
+    end  
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
 
     IsPlaying = true
@@ -1414,7 +1473,18 @@ local function StopAutoLoopAll()
     
     SafeCall(function()
         local char = player.Character
-        if char then CompleteCharacterReset(char) end
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local currentState = hum:GetState()
+                local isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+                local isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+                
+                if not isClimbing and not isSwimming then
+                    CompleteCharacterReset(char)
+                end
+            end
+        end
     end)
     
     PlaySound("Toggle")
@@ -1459,10 +1529,27 @@ local function StopPlayback()
         loopConnection = nil
     end
     
+    local char = player.Character
+    local isClimbing = false
+    local isSwimming = false
+    
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local currentState = hum:GetState()
+            isClimbing = (currentState == Enum.HumanoidStateType.Climbing)
+            isSwimming = (currentState == Enum.HumanoidStateType.Swimming)
+        end
+    end
+    
     RestoreFullUserControl()
     
-    local char = player.Character
-    if char then CompleteCharacterReset(char) end
+    if char and not isClimbing and not isSwimming then
+        CompleteCharacterReset(char)
+    end
+    
+     LastKnownWalkSpeed = 0
+     WalkSpeedBeforePlayback = 0
     
     PlaySound("Toggle")
     if PlayBtnControl then
