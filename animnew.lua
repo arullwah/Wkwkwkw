@@ -3271,6 +3271,10 @@ local uiSuccess, uiError = pcall(function()
             MiniButton.Position = UDim2.fromOffset(newX, newY)
         end)
     end)
+    
+    -- ✅ START TITLE PULSE (TAMBAHKAN INI!)
+    StartTitlePulse(Title)
+    
 end)
 
 if not uiSuccess then
@@ -3348,7 +3352,6 @@ end)
 
 UpdateRecordList()
 UpdatePlayButtonStatus()
-StartTitlePulse(Title)
 
 task.spawn(function()
     while task.wait(2) do
