@@ -1,4 +1,5 @@
 
+
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -49,7 +50,6 @@ local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
-local STOP_VELOCITY_THRESHOLD = 1.0
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -321,6 +321,7 @@ local function RemoveShiftLockIndicator()
     end)
 end
 
+-- ⭐ FIXED: ShiftLock yang PERSISTENT selama playback
 local function ApplyVisualShiftLock()
     if not ShiftLockEnabled then return end
     if not player.Character then return end
@@ -333,19 +334,16 @@ local function ApplyVisualShiftLock()
         
         if not humanoid or not hrp or not camera then return end
         
-        if IsPlaying or IsAutoLoopPlaying then
-            return
-        else
-            humanoid.AutoRotate = false
-            
-            local cameraCFrame = camera.CFrame
-            local lookVector = cameraCFrame.LookVector
-            local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z)
-            
-            if horizontalLook.Magnitude > 0.01 then
-                local targetCFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
-                hrp.CFrame = targetCFrame
-            end
+        -- ✅ APPLY SHIFT LOCK bahkan saat playback
+        humanoid.AutoRotate = false
+        
+        local cameraCFrame = camera.CFrame
+        local lookVector = cameraCFrame.LookVector
+        local horizontalLook = Vector3.new(lookVector.X, 0, lookVector.Z)
+        
+        if horizontalLook.Magnitude > 0.01 then
+            local targetCFrame = CFrame.new(hrp.Position, hrp.Position + horizontalLook)
+            hrp.CFrame = targetCFrame
         end
         
         if not OriginalCameraOffset then
@@ -429,16 +427,8 @@ local function ToggleVisibleShiftLock()
     end
 end
 
-local function SaveShiftLockState()
-    ShiftLockSavedBeforePlayback = ShiftLockEnabled
-end
-
-local function RestoreShiftLockState()
-    if ShiftLockSavedBeforePlayback then
-        task.wait(0.1)
-        EnableVisibleShiftLock()
-    end
-end
+-- ⭐ REMOVED: SaveShiftLockState & RestoreShiftLockState
+-- ShiftLock sekarang PERSISTENT, tidak perlu save/restore
 
 -- ========= INFINITE JUMP =========
 
@@ -522,6 +512,7 @@ local function RestoreFullUserControl()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         
         if humanoid then
+            -- ✅ RESPECT ShiftLock state
             if ShiftLockEnabled then
                 humanoid.AutoRotate = false
             else
@@ -563,67 +554,19 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
+-- ⭐ HYBRID: Pure Velocity (NO FILTERING!)
 local function GetFrameVelocity(frame)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    local vel = Vector3.new(
+    -- ✅ DIRECT velocity tanpa threshold filtering
+    return Vector3.new(
         frame.Velocity[1] * VELOCITY_SCALE,
         frame.Velocity[2] * VELOCITY_Y_SCALE,
         frame.Velocity[3] * VELOCITY_SCALE
     )
-    
-    local horizontalVel = Vector3.new(vel.X, 0, vel.Z)
-    
-    if horizontalVel.Magnitude < STOP_VELOCITY_THRESHOLD then
-        return Vector3.new(0, vel.Y, 0)
-    end
-    
-    return vel
 end
 
-local function ProcessHumanoidState(hum, frame, lastState, lastStateTime)
-    if not hum or not frame then return lastState, lastStateTime end
-    
-    local moveState = frame.MoveState
-    local frameVelocity = GetFrameVelocity(frame)
-    local currentTime = tick()
-    
-    local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-    local isFallingByVelocity = frameVelocity.Y < -5
-    
-    if isJumpingByVelocity and moveState ~= "Jumping" then
-        moveState = "Jumping"
-    elseif isFallingByVelocity and moveState ~= "Falling" then
-        moveState = "Falling"
-    end
-    
-    if moveState == "Jumping" then
-        if lastState ~= "Jumping" then
-            hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            return "Jumping", currentTime
-        end
-    elseif moveState == "Falling" then
-        if lastState ~= "Falling" then
-            hum:ChangeState(Enum.HumanoidStateType.Freefall)
-            return "Falling", currentTime
-        end
-    else
-        if moveState ~= lastState and (currentTime - lastStateTime) >= STATE_CHANGE_COOLDOWN then
-            if moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-                hum.AutoRotate = false
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-            else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-            end
-            return moveState, currentTime
-        end
-    end
-    
-    return lastState, lastStateTime
-end
+-- ⭐ REMOVED: ProcessHumanoidState function (tidak diperlukan lagi)
 
 -- ========= PATH VISUALIZATION =========
 
@@ -1156,6 +1099,54 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
+-- ⭐ HYBRID: Direct Frame Application (NO State Management!)
+local function ApplyFrameDirect(frame)
+    SafeCall(function()
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        
+        if not hrp or not hum then return end
+        
+        -- ✅ Apply CFrame
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- ✅ Apply PURE velocity (NO filtering!)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        
+        if hum then
+            -- ✅ Set WalkSpeed
+            hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            
+            -- ✅ RESPECT ShiftLock state
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false -- Still false during playback
+            end
+            
+            -- ✅ Direct state application (NO cooldown!)
+            local moveState = frame.MoveState
+            
+            if moveState == "Jumping" then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            elseif moveState == "Falling" then
+                hum:ChangeState(Enum.HumanoidStateType.Freefall)
+            elseif moveState == "Climbing" then
+                hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                hum.PlatformStand = false
+            elseif moveState == "Swimming" then
+                hum:ChangeState(Enum.HumanoidStateType.Swimming)
+            else
+                hum:ChangeState(Enum.HumanoidStateType.Running)
+            end
+        end
+    end)
+end
+
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1196,10 +1187,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     SaveHumanoidState()
     
-    SaveShiftLockState()
-    if ShiftLockEnabled then
-        DisableVisibleShiftLock()
-    end
+    -- ✅ ShiftLock TIDAK dimatikan saat playback!
+    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
     
     PlaySound("Toggle")
     
@@ -1213,7 +1202,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             if not IsPlaying then
                 playbackConnection:Disconnect()
                 RestoreFullUserControl()
-                RestoreShiftLockState()
+                
+                -- ✅ ShiftLock tetap sesuai state user
+                -- TIDAK restore, karena sudah persistent
+                
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1230,7 +1222,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             if not char or not char:FindFirstChild("HumanoidRootPart") then
                 IsPlaying = false
                 RestoreFullUserControl()
-                RestoreShiftLockState()
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1248,7 +1239,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             if not hum or not hrp then
                 IsPlaying = false
                 RestoreFullUserControl()
-                RestoreShiftLockState()
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1277,7 +1267,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 if nextFrame >= #recording then
                     IsPlaying = false
                     RestoreFullUserControl()
-                    RestoreShiftLockState()
                     CheckIfPathUsed(recordingName)
                     PlaySound("Success")
                     lastPlaybackState = nil
@@ -1295,7 +1284,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 if not frame then
                     IsPlaying = false
                     RestoreFullUserControl()
-                    RestoreShiftLockState()
                     CheckIfPathUsed(recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
@@ -1308,18 +1296,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                hrp.CFrame = GetFrameCFrame(frame)
-                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                hrp.AssemblyAngularVelocity = Vector3.zero
-                
-                if hum then
-                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                    hum.AutoRotate = false
-                    
-                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                        hum, frame, lastPlaybackState, lastStateChangeTime
-                    )
-                end
+                -- ⭐ HYBRID: Apply frame directly
+                ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
             end
@@ -1404,7 +1382,6 @@ local function StopAutoLoopAll()
     end
     
     RestoreFullUserControl()
-    RestoreShiftLockState()
     
     SafeCall(function()
         local char = player.Character
@@ -1454,7 +1431,6 @@ local function StopPlayback()
     end
     
     RestoreFullUserControl()
-    RestoreShiftLockState()
     
     local char = player.Character
     if char then CompleteCharacterReset(char) end
@@ -1488,10 +1464,7 @@ local function StartAutoLoopAll()
         end
     end
     
-    SaveShiftLockState()
-    if ShiftLockEnabled then
-        DisableVisibleShiftLock()
-    end
+    -- ✅ ShiftLock TIDAK dimatikan saat auto loop!
     
     PlaySound("Toggle")
     
@@ -1587,7 +1560,11 @@ local function StartAutoLoopAll()
                     
                     if hum then
                         hum.PlatformStand = false
-                        hum.AutoRotate = false
+                        if ShiftLockEnabled then
+                            hum.AutoRotate = false
+                        else
+                            hum.AutoRotate = false
+                        end
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
                     
@@ -1637,7 +1614,11 @@ local function StartAutoLoopAll()
                                 if char and char:FindFirstChild("HumanoidRootPart") then
                                     local hum = char:FindFirstChildOfClass("Humanoid")
                                     if hum then
-                                        hum.AutoRotate = false
+                                        if ShiftLockEnabled then
+                                            hum.AutoRotate = false
+                                        else
+                                            hum.AutoRotate = false
+                                        end
                                     end
                                     char.HumanoidRootPart.CFrame = GetFrameCFrame(recordingToPlay[1])
                                     task.wait(0.1)
@@ -1721,18 +1702,8 @@ local function StartAutoLoopAll()
                         if not playbackCompleted then
                             local frame = recordingToPlay[currentFrame]
                             if frame then
-                                hrp.CFrame = GetFrameCFrame(frame)
-                                hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
-                                hrp.AssemblyAngularVelocity = Vector3.zero
-                                
-                                if hum then
-                                    hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-                                    hum.AutoRotate = false
-                                    
-                                    lastPlaybackState, lastStateChangeTime = ProcessHumanoidState(
-                                        hum, frame, lastPlaybackState, lastStateChangeTime
-                                    )
-                                end
+                                -- ⭐ HYBRID: Apply frame directly
+                                ApplyFrameDirect(frame)
                             end
                         end
                     end
@@ -1789,7 +1760,6 @@ local function StartAutoLoopAll()
         IsAutoLoopPlaying = false
         IsLoopTransitioning = false
         RestoreFullUserControl()
-        RestoreShiftLockState()
         lastPlaybackState = nil
         lastStateChangeTime = 0
         if PlayBtnControl then
@@ -1888,7 +1858,11 @@ local function ApplyFrameToCharacter(frame)
             
             if hum then
                 hum.WalkSpeed = 0
-                hum.AutoRotate = ShiftLockEnabled and false or true
+                if ShiftLockEnabled then
+                    hum.AutoRotate = false
+                else
+                    hum.AutoRotate = false
+                end
                 
                 local moveState = frame.MoveState
                 if moveState == "Climbing" then
@@ -2124,7 +2098,11 @@ local function ResumeStudioRecording()
             
             if hum then
                 hum.WalkSpeed = lastWalkSpeed
-                hum.AutoRotate = ShiftLockEnabled and false or true
+                if ShiftLockEnabled then
+                    hum.AutoRotate = false
+                else
+                    hum.AutoRotate = true
+                end
             end
             
             UpdateStudioUI()
@@ -2197,35 +2175,40 @@ local function SaveToObfuscatedJSON()
     end
     
     local success, err = pcall(function()
-        -- Kumpulkan recordings yang dichecked
-        local recordingsToObfuscate = {}
-        local recordingOrder = {}
-        local checkpointNamesData = {}
+        local saveData = {
+            Version = "3.3",
+            Obfuscated = true,
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
         
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
                 local frames = RecordedMovements[name]
                 if frames then
-                    recordingsToObfuscate[name] = frames
-                    table.insert(recordingOrder, name)
-                    checkpointNamesData[name] = checkpointNames[name]
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
                 end
             end
         end
         
-        -- OBFUSCATE DULU SEBELUM MASUK SAVEDATA
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
         
-        -- Buat saveData dengan data yang SUDAH di-obfuscate
-        local saveData = {
-            Version = "3.3",
-            Obfuscated = true,
-            Data = obfuscatedData,  -- ✅ HANYA OBFUSCATED DATA
-            RecordingOrder = recordingOrder,
-            CheckpointNames = checkpointNamesData
-        }
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
         
         local jsonString = HttpService:JSONEncode(saveData)
+        
         writefile(filename, jsonString)
         PlaySound("Success")
     end)
@@ -2254,28 +2237,24 @@ local function LoadFromObfuscatedJSON()
         local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        -- Deobfuscate data
-        if saveData.Obfuscated and saveData.Data then
-            local deobfuscatedData = DeobfuscateRecordingData(saveData.Data)
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
-            -- Load recordings
-            for recordingName, frames in pairs(deobfuscatedData) do
-                RecordedMovements[recordingName] = frames
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
                 
-                -- Set checkpoint name
-                if saveData.CheckpointNames and saveData.CheckpointNames[recordingName] then
-                    checkpointNames[recordingName] = saveData.CheckpointNames[recordingName]
+                if frames then
+                    RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
-                
-                -- Add to recording order jika belum ada
-                if not table.find(RecordingOrder, recordingName) then
-                    table.insert(RecordingOrder, recordingName)
-                end
-            end
-            
-            -- Restore order jika ada
-            if saveData.RecordingOrder then
-                RecordingOrder = saveData.RecordingOrder
             end
         end
         
@@ -2936,7 +2915,7 @@ local uiSuccess, uiError = pcall(function()
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or walkSpeed > 200 then return false, "WalkSpeed must be between 8 and 200" end
+        if walkSpeed < 8 or speed > 200 then return false, "WalkSpeed must be between 8 and 200" end
         return true, walkSpeed
     end
 
@@ -3356,3 +3335,12 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
+
+print("✅ ByaruL Recorder v3.3 HYBRID - Loaded Successfully!")
+print("⭐ Features:")
+print("   - Pure Velocity Playback (NO filtering)")
+print("   - Direct State Application (NO cooldown)")
+print("   - Persistent ShiftLock System")
+print("   - Perfect Jump/Fall Detection")
+print("   - Smooth on Uneven Terrain")
+print("   - All Original Features Preserved")
