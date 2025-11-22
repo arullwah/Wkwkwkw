@@ -554,7 +554,7 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= SMOOTH VELOCITY WITH SMART Y-AXIS FILTERING =========
+-- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
@@ -562,15 +562,12 @@ local function GetFrameVelocity(frame, moveState)
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ FILTER Velocity Y HANYA saat Grounded/Running (anti-bouncy!)
-    if moveState == "Grounded" or moveState == "Running" then
-        -- Clamp velocity Y untuk permukaan tidak rata (-3 sampai +3)
-        if math.abs(velocityY) < 8 then  -- Bukan jump/fall
-            velocityY = math.clamp(velocityY, -3, 3)  -- Smooth di permukaan tidak rata
-        end
+    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
+    if moveState == "Grounded" or moveState == nil then
+        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
     end
     
-    -- ✅ TIDAK filter saat Jump/Fall/Climbing/Swimming (tetap presisi!)
+    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
@@ -1115,18 +1112,16 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame
+        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply velocity dengan smart filtering (ANTI-BOUNCY!)
+        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
-            -- ✅ Set WalkSpeed
             hum.WalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             
-            -- ✅ RESPECT ShiftLock state
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
