@@ -554,16 +554,24 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= SMOOTH VELOCITY FUNCTION =========
-local function GetFrameVelocity(frame)
+-- ========= SMOOTH VELOCITY WITH SMART Y-AXIS FILTERING =========
+local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    -- ✅ LANGSUNG APPLY TANPA FILTERING
-    return Vector3.new(
-        frame.Velocity[1] * VELOCITY_SCALE,
-        frame.Velocity[2] * VELOCITY_Y_SCALE, 
-        frame.Velocity[3] * VELOCITY_SCALE
-    )
+    local velocityX = frame.Velocity[1] * VELOCITY_SCALE
+    local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
+    local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
+    
+    -- ✅ FILTER Velocity Y HANYA saat Grounded/Running (anti-bouncy!)
+    if moveState == "Grounded" or moveState == "Running" then
+        -- Clamp velocity Y untuk permukaan tidak rata (-3 sampai +3)
+        if math.abs(velocityY) < 8 then  -- Bukan jump/fall
+            velocityY = math.clamp(velocityY, -3, 3)  -- Smooth di permukaan tidak rata
+        end
+    end
+    
+    -- ✅ TIDAK filter saat Jump/Fall/Climbing/Swimming (tetap presisi!)
+    return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -1110,8 +1118,8 @@ local function ApplyFrameDirect(frame)
         -- ✅ Apply CFrame
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply PURE velocity (NO filtering!)
-        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame)
+        -- ✅ Apply velocity dengan smart filtering (ANTI-BOUNCY!)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
@@ -1122,12 +1130,12 @@ local function ApplyFrameDirect(frame)
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
-                hum.AutoRotate = false -- Still false during playback
+                hum.AutoRotate = false
             end
             
             -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
             local moveState = frame.MoveState
-            local frameVelocity = GetFrameVelocity(frame)
+            local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
             local currentTime = tick()
             
             -- ✅ DETEKSI JUMP/FALL berdasarkan VELOCITY (PRESISI!)
