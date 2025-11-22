@@ -2035,22 +2035,39 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
+    -- ✅ Clear existing text
+    titleLabel.Text = ""
     titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
     titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     titleLabel.Size = UDim2.new(1, -40, 1, 0)
-    titleLabel.TextSize = 20
-    titleLabel.Rotation = 0
 
-    local gradient = Instance.new("UIGradient")
-    gradient.Parent = titleLabel
+    -- ✅ Create container for individual letters
+    local letterContainer = Instance.new("Frame")
+    letterContainer.Size = UDim2.new(1, 0, 1, 0)
+    letterContainer.BackgroundTransparency = 1
+    letterContainer.Parent = titleLabel
 
     local fullText = "ByaruL Recorder"
-    local currentIndex = 0
-    local typeSpeed = 0.1  -- Speed in seconds per character
-    local pauseAfterComplete = 2  -- Pause 2 seconds before restart
-    local lastUpdateTime = tick()
-    local isPaused = false
-    local pauseStartTime = 0
+    local letters = {}
+    local letterWidth = 15  -- Width per character
+
+    -- ✅ Create individual letter labels
+    for i = 1, #fullText do
+        local char = string.sub(fullText, i, i)
+        
+        local letterLabel = Instance.new("TextLabel")
+        letterLabel.Size = UDim2.fromOffset(letterWidth, 32)
+        letterLabel.Position = UDim2.fromOffset((i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2), 0)
+        letterLabel.BackgroundTransparency = 1
+        letterLabel.Text = char
+        letterLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        letterLabel.Font = Enum.Font.GothamBold
+        letterLabel.TextSize = 20
+        letterLabel.TextStrokeTransparency = 0.5
+        letterLabel.Parent = letterContainer
+        
+        table.insert(letters, letterLabel)
+    end
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -2061,38 +2078,18 @@ local function StartTitlePulse(titleLabel)
 
             local now = tick()
             
-            -- ✅ Rainbow gradient (always animate)
-            local hue1 = (now * 1.2) % 1
-            local hue2 = (hue1 + 0.3) % 1
-            
-            gradient.Color = ColorSequence.new{
-                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
-                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
-            }
-            gradient.Offset = Vector2.new(math.sin(now * 2) * 0.5, 0)
-
-            -- ✅ Typewriter effect
-            if isPaused then
-                if now - pauseStartTime >= pauseAfterComplete then
-                    isPaused = false
-                    currentIndex = 0
-                    lastUpdateTime = now
-                end
-            else
-                if now - lastUpdateTime >= typeSpeed then
-                    currentIndex = currentIndex + 1
-                    
-                    if currentIndex > #fullText then
-                        isPaused = true
-                        pauseStartTime = now
-                        titleLabel.Text = fullText
-                    else
-                        titleLabel.Text = string.sub(fullText, 1, currentIndex)
-                    end
-                    
-                    lastUpdateTime = now
-                end
+            -- ✅ Animate each letter
+            for i, letter in ipairs(letters) do
+                -- Wave motion
+                local offset = math.sin(now * 3 + i * 0.5) * 8  -- Amplitude 8 pixels
+                letter.Position = UDim2.fromOffset(
+                    (i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2),
+                    offset
+                )
+                
+                -- Rainbow color per letter
+                local hue = (now * 0.5 + i * 0.05) % 1
+                letter.TextColor3 = Color3.fromHSV(hue, 1, 1)
             end
         end)
     end)
