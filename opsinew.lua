@@ -2636,7 +2636,7 @@ local function SaveToEncryptedJSON()
 end
 
 -- ========= 📂 LOAD OLD JSON FORMAT - NO FREEZE + REPLACE FILE =========
-local function LoadFromOldJSON()
+llocal function LoadFromOldJSON()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
@@ -2659,51 +2659,31 @@ local function LoadFromOldJSON()
         end)
         
         if not fileExists then
-            print("[DEBUG] File not found:", jsonFile)
             return false
         end
         
-        print("[DEBUG] Loading file:", jsonFile)
+        print("[JSON] Loading old format:", jsonFile)
         
         local fileContent = readfile(jsonFile)
-        print("[DEBUG] File size:", #fileContent, "bytes")
-        
         local saveData = HttpService:JSONDecode(fileContent)
-        print("[DEBUG] JSON decoded successfully")
         
-        -- ✅ DEBUG: Print all top-level keys
-        print("[DEBUG] JSON keys:", table.concat((function()
-            local keys = {}
-            for k,v in pairs(saveData) do table.insert(keys, k) end
-            return keys
-        end)(), ", "))
-        
-        -- ✅ FLEXIBLE SIGNATURE CHECK (TIDAK WAJIB!)
+        -- ✅ FLEXIBLE SIGNATURE CHECK
         local signature = saveData.Signature or "Unknown"
-        print("[DEBUG] Signature:", signature)
         
         if signature ~= "ByaruLRecorder" and signature ~= "Unknown" then
-            warn("[WARNING] Unexpected signature:", signature, "- Loading anyway...")
+            warn("[JSON] Unexpected signature, loading anyway...")
         end
-        
-        local version = saveData.Version or "Unknown"
-        print("[DEBUG] Version:", version)
         
         -- ✅ TRY MULTIPLE JSON STRUCTURES
         local checkpointsData = nil
         local recordingOrderData = {}
         local checkpointNamesData = {}
         
-        -- ✅ FORMAT 1: Ada field "Checkpoints" array
         if saveData.Checkpoints and type(saveData.Checkpoints) == "table" then
-            print("[DEBUG] Format 1: Found Checkpoints array")
             checkpointsData = saveData.Checkpoints
             recordingOrderData = saveData.RecordingOrder or {}
             checkpointNamesData = saveData.CheckpointNames or {}
-        
-        -- ✅ FORMAT 2: Direct recording names as keys
         else
-            print("[DEBUG] Format 2: Direct recording structure")
             checkpointsData = {}
             
             for key, value in pairs(saveData) do
@@ -2714,8 +2694,6 @@ local function LoadFromOldJSON()
                         local firstItem = value[1]
                         
                         if type(firstItem) == "table" and firstItem.Position then
-                            print("[DEBUG] Found recording:", key, "Frames:", #value)
-                            
                             table.insert(checkpointsData, {
                                 Name = key,
                                 DisplayName = key,
@@ -2730,12 +2708,9 @@ local function LoadFromOldJSON()
             end
         end
         
-        -- ✅ VALIDATE WE FOUND RECORDINGS
         if not checkpointsData or #checkpointsData == 0 then
-            error("No valid recordings found in JSON")
+            error("No valid recordings found")
         end
-        
-        print("[DEBUG] Total checkpoints found:", #checkpointsData)
         
         -- ✅ LOAD RECORDINGS
         local loadedCount = 0
@@ -2744,21 +2719,12 @@ local function LoadFromOldJSON()
             local name = checkpointData.Name
             local frames = checkpointData.Frames
             
-            print("[DEBUG] Processing:", name, "Frames:", frames and #frames or 0)
-            
             if frames and #frames > 0 then
                 local firstFrame = frames[1]
                 
                 if not firstFrame.Position then
-                    warn("[WARNING] Invalid frame format for:", name)
                     continue
                 end
-                
-                print("[DEBUG] Frame keys:", table.concat((function()
-                    local keys = {}
-                    for k,v in pairs(firstFrame) do table.insert(keys, k) end
-                    return keys
-                end)(), ", "))
                 
                 -- ✅ ENSURE ALL REQUIRED FIELDS EXIST
                 for _, frame in ipairs(frames) do
@@ -2771,7 +2737,6 @@ local function LoadFromOldJSON()
                     frame.Timestamp = frame.Timestamp or 0
                 end
                 
-                -- ✅ LOAD TO MEMORY
                 RecordedMovements[name] = frames
                 
                 local displayName = checkpointNamesData[name] or checkpointData.DisplayName or ("checkpoint_" .. (loadedCount + 1))
@@ -2782,131 +2747,82 @@ local function LoadFromOldJSON()
                 end
                 
                 loadedCount = loadedCount + 1
-                print("[DEBUG] ✅ Loaded:", name, "Display:", displayName, "Frames:", #frames)
-            else
-                warn("[WARNING] Empty or invalid frames for:", name)
             end
         end
         
-        print("[DEBUG] === LOAD SUMMARY ===")
-        print("[DEBUG] Total loaded:", loadedCount, "recordings")
-        print("[DEBUG] RecordingOrder:", table.concat(RecordingOrder, ", "))
-        
         if loadedCount == 0 then
-            error("No valid recordings loaded!")
+            error("No valid recordings loaded")
         end
         
-        -- ✅ UPDATE UI
-        print("[DEBUG] Calling UpdateRecordList...")
-        UpdateRecordList()
+        print("[JSON] ✅ Loaded", loadedCount, "recordings")
         
+        UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Loaded Successfully",
-            Text = loadedCount .. " recordings from " .. filename .. ".json",
+            Title = "✅ Loaded JSON",
+            Text = loadedCount .. " recordings",
             Duration = 4
         })
         
-        -- ⭐ AUTO-CONVERT + DELETE OLD JSON (NO MORE FREEZE!)
+        -- ⭐ AUTO-CONVERT + DELETE JSON (SIMPLIFIED)
         task.spawn(function()
             task.wait(1.5)
             
-            print("[DEBUG] === AUTO-CONVERT STARTING ===")
-            print("[DEBUG] Filename:", filename)
+            print("[CONVERT] Starting auto-convert...")
             
-            -- ✅ CHECK ALL RECORDINGS
-            local checkedCount = 0
+            -- ✅ CHECK ALL
             for _, name in ipairs(RecordingOrder) do
                 CheckedRecordings[name] = true
-                checkedCount = checkedCount + 1
             end
             
-            print("[DEBUG] Total checked:", checkedCount)
-            
-            if checkedCount == 0 then
-                warn("[ERROR] No recordings to save!")
-                return
-            end
-            
-            -- ✅ TEMPORARILY SET FILENAME BOX
+            -- ✅ SET FILENAME
             local originalFilename = FilenameBox and FilenameBox.Text or ""
             if FilenameBox then
                 FilenameBox.Text = filename
             end
             
-            print("[DEBUG] Calling SaveToEncryptedJSON...")
-            
-            local saveSuccess, saveError = pcall(function()
-                SaveToEncryptedJSON()
-            end)
+            -- ✅ SAVE
+            local saveSuccess = pcall(SaveToEncryptedJSON)
             
             if saveSuccess then
-                print("[DEBUG] ✅ Save SUCCESS!")
+                print("[CONVERT] ✅ Saved as BRL")
                 
-                -- ⭐ DELETE OLD JSON FILE (PENTING!)
+                -- ✅ DELETE OLD JSON
                 task.wait(0.5)
                 
-                local deleteSuccess = pcall(function()
-                    if isfile(jsonFile) then
-                        delfile(jsonFile)
-                        print("[DEBUG] ✅ Deleted old JSON:", jsonFile)
-                    end
-                end)
-                
-                if deleteSuccess then
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "💾 Converted to BRL",
-                        Text = filename .. ".json → " .. filename .. ".brl",
-                        Duration = 3
-                    })
-                else
-                    warn("[WARNING] Could not delete old JSON file")
+                if isfile(jsonFile) then
+                    delfile(jsonFile)
+                    print("[CONVERT] ✅ Deleted JSON")
                     
                     StarterGui:SetCore("SendNotification", {
-                        Title = "⚠️ Partial Success",
-                        Text = "Saved .brl but couldn't delete .json",
+                        Title = "💾 Converted",
+                        Text = filename .. ".json → .brl",
                         Duration = 3
                     })
                 end
             else
-                warn("[ERROR] Auto-save FAILED:", saveError)
-                
-                StarterGui:SetCore("SendNotification", {
-                    Title = "⚠️ Convert Failed",
-                    Text = "Please save manually",
-                    Duration = 3
-                })
+                warn("[CONVERT] ❌ Failed")
             end
             
-            -- ✅ RESTORE ORIGINAL FILENAME
+            -- ✅ RESTORE FILENAME
             if FilenameBox and originalFilename ~= "" then
                 task.wait(0.5)
                 FilenameBox.Text = originalFilename
             end
-            
-            print("[DEBUG] === AUTO-CONVERT DONE ===")
         end)
         
         return true
     end)
 
     if not success then
-        warn("[ERROR] Load failed:", result)
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Failed",
-            Text = tostring(result),
-            Duration = 5
-        })
-        
         return false
     end
     
     return result
 end
 
--- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) =========
+-- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) - NO AUTO-SAVE! =========
 local function LoadFromEncryptedJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2937,6 +2853,8 @@ local function LoadFromEncryptedJSON()
             return
         end
         
+        print("[BRL] Loading encrypted file:", filename .. ".brl")
+        
         local fileContent = readfile(filename .. ".brl")
         
         local header = string.sub(fileContent, 1, 10)
@@ -2958,58 +2876,71 @@ local function LoadFromEncryptedJSON()
         
         local calculatedChecksum = GenerateChecksum(jsonString)
         if storedChecksum ~= calculatedChecksum then
-            error("File corrupt")
+            error("File corrupt - checksum mismatch")
         end
         
         local saveData = HttpService:JSONDecode(jsonString)
         
         if saveData.Signature ~= "ByaruLRecorder" then
-            error("Invalid file")
+            error("Invalid file signature")
         end
+        
+        print("[BRL] Signature valid, loading recordings...")
         
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ⭐ AUTO-DETECT DAN CONVERT OLD FORMAT
+        -- ✅ AUTO-DETECT FORMAT
         local dataToProcess = saveData.ObfuscatedFrames
         
         if not dataToProcess then
-            -- Fallback: coba load dari Checkpoints langsung (old format)
+            -- Fallback: load dari Checkpoints langsung
             dataToProcess = {}
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 dataToProcess[checkpointData.Name] = checkpointData.Frames
             end
         end
         
-        -- ✅ CONVERT OLD FORMAT → NEW FORMAT
+        -- ✅ CONVERT OLD FORMAT IF NEEDED
         local convertedData = ConvertOldFormatToNew(dataToProcess)
         
-        -- ✅ DEOBFUSCATE (works untuk both old & new format sekarang!)
+        -- ✅ DEOBFUSCATE
         local deobfuscatedData = DeobfuscateRecordingData(convertedData)
         
-        -- Load ke RecordedMovements
+        -- ✅ LOAD TO MEMORY
+        local loadedCount = 0
+        
         for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
             local name = checkpointData.Name
             local frames = deobfuscatedData[name]
             
-            if frames then
+            if frames and #frames > 0 then
                 RecordedMovements[name] = frames
                 checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
                 
                 if not table.find(RecordingOrder, name) then
                     table.insert(RecordingOrder, name)
                 end
+                
+                loadedCount = loadedCount + 1
             end
         end
         
+        print("[BRL] ✅ Loaded", loadedCount, "recordings")
+        
+        -- ✅ UPDATE UI
         UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Sukses Load " .. filename,
-            Text = "Total: " .. #newRecordingOrder .. " recordings",
+            Title = "✅ Loaded from BRL",
+            Text = loadedCount .. " recordings from " .. filename .. ".brl",
             Duration = 4
         })
+        
+        -- ⚠️ NO AUTO-SAVE HERE! (PENTING!)
+        -- File BRL sudah encrypted, tidak perlu convert lagi!
+        
     end)
 
     if not success then
@@ -3023,7 +2954,7 @@ local function LoadFromEncryptedJSON()
         end
         
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Load",
+            Title = "❌ Gagal Load BRL",
             Text = errorMsg,
             Duration = 4
         })
