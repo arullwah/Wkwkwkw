@@ -29,17 +29,17 @@ if not hasFileSystem then
 end
 
 -- ========= OPTIMIZED CONFIGURATION =========
-local RECORDING_FPS = 60
+local RECORDING_FPS = 90
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.008
+local MIN_DISTANCE_THRESHOLD = 0.005
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.05
+local TIMELINE_STEP_SECONDS = 0.04
 local JUMP_VELOCITY_THRESHOLD = 10
-local STATE_CHANGE_COOLDOWN = 0.1
+local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 60
+local PLAYBACK_FIXED_TIMESTEP = 1 / 90
 local LOOP_TRANSITION_DELAY = 0.08
 local AUTO_LOOP_RETRY_DELAY = 0.3
 local TIME_BYPASS_THRESHOLD = 0.05
@@ -78,7 +78,7 @@ local PlayBtnControl, LoopBtnControl, JumpBtnControl, RespawnBtnControl
 local ShiftLockBtnControl, ResetBtnControl, ShowRuteBtnControl
 local StartBtn, SaveBtn, ResumeBtn, PrevBtn, NextBtn
 local SpeedBox, FilenameBox, WalkSpeedBox, RecordingsList
-local Title, CloseBtn, CheckAllBtn
+local Title, CheckAllBtn
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -1102,11 +1102,23 @@ local function UpdatePlayButtonStatus()
     
     SafeCall(function()
         if nearestRecording and distance <= 50 then
-            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+            local distanceInt = math.floor(distance)
+            
+            -- ✅ Color code berdasarkan jarak
+            local buttonColor
+            if distanceInt <= 10 then
+                buttonColor = Color3.fromRGB(40, 180, 80)  -- 🟢 Hijau (very close)
+            elseif distanceInt <= 30 then
+                buttonColor = Color3.fromRGB(200, 180, 50)  -- 🟡 Kuning (close)
+            else
+                buttonColor = Color3.fromRGB(255, 140, 50)  -- 🟠 Orange (far)
+            end
+            
+            PlayBtnControl.Text = string.format("PLAY (%dm)", distanceInt)
+            PlayBtnControl.BackgroundColor3 = buttonColor
         else
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            PlayBtnControl.Text = "PLAY 0"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)  -- 🟣 Purple (no checkpoint)
         end
     end)
 end
@@ -1894,7 +1906,6 @@ end
 local titlePulseConnection = nil
 
 local function StartTitlePulse(titleLabel)
-    -- Matikan koneksi lama
     if titlePulseConnection then
         pcall(function() titlePulseConnection:Disconnect() end)
         titlePulseConnection = nil
@@ -1902,16 +1913,39 @@ local function StartTitlePulse(titleLabel)
 
     if not titleLabel then return end
 
-    -- ✅ SET POSISI TETAP (NO SHAKE!)
-    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5) 
+    -- ✅ Clear existing text
+    titleLabel.Text = ""
+    titleLabel.AnchorPoint = Vector2.new(0.5, 0.5)
     titleLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
     titleLabel.Size = UDim2.new(1, -40, 1, 0)
-    titleLabel.TextSize = 20 -- ✅ SIZE TETAP (NO PULSE!)
-    titleLabel.Rotation = 0   -- ✅ NO ROTATION!
 
-    -- ✅ BUAT GRADIENT
-    local gradient = Instance.new("UIGradient")
-    gradient.Parent = titleLabel
+    -- ✅ Create container for individual letters
+    local letterContainer = Instance.new("Frame")
+    letterContainer.Size = UDim2.new(1, 0, 1, 0)
+    letterContainer.BackgroundTransparency = 1
+    letterContainer.Parent = titleLabel
+
+    local fullText = "ByaruL RecordeR"
+    local letters = {}
+    local letterWidth = 15  -- Width per character
+
+    -- ✅ Create individual letter labels
+    for i = 1, #fullText do
+        local char = string.sub(fullText, i, i)
+        
+        local letterLabel = Instance.new("TextLabel")
+        letterLabel.Size = UDim2.fromOffset(letterWidth, 32)
+        letterLabel.Position = UDim2.fromOffset((i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2), 0)
+        letterLabel.BackgroundTransparency = 1
+        letterLabel.Text = char
+        letterLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        letterLabel.Font = Enum.Font.GothamBold
+        letterLabel.TextSize = 20
+        letterLabel.TextStrokeTransparency = 0.5
+        letterLabel.Parent = letterContainer
+        
+        table.insert(letters, letterLabel)
+    end
 
     titlePulseConnection = RunService.RenderStepped:Connect(function()
         pcall(function()
@@ -1920,26 +1954,60 @@ local function StartTitlePulse(titleLabel)
                 return
             end
 
-            local t = tick()
-
-            -- ✅ ANIMATED COLOR WAVE (Horizontal - Kiri ke Kanan)
-            local hue1 = (t * 1.2) % 1  -- Speed: 0.5 = medium, 1 = fast, 0.2 = slow
-            local hue2 = (hue1 + 0.3) % 1  -- Offset untuk gradient smooth
-
-            gradient.Color = ColorSequence.new{
-                ColorSequenceKeypoint.new(0, Color3.fromHSV(hue1, 1, 1)),
-                ColorSequenceKeypoint.new(0.5, Color3.fromHSV((hue1 + 0.15) % 1, 1, 1)),
-                ColorSequenceKeypoint.new(1, Color3.fromHSV(hue2, 1, 1))
-            }
-
-            -- ✅ GERAK HORIZONTAL (Kiri ke Kanan Loop)
-            gradient.Offset = Vector2.new(math.sin(t * 2) * 0.5, 0)
+            local now = tick()
+            
+            -- ✅ Animate each letter
+            for i, letter in ipairs(letters) do
+                -- Wave motion
+                local offset = math.sin(now * 3 + i * 0.5) * 8  -- Amplitude 8 pixels
+                letter.Position = UDim2.fromOffset(
+                    (i - 1) * letterWidth - (#fullText * letterWidth / 2) + (letterContainer.AbsoluteSize.X / 2),
+                    offset
+                )
+                
+                -- Rainbow color per letter
+                local hue = (now * 0.5 + i * 0.05) % 1
+                letter.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            end
         end)
     end)
 
     AddConnection(titlePulseConnection)
 end
 
+-- ========= RAINBOW TEXT "A" ANIMATION (SYNC WITH TITLE) =========
+local miniButtonRainbowConnection = nil
+
+local function StartMiniButtonRainbow()
+    if miniButtonRainbowConnection then
+        pcall(function() miniButtonRainbowConnection:Disconnect() end)
+        miniButtonRainbowConnection = nil
+    end
+    
+    if not MiniButton or not MiniButton.Parent then return end
+    
+    miniButtonRainbowConnection = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not MiniButton or not MiniButton.Parent then
+                if miniButtonRainbowConnection then 
+                    miniButtonRainbowConnection:Disconnect() 
+                end
+                return
+            end
+            
+            local now = tick()
+            local hue = (now * 0.5) % 1  -- Same speed as title letters
+            MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
+        end)
+    end)
+    
+    AddConnection(miniButtonRainbowConnection)
+end
+
+-- Start rainbow animation
+if MiniButton and MiniButton.Parent then
+    StartMiniButtonRainbow()
+end
 
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
@@ -2290,7 +2358,7 @@ local function SaveToObfuscatedJSON()
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
+    if filename == "" then filename = "ByaruL" end
     filename = filename .. ".json"
     
     local hasCheckedRecordings = false
@@ -2357,7 +2425,7 @@ local function LoadFromObfuscatedJSON()
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
+    if filename == "" then filename = "ByaruL" end
     filename = filename .. ".json"
     
     local success, err = pcall(function()
@@ -2436,148 +2504,250 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ ITEM FRAME
+            -- ✨ MAIN CONTAINER
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 60)
+            item.Size = UDim2.new(1, -6, 0, 58)
             item.Position = UDim2.new(0, 3, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            item.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+            item.BorderSizePixel = 0
             item.Parent = RecordingsList
         
             local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 4)
+            corner.CornerRadius = UDim.new(0, 6)
             corner.Parent = item
+            
+            -- Outer stroke
+            local outerStroke = Instance.new("UIStroke")
+            outerStroke.Color = Color3.fromRGB(40, 40, 50)
+            outerStroke.Thickness = 1
+            outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            outerStroke.Parent = item
+            
+            -- ═══════════════════════════════════════════
+            -- ROW 1: CHECKBOX + TEXTBOX (NAME + INFO!)
+            -- ═══════════════════════════════════════════
+            
+            local topRow = Instance.new("Frame")
+            topRow.Size = UDim2.new(1, -10, 0, 22)
+            topRow.Position = UDim2.fromOffset(5, 5)
+            topRow.BackgroundTransparency = 1
+            topRow.Parent = item
             
             -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
-            checkBox.Position = UDim2.fromOffset(5, 5)
-            checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            checkBox.Position = UDim2.fromOffset(0, 2)
+            checkBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
             checkBox.Text = CheckedRecordings[name] and "✓" or ""
             checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
             checkBox.Font = Enum.Font.GothamBold
             checkBox.TextSize = 12
-            checkBox.Parent = item
+            checkBox.BorderSizePixel = 0
+            checkBox.Parent = topRow
             
             local checkCorner = Instance.new("UICorner")
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
-            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
+            local checkStroke = Instance.new("UIStroke")
+            checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
+            checkStroke.Thickness = 1.5
+            checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            checkStroke.Parent = checkBox
+            
+            -- ✨ TEXTBOX CONTAINER (WITH INFO INSIDE!)
+            local textboxContainer = Instance.new("Frame")
+            textboxContainer.Size = UDim2.new(1, -25, 1, 0)
+            textboxContainer.Position = UDim2.fromOffset(23, 0)
+            textboxContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            textboxContainer.BorderSizePixel = 0
+            textboxContainer.Parent = topRow
+            
+            local containerCorner = Instance.new("UICorner")
+            containerCorner.CornerRadius = UDim.new(0, 3)
+            containerCorner.Parent = textboxContainer
+            
+            -- ✅ RGB RAINBOW BORDER
+            local rgbStroke = Instance.new("UIStroke")
+            rgbStroke.Thickness = 0.8
+            rgbStroke.Color = Color3.fromRGB(255, 0, 0)
+            rgbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            rgbStroke.Parent = textboxContainer
+            
+            -- ✅ ANIMATE RAINBOW
+            task.spawn(function()
+                local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                while rgbStroke and rgbStroke.Parent do
+                    hue = (hue + 0.005) % 1
+                    rgbStroke.Color = Color3.fromHSV(hue, 1, 1)
+                    task.wait(0.03)
+                end
+            end)
+            
+            -- 📝 NAME TEXTBOX (LEFT SIDE)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
-            nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
+            nameBox.Size = UDim2.new(0.55, 0, 1, 0)  -- 55% width
+            nameBox.Position = UDim2.fromOffset(5, 0)
+            nameBox.BackgroundTransparency = 1
+            nameBox.Text = checkpointNames[name] or "Checkpoint"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.TextStrokeTransparency = 0.6
             nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
+            nameBox.TextXAlignment = Enum.TextXAlignment.Left
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
-            nameBox.Parent = item
+            nameBox.Parent = textboxContainer
             
-            local nameBoxCorner = Instance.new("UICorner")
-            nameBoxCorner.CornerRadius = UDim.new(0, 3)
-            nameBoxCorner.Parent = nameBox
-            
-            -- ✅ RAINBOW BORDER (THICKNESS = 1)
-            local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
-            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
-            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            nameBoxStroke.Parent = nameBox
-            
-            -- ✅ ANIMATED RAINBOW
-            task.spawn(function()
-                local hue = (index - 1) / math.max(#RecordingOrder, 1)
-                while nameBoxStroke and nameBoxStroke.Parent do
-                    hue = (hue + 0.05) % 1
-                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
-                    task.wait(0.03)
-                end
-            end)
-            
-            -- ✅ INFO LABEL (FIXED POSITION!)
+            -- ℹ️ INFO LABEL (RIGHT SIDE - READ ONLY!)
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
-            infoLabel.Position = UDim2.fromOffset(28, 35)
+            infoLabel.Size = UDim2.new(0.45, -5, 1, 0)  -- 45% width
+            infoLabel.Position = UDim2.new(0.55, 0, 0, 0)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
-                infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
+                local minutes = math.floor(totalSeconds / 60)
+                local seconds = math.floor(totalSeconds % 60)
+                infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)
             else
-                infoLabel.Text = "🕐 0:00 📊 0 frames"
+                infoLabel.Text = "⏱0:00│📊0"
             end
-            infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
             infoLabel.Font = Enum.Font.GothamBold
             infoLabel.TextSize = 8
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-            infoLabel.Parent = item
+            infoLabel.TextXAlignment = Enum.TextXAlignment.Right
+            infoLabel.Parent = textboxContainer
             
-            -- ✅ PLAY BUTTON
+            -- ═══════════════════════════════════════════
+            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
+            -- ═══════════════════════════════════════════
+            
+            local segmentedBar = Instance.new("Frame")
+            segmentedBar.Size = UDim2.new(1, -10, 0, 26)
+            segmentedBar.Position = UDim2.fromOffset(5, 29)
+            segmentedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+            segmentedBar.BorderSizePixel = 0
+            segmentedBar.Parent = item
+            
+            local barCorner = Instance.new("UICorner")
+            barCorner.CornerRadius = UDim.new(0, 4)
+            barCorner.Parent = segmentedBar
+            
+            local barStroke = Instance.new("UIStroke")
+            barStroke.Color = Color3.fromRGB(50, 50, 60)
+            barStroke.Thickness = 1
+            barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            barStroke.Parent = segmentedBar
+            
+            -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
+            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
+            local buttonSpacing = 3   -- Space between buttons
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 1: PLAY (25% width)
+            -- ═══════════════════════════════════════════
+            
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(38, 20)
-            playBtn.Position = UDim2.new(1, -79, 0, 5)
+            playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            playBtn.Text = "Play"
-            playBtn.TextColor3 = Color3.new(1, 1, 1)
+            playBtn.Text = "Main"
+            playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             playBtn.Font = Enum.Font.GothamBold
             playBtn.TextSize = 9
-            playBtn.Parent = item
+            playBtn.BorderSizePixel = 0
+            playBtn.Parent = segmentedBar
             
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
-            -- ✅ DELETE BUTTON
+            -- Divider 1
+            local divider1 = Instance.new("Frame")
+            divider1.Size = UDim2.new(0, 1, 1, -8)
+            divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
+            divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider1.BorderSizePixel = 0
+            divider1.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 2: DELETE (25% width)
+            -- ═══════════════════════════════════════════
+            
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(38, 20)
-            delBtn.Position = UDim2.new(1, -38, 0, 5)
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Delete"
-            delBtn.TextColor3 = Color3.new(1, 1, 1)
+            delBtn.Text = "Hapus"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 8
-            delBtn.Parent = item
+            delBtn.TextSize = 9
+            delBtn.BorderSizePixel = 0
+            delBtn.Parent = segmentedBar
             
             local delCorner = Instance.new("UICorner")
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- ✅ NAIK BUTTON
+            -- Divider 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 3: NAIK (25% width)
+            -- ═══════════════════════════════════════════
+            
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(38, 20)
-            upBtn.Position = UDim2.new(1, -79, 0, 30)
-            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
+            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             upBtn.Text = "Naik"
-            upBtn.TextColor3 = Color3.new(1, 1, 1)
+            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
             upBtn.TextSize = 9
-            upBtn.Parent = item
+            upBtn.BorderSizePixel = 0
+            upBtn.Parent = segmentedBar
             
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
-            -- ✅ TURUN BUTTON
+            -- Divider 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 4: TURUN (25% width)
+            -- ═══════════════════════════════════════════
+            
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(38, 20)
-            downBtn.Position = UDim2.new(1, -38, 0, 30)
-            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             downBtn.Text = "Turun"
-            downBtn.TextColor3 = Color3.new(1, 1, 1)
+            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
             downBtn.TextSize = 9
-            downBtn.Parent = item
+            downBtn.BorderSizePixel = 0
+            downBtn.Parent = segmentedBar
             
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
-            -- ✅ EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            -- EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -2589,6 +2759,7 @@ function UpdateRecordList()
             checkBox.MouseButton1Click:Connect(function()
                 CheckedRecordings[name] = not CheckedRecordings[name]
                 checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
                 AnimateButtonClick(checkBox)
             end)
             
@@ -2625,10 +2796,66 @@ function UpdateRecordList()
                 end
             end)
             
-            yPos = yPos + 65
+            -- ═══════════════════════════════════════════
+            -- HOVER EFFECTS FOR ALL BUTTONS
+            -- ═══════════════════════════════════════════
+            
+            playBtn.MouseEnter:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(80, 25, 150)
+                }):Play()
+            end)
+            
+            playBtn.MouseLeave:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                }):Play()
+            end)
+            
+            delBtn.MouseEnter:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(230, 70, 80)
+                }):Play()
+            end)
+            
+            delBtn.MouseLeave:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                }):Play()
+            end)
+            
+            upBtn.MouseEnter:Connect(function()
+                if index > 1 then
+                    TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            upBtn.MouseLeave:Connect(function()
+                TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                }):Play()
+            end)
+            
+            downBtn.MouseEnter:Connect(function()
+                if index < #RecordingOrder then
+                    TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            downBtn.MouseLeave:Connect(function()
+                TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                }):Play()
+            end)
+            
+            yPos = yPos + 63
         end
         
-        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
+        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
     end)
 end
 
@@ -2671,26 +2898,12 @@ local uiSuccess, uiError = pcall(function()
     Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 1, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ByaruL Recorder"
+    Title.Text = "ByaruL RecordeR"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.Font = Enum.Font.GothamBold
     Title.TextSize = 14
     Title.TextXAlignment = Enum.TextXAlignment.Center
     Title.Parent = Header
-
-    CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.fromOffset(20, 20)
-    CloseBtn.Position = UDim2.new(1, -20, 0.5, -10)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    CloseBtn.Text = "X"
-    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
-    CloseBtn.Font = Enum.Font.GothamBold
-    CloseBtn.TextSize = 12
-    CloseBtn.Parent = Header
-
-    local CloseCorner = Instance.new("UICorner")
-    CloseCorner.CornerRadius = UDim.new(0, 4)
-    CloseCorner.Parent = CloseBtn
 
     local Content = Instance.new("Frame")
     Content.Size = UDim2.new(1, -6, 1, -38)
@@ -2905,36 +3118,99 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.CornerRadius = UDim.new(0, 4)
     ListCorner.Parent = RecordingsList
 
-    MiniButton = Instance.new("TextButton")
-    MiniButton.Size = UDim2.fromOffset(40, 40)
-    MiniButton.Position = UDim2.new(0, 10, 0, 10)
-    MiniButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    MiniButton.Text = "A"
-    MiniButton.TextColor3 = Color3.new(1, 1, 1)
-    MiniButton.Font = Enum.Font.GothamBold
-    MiniButton.TextSize = 25
-    MiniButton.Visible = true
-    MiniButton.Active = true
-    MiniButton.Draggable = false
-    MiniButton.Parent = ScreenGui
+-- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
+MiniButton = Instance.new("TextButton")
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0, 10, 0, 10)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Text = "A"
+MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
+MiniButton.TextSize = 30 -- ✅ BIGGER for FredokaOne!
+MiniButton.TextStrokeTransparency = 0.5
+MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+MiniButton.Visible = true
+MiniButton.Active = true
+MiniButton.Draggable = false
+MiniButton.Parent = ScreenGui
 
-    local MiniCorner = Instance.new("UICorner")
-    MiniCorner.CornerRadius = UDim.new(0, 8)
-    MiniCorner.Parent = MiniButton
+local MiniCorner = Instance.new("UICorner")
+MiniCorner.CornerRadius = UDim.new(0, 8)
+MiniCorner.Parent = MiniButton
 
-    PlaybackControl = Instance.new("Frame")
-    PlaybackControl.Size = UDim2.fromOffset(156, 120)
-    PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
-    PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    PlaybackControl.BorderSizePixel = 0
-    PlaybackControl.Active = true
-    PlaybackControl.Draggable = true
-    PlaybackControl.Visible = false
-    PlaybackControl.Parent = ScreenGui
+-- ========= ULTIMATE COMBO ANIMATION =========
+do
+    local letters = {"B", "Y", "A", "R", "U", "L"}
+    local currentIndex = 1
+    local lastChangeTime = 0
+    local changeInterval = 0.8
+    
+    local ultimateAnimConn = RunService.RenderStepped:Connect(function()
+        if MiniButton and MiniButton.Parent then
+            local now = tick()
+            
+            -- Rainbow color
+            local hue = (now * 0.5) % 1
+            MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            
+            -- Pulsing scale
+            local scale = 24 + math.sin(now * 3) * 3
+            MiniButton.TextSize = scale
+            
+            -- Subtle rotation
+            local angle = math.sin(now * 1.5) * 8
+            MiniButton.Rotation = angle
+            
+            -- Rotating letters
+            if now - lastChangeTime >= changeInterval then
+                currentIndex = (currentIndex % #letters) + 1
+                MiniButton.Text = letters[currentIndex]
+                lastChangeTime = now
+                
+                -- Button pulse on letter change
+                task.spawn(function()
+                    pcall(function()
+                        if not MiniButton or not MiniButton.Parent then return end
+                        
+                        local originalSize = MiniButton.Size
+                        
+                        TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            Size = UDim2.fromOffset(46, 46)
+                        }):Play()
+                        
+                        task.wait(0.1)
+                        
+                        if MiniButton and MiniButton.Parent then
+                            TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                Size = originalSize
+                            }):Play()
+                        end
+                    end)
+                end)
+            end
+        else
+            ultimateAnimConn:Disconnect()
+        end
+    end)
+    
+    table.insert(activeConnections, ultimateAnimConn)
+end
 
-    local PlaybackCorner = Instance.new("UICorner")
-    PlaybackCorner.CornerRadius = UDim.new(0, 8)
-    PlaybackCorner.Parent = PlaybackControl
+    -- ========= PLAYBACK CONTROL GUI =========
+PlaybackControl = Instance.new("Frame")
+PlaybackControl.Size = UDim2.fromOffset(156, 120)
+PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.BackgroundTransparency = 0.4 -- ✅ Sedikit transparan
+PlaybackControl.BorderSizePixel = 0
+PlaybackControl.Active = true
+PlaybackControl.Draggable = true
+PlaybackControl.Visible = false
+PlaybackControl.Parent = ScreenGui
+
+local PlaybackCorner = Instance.new("UICorner")
+PlaybackCorner.CornerRadius = UDim.new(0, 8)
+PlaybackCorner.Parent = PlaybackControl
 
     local PlaybackContent = Instance.new("Frame")
     PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
@@ -2985,21 +3261,23 @@ local uiSuccess, uiError = pcall(function()
     RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
     ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
     ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
-    RecordingStudio = Instance.new("Frame")
-    RecordingStudio.Size = UDim2.fromOffset(156, 120)
-    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-    RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    RecordingStudio.BorderSizePixel = 0
-    RecordingStudio.Active = true
-    RecordingStudio.Draggable = true
-    RecordingStudio.Visible = false
-    RecordingStudio.Parent = ScreenGui
+    -- ========= RECORDING STUDIO GUI =========
+RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(156, 120)
+RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-    local StudioCorner = Instance.new("UICorner")
-    StudioCorner.CornerRadius = UDim.new(0, 8)
-    StudioCorner.Parent = RecordingStudio
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 8)
+StudioCorner.Parent = RecordingStudio
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3046,9 +3324,90 @@ local uiSuccess, uiError = pcall(function()
 
     SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
     StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-    ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-    PrevBtn = CreateStudioBtn("◀ PREV", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
-    NextBtn = CreateStudioBtn("NEXT ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+    ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+    PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
+
+-- ✅ ADD: Hold detection
+local prevHoldConnection = nil
+local prevHoldActive = false
+
+PrevBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        prevHoldActive = true
+        
+        -- Single tap
+        task.spawn(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
+        
+        -- Wait 0.3s, then start rapid fire
+        task.wait(0.3)
+        
+        if prevHoldActive then
+            prevHoldConnection = RunService.Heartbeat:Connect(function()
+                if prevHoldActive then
+                    GoBackTimeline()
+                    task.wait(0.05)  -- 20 frames/second
+                end
+            end)
+        end
+    end
+end)
+
+PrevBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        prevHoldActive = false
+        if prevHoldConnection then
+            prevHoldConnection:Disconnect()
+            prevHoldConnection = nil
+        end
+    end
+end)
+
+-- ✅ SAME for NextBtn:
+NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+
+local nextHoldConnection = nil
+local nextHoldActive = false
+
+NextBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        nextHoldActive = true
+        
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
+        
+        task.wait(0.3)
+        
+        if nextHoldActive then
+            nextHoldConnection = RunService.Heartbeat:Connect(function()
+                if nextHoldActive then
+                    GoNextTimeline()
+                    task.wait(0.05)
+                end
+            end)
+        end
+    end
+end)
+
+NextBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        nextHoldActive = false
+        if nextHoldConnection then
+            nextHoldConnection:Disconnect()
+            nextHoldConnection = nil
+        end
+    end
+end)
 
     -- ========= INPUT VALIDATION =========
 
@@ -3075,7 +3434,7 @@ local uiSuccess, uiError = pcall(function()
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or walkSpeed > 1000 then return false, "WalkSpeed must be between 8 and 1000" end
+        if walkSpeed < 8 or walkSpeed > 5000 then return false, "WalkSpeed must be between 8 and 5000" end
         return true, walkSpeed
     end
 
@@ -3100,17 +3459,23 @@ local uiSuccess, uiError = pcall(function()
     -- ========= BUTTON CONNECTIONS =========
 
     PlayBtnControl.MouseButton1Click:Connect(function()
-        AnimateButtonClick(PlayBtnControl)
-        if IsPlaying or IsAutoLoopPlaying then
-            StopPlayback()
+    AnimateButtonClick(PlayBtnControl)
+    if IsPlaying or IsAutoLoopPlaying then
+        -- ✅ STOP → PAUSE
+        StopPlayback()
+        PlayBtnControl.Text = "RESUME"  -- ✅ Ubah jadi RESUME
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)  -- ✅ Hijau untuk resume
+    else
+        -- ✅ PLAY/RESUME → STOP
+        if AutoLoop then
+            StartAutoLoopAll()
         else
-            if AutoLoop then
-                StartAutoLoopAll()
-            else
-                SmartPlayRecording(50)
-            end
+            SmartPlayRecording(50)
         end
-    end)
+        PlayBtnControl.Text = "PAUSE"  -- ✅ Ubah jadi STOP
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)  -- ✅ Merah untuk stop
+    end
+end)
 
     LoopBtnControl.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoopBtnControl)
@@ -3298,106 +3663,283 @@ local uiSuccess, uiError = pcall(function()
         end)
     end)
 
-    CloseBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(CloseBtn)
+-- ========= MINI BUTTON: MOBILE-SAFE DRAG + FIVE TAP (INSTANT) =========
+
+-- Five tap variables
+local tapCount = 0
+local lastTapTime = 0
+local TAP_WINDOW = 0.5
+local tapResetConnection = nil
+
+-- Dragging variables
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+local dragThreshold = 5
+local hasDragged = false
+
+-- Save file
+local miniSaveFile = "MiniButtonPos.json"
+
+-- Load saved position
+SafeCall(function()
+    if hasFileSystem and isfile and isfile(miniSaveFile) then
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
+        if ok and type(data) == "table" and data.x and data.y then
+            MiniButton.Position = UDim2.fromOffset(data.x, data.y)
+        end
+    end
+end)
+
+-- Show tap indicator
+local function ShowTapFeedback(count)
+    task.spawn(function()
+        pcall(function()
+            if not ScreenGui or not MiniButton then return end
+            
+            local indicator = Instance.new("TextLabel")
+            indicator.Size = UDim2.fromOffset(50, 25)
+            indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 30)
+            indicator.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            indicator.BackgroundTransparency = 0.2
+            indicator.Text = count .. "/5"
+            indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
+            indicator.Font = Enum.Font.GothamBold
+            indicator.TextSize = 16
+            indicator.TextStrokeTransparency = 0.5
+            indicator.BorderSizePixel = 0
+            indicator.Parent = ScreenGui
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 6)
+            corner.Parent = indicator
+            
+            indicator.TextSize = 0
+            TweenService:Create(indicator, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                TextSize = 16
+            }):Play()
+            
+            task.wait(0.6)
+            TweenService:Create(indicator, TweenInfo.new(0.3), {
+                BackgroundTransparency = 1,
+                TextTransparency = 1,
+                TextStrokeTransparency = 1
+            }):Play()
+            
+            task.wait(0.3)
+            indicator:Destroy()
+        end)
+    end)
+end
+
+-- ✅ FIXED: Pulse button dengan size constant
+local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)  -- Define di top level
+
+local function PulseButton(color, scale)
+    task.spawn(function()
+        pcall(function()
+            if not MiniButton or not MiniButton.Parent then return end
+            
+            local originalColor = MiniButton.BackgroundColor3
+            local targetSize = UDim2.fromOffset(30 * scale, 30 * scale)  -- ✅ BASE: 30x30
+            
+            local tweenOut = TweenService:Create(
+                MiniButton, 
+                TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {
+                    BackgroundColor3 = color,
+                    Size = targetSize
+                }
+            )
+            tweenOut:Play()
+            tweenOut.Completed:Wait()
+            
+            task.wait(0.1)
+            
+            -- ✅ FIXED: Always return to constant size
+            local tweenIn = TweenService:Create(
+                MiniButton,
+                TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                {
+                    BackgroundColor3 = originalColor,
+                    Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Constant 30x30
+                }
+            )
+            tweenIn:Play()
+        end)
+    end)
+end
+
+-- Handle five tap logic
+local function HandleTap()
+    local currentTime = tick()
+    
+    if currentTime - lastTapTime > TAP_WINDOW then
+        tapCount = 0
+    end
+    
+    tapCount = tapCount + 1
+    lastTapTime = currentTime
+    
+    -- TAP 1: TOGGLE MAINFRAME
+    if tapCount == 1 then
+        pcall(function() PlaySound("Click") end)
+        
+        if MainFrame then
+            MainFrame.Visible = not MainFrame.Visible
+        end
+        
+        ShowTapFeedback(1)
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)  -- 30 * 1.05 = 31.5
+        
+    -- TAP 2: SUBTLE FEEDBACK
+    elseif tapCount == 2 then
+        pcall(function() PlaySound("Click") end)
+        ShowTapFeedback(2)
+        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)  -- 30 * 1.08 = 32.4
+        
+    -- TAP 3: WARNING START
+    elseif tapCount == 3 then
+        pcall(function() PlaySound("Toggle") end)
+        ShowTapFeedback(3)
+        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)  -- 30 * 1.12 = 33.6
+        
+    -- TAP 4: STRONG WARNING
+    elseif tapCount == 4 then
+        pcall(function() PlaySound("Toggle") end)
+        ShowTapFeedback(4)
+        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)  -- 30 * 1.16 = 34.8
+        
+    -- TAP 5: CLOSE
+    elseif tapCount >= 5 then
+        pcall(function() PlaySound("Success") end)
+        ShowTapFeedback(5)
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 30 * 1.2 = 36
+        
+        task.wait(0.3)
+        
         task.spawn(function()
-            SafeCall(function()
+            pcall(function()
                 if StudioIsRecording then StopStudioRecording() end
                 if IsPlaying or AutoLoop then StopPlayback() end
                 if ShiftLockEnabled then DisableVisibleShiftLock() end
                 if InfiniteJump then DisableInfiniteJump() end
                 
-                 -- ✅ Cleanup title pulse
-        if titlePulseConnection then
-            titlePulseConnection:Disconnect()
-            titlePulseConnection = nil
-        end
-        
+                if titlePulseConnection then
+                    titlePulseConnection:Disconnect()
+                    titlePulseConnection = nil
+                end
+                
                 CleanupConnections()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
-                task.wait(0.2)
-                ScreenGui:Destroy()
+                
+                if MainFrame then
+                    TweenService:Create(MainFrame, TweenInfo.new(0.4), {
+                        BackgroundTransparency = 1
+                    }):Play()
+                end
+                
+                if MiniButton then
+                    local miniTween = TweenService:Create(MiniButton, TweenInfo.new(0.4), {
+                        BackgroundTransparency = 1,
+                        TextTransparency = 1
+                    })
+                    miniTween:Play()
+                    miniTween.Completed:Wait()
+                end
+                
+                task.wait(0.1)
+                if ScreenGui then ScreenGui:Destroy() end
             end)
         end)
+        
+        tapCount = 0
+    end
+    
+    if tapResetConnection then
+        task.cancel(tapResetConnection)
+    end
+    
+    tapResetConnection = task.delay(TAP_WINDOW, function()
+        if tapCount < 5 then
+            tapCount = 0
+        end
     end)
+end
 
-    -- ========= MINI BUTTON FUNCTIONALITY =========
+-- INPUT BEGAN: Track specific input object
+MiniButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        
+        dragging = true
+        hasDragged = false
+        dragInput = input
+        dragStart = input.Position
+        startPos = MiniButton.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                if dragInput == input then
+                    dragging = false
+                    dragInput = nil
+                    
+                    if not hasDragged then
+                        HandleTap()
+                    end
+                    
+                    if hasDragged then
+                        SafeCall(function()
+                            if hasFileSystem and writefile and HttpService then
+                                local absX = MiniButton.AbsolutePosition.X
+                                local absY = MiniButton.AbsolutePosition.Y
+                                writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                            end
+                        end)
+                    end
+                end
+            end
+        end)
+    end
+end)
 
-    local miniSaveFile = "MiniButtonPos.json"
+-- INPUT CHANGED: Only process input that initiated drag
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if dragInput ~= input then return end
+    
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and 
+       input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not dragStart or not startPos then return end
 
     SafeCall(function()
-        if hasFileSystem and isfile and isfile(miniSaveFile) then
-            local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
-            if ok and type(data) == "table" and data.x and data.y then
-                MiniButton.Position = UDim2.fromOffset(data.x, data.y)
-            end
-        end
-    end)
-
-    MiniButton.MouseButton1Click:Connect(function()
-        SafeCall(function() 
-            PlaySound("Click")
-        end)
+        local delta = input.Position - dragStart
+        local distance = math.sqrt(delta.X^2 + delta.Y^2)
         
-        SafeCall(function()
-            local originalSize = MiniButton.TextSize
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize * 1.2
-            }):Play()
-            task.wait(0.1)
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize
-            }):Play()
-        end)
+        if distance > dragThreshold then
+            hasDragged = true
+        end
         
-        if MainFrame then
-            MainFrame.Visible = not MainFrame.Visible
-        end
-    end)
-
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-
-    MiniButton.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = MiniButton.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    SafeCall(function()
-                        if hasFileSystem and writefile and HttpService then
-                            local absX = MiniButton.AbsolutePosition.X
-                            local absY = MiniButton.AbsolutePosition.Y
-                            writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
-                        end
-                    end)
-                end
-            end)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        if not dragStart or not startPos then return end
-
-        SafeCall(function()
-            local delta = input.Position - dragStart
+        if hasDragged then
             local newX = startPos.X.Offset + delta.X
             local newY = startPos.Y.Offset + delta.Y
 
             local cam = workspace.CurrentCamera
-            local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
-            newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
-            newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
+            local vx = (cam and cam.ViewportSize.X) or 1920
+            local vy = (cam and cam.ViewportSize.Y) or 1080
+            local margin = 3
+            local btnWidth = MiniButton.AbsoluteSize.X
+            local btnHeight = MiniButton.AbsoluteSize.Y
+
+            newX = math.clamp(newX, -btnWidth + margin, vx - margin)
+            newY = math.clamp(newY, -btnHeight + margin, vy - margin)
 
             MiniButton.Position = UDim2.fromOffset(newX, newY)
-        end)
+        end
     end)
+end)
     
     -- ✅ START TITLE PULSE (TAMBAHKAN INI!)
     StartTitlePulse(Title)
@@ -3492,7 +4034,7 @@ if hasFileSystem then
     task.spawn(function()
         task.wait(2)
         SafeCall(function()
-            local filename = "MyReplays.json"
+            local filename = "ByaruL.json"
             if isfile(filename) then
                 FilenameBox.Text = "MyReplays"
                 LoadFromObfuscatedJSON()
