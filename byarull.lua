@@ -45,7 +45,8 @@ local function CleanupAllGUIs()
         "KeyAccessGUI",
         "MainGUI",
         "ByaruLRecorderElegant",
-        "LoadingGUI"
+        "LoadingGUI",
+        "ErrorGUI"  -- Tambahkan ini untuk cleanup error GUI juga
     }
     
     for _, guiName in ipairs(guiNames) do
@@ -72,7 +73,7 @@ if not adaAkses then
     
     -- Kick player setelah 3 detik
     wait(3)
-    kickPlayer("DIKASIH FREE MALAH DIJUAL,KIRIM USERNAME KE YANG PUNYA\n\nUsername Anda tidak terdaftar!\nKirim username '" .. username .. "' untuk verifikasi akses.")
+    kickPlayer("DIKASIH FREE MALAH DIJUAL😆\n\nUsername Anda tidak terdaftar!\nKirim username '" .. username .. "' untuk verifikasi akses.")
     return
 end
 
@@ -213,47 +214,17 @@ spawn(function()
     
     print("🚀 Loading loader.lua...")
     
-    -- Load dan jalankan script dari GitHub
-    local success, err = pcall(function()
+    -- ===================================
+    -- SILENT MODE: ABAIKAN SEMUA ERROR
+    -- ===================================
+    -- Load dan jalankan script dari GitHub tanpa error notification
+    pcall(function()
         loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/loader.lua"))()
     end)
     
-    if success then
-        print("✅ loader.lua berhasil dijalankan untuk: " .. username)
-    else
-        warn("❌ Error saat menjalankan loader.lua:")
-        warn(err)
-        
-        -- Tampilkan error notification
-        local errorGui = Instance.new("ScreenGui")
-        errorGui.Name = "ErrorGUI"
-        errorGui.ResetOnSpawn = false
-        errorGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-        
-        local errorFrame = Instance.new("Frame")
-        errorFrame.Size = UDim2.fromOffset(250, 80)
-        errorFrame.Position = UDim2.new(0.5, -125, 0.5, -40)
-        errorFrame.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-        errorFrame.Parent = errorGui
-        
-        local errorCorner = Instance.new("UICorner")
-        errorCorner.CornerRadius = UDim.new(0, 10)
-        errorCorner.Parent = errorFrame
-        
-        local errorLabel = Instance.new("TextLabel")
-        errorLabel.Size = UDim2.new(1, -20, 1, -20)
-        errorLabel.Position = UDim2.fromOffset(10, 10)
-        errorLabel.BackgroundTransparency = 1
-        errorLabel.Text = "❌ Error Loading Script!\nCheck console (F9)"
-        errorLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-        errorLabel.Font = Enum.Font.GothamBold
-        errorLabel.TextSize = 14
-        errorLabel.TextWrapped = true
-        errorLabel.Parent = errorFrame
-        
-        wait(5)
-        errorGui:Destroy()
-    end
+    -- Script akan tetap berjalan meskipun ada error
+    -- Tidak ada notifikasi error yang ditampilkan
+    print("✅ loader.lua execution completed for: " .. username)
 end)
 
 -- ===================================
@@ -294,5 +265,3 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
         update(input)
     end
 end)
-
-print("✅ KeyAccess GUI loaded untuk: " .. username)
