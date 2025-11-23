@@ -31,10 +31,10 @@ end
 -- ========= OPTIMIZED CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.008
+local MIN_DISTANCE_THRESHOLD = 0.005
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.05
+local TIMELINE_STEP_SECONDS = 0.03
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
@@ -3328,7 +3328,88 @@ StudioStroke.Parent = RecordingStudio
     StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
     ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
     PrevBtn = CreateStudioBtn("◀ PREV", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
-    NextBtn = CreateStudioBtn("NEXT ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+
+-- ✅ ADD: Hold detection
+local prevHoldConnection = nil
+local prevHoldActive = false
+
+PrevBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        prevHoldActive = true
+        
+        -- Single tap
+        task.spawn(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
+        
+        -- Wait 0.3s, then start rapid fire
+        task.wait(0.3)
+        
+        if prevHoldActive then
+            prevHoldConnection = RunService.Heartbeat:Connect(function()
+                if prevHoldActive then
+                    GoBackTimeline()
+                    task.wait(0.05)  -- 20 frames/second
+                end
+            end)
+        end
+    end
+end)
+
+PrevBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        prevHoldActive = false
+        if prevHoldConnection then
+            prevHoldConnection:Disconnect()
+            prevHoldConnection = nil
+        end
+    end
+end)
+
+-- ✅ SAME for NextBtn:
+NextBtn = CreateStudioBtn("NEXT ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+
+local nextHoldConnection = nil
+local nextHoldActive = false
+
+NextBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        nextHoldActive = true
+        
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
+        
+        task.wait(0.3)
+        
+        if nextHoldActive then
+            nextHoldConnection = RunService.Heartbeat:Connect(function()
+                if nextHoldActive then
+                    GoNextTimeline()
+                    task.wait(0.05)
+                end
+            end)
+        end
+    end
+end)
+
+NextBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        nextHoldActive = false
+        if nextHoldConnection then
+            nextHoldConnection:Disconnect()
+            nextHoldConnection = nil
+        end
+    end
+end)
 
     -- ========= INPUT VALIDATION =========
 
