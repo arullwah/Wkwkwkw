@@ -2885,6 +2885,20 @@ local uiSuccess, uiError = pcall(function()
     Title.TextXAlignment = Enum.TextXAlignment.Center
     Title.Parent = Header
 
+    CloseBtn = Instance.new("TextButton")
+    CloseBtn.Size = UDim2.fromOffset(20, 20)
+    CloseBtn.Position = UDim2.new(1, -20, 0.5, -10)
+    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+    CloseBtn.Text = "X"
+    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+    CloseBtn.Font = Enum.Font.GothamBold
+    CloseBtn.TextSize = 12
+    CloseBtn.Parent = Header
+
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 4)
+    CloseCorner.Parent = CloseBtn
+
     local Content = Instance.new("Frame")
     Content.Size = UDim2.new(1, -6, 1, -38)
     Content.Position = UDim2.new(0, 3, 0, 36)
@@ -3528,40 +3542,44 @@ local uiSuccess, uiError = pcall(function()
         end
     end)
 
-    -- ========= TRIPLE TAP CLOSE SYSTEM (PURPLE THEME) =========
+    -- ========= TRIPLE TAP CLOSE SYSTEM (FIXED) =========
 local tapCount = 0
 local lastTapTime = 0
-local TAP_WINDOW = 1.0  -- 1 detik untuk 3x tap
+local TAP_WINDOW = 1.0
 local tapResetConnection = nil
 
 -- Show tap count indicator
 local function ShowTapFeedback(count)
-    SafeCall(function()
-        local indicator = Instance.new("TextLabel")
-        indicator.Size = UDim2.fromOffset(50, 25)
-        indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 30)
-        indicator.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        indicator.BackgroundTransparency = 0.2
-        indicator.Text = count .. "/3"
-        indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
-        indicator.Font = Enum.Font.GothamBold
-        indicator.TextSize = 16
-        indicator.TextStrokeTransparency = 0.5
-        indicator.BorderSizePixel = 0
-        indicator.Parent = ScreenGui
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = indicator
-        
-        -- Pop animation
-        indicator.TextSize = 0
-        TweenService:Create(indicator, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            TextSize = 16
-        }):Play()
-        
-        -- Fade out after 0.6s
-        task.delay(0.6, function()
+    task.spawn(function()
+        SafeCall(function()
+            if not ScreenGui or not ScreenGui.Parent then return end
+            if not MiniButton or not MiniButton.Parent then return end
+            
+            local indicator = Instance.new("TextLabel")
+            indicator.Size = UDim2.fromOffset(50, 25)
+            indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 30)
+            indicator.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+            indicator.BackgroundTransparency = 0.2
+            indicator.Text = count .. "/3"
+            indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
+            indicator.Font = Enum.Font.GothamBold
+            indicator.TextSize = 16
+            indicator.TextStrokeTransparency = 0.5
+            indicator.BorderSizePixel = 0
+            indicator.Parent = ScreenGui
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 6)
+            corner.Parent = indicator
+            
+            -- Pop animation
+            indicator.TextSize = 0
+            TweenService:Create(indicator, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                TextSize = 16
+            }):Play()
+            
+            -- Fade out
+            task.wait(0.6)
             local fadeTween = TweenService:Create(indicator, TweenInfo.new(0.3), {
                 BackgroundTransparency = 1,
                 TextTransparency = 1,
@@ -3574,93 +3592,86 @@ local function ShowTapFeedback(count)
     end)
 end
 
--- Pulse MiniButton with color
+-- Pulse MiniButton
 local function PulseMiniButton(color, scale)
-    SafeCall(function()
-        local originalColor = MiniButton.BackgroundColor3
-        local originalSize = MiniButton.Size
-        local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
-        
-        -- Pulse animation
-        TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = color,
-            Size = targetSize
-        }):Play()
-        
-        task.wait(0.1)
-        
-        TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-            BackgroundColor3 = originalColor,
-            Size = originalSize
-        }):Play()
+    task.spawn(function()
+        SafeCall(function()
+            if not MiniButton or not MiniButton.Parent then return end
+            
+            local originalColor = MiniButton.BackgroundColor3
+            local originalSize = MiniButton.Size
+            local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+            
+            TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = color,
+                Size = targetSize
+            }):Play()
+            
+            task.wait(0.1)
+            
+            TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = originalColor,
+                Size = originalSize
+            }):Play()
+        end)
     end)
 end
 
--- Main click handler
+-- Main click handler (FIXED!)
 MiniButton.MouseButton1Click:Connect(function()
-    local currentTime = tick()
-    
-    -- Reset jika sudah lewat dari TAP_WINDOW
-    if currentTime - lastTapTime > TAP_WINDOW then
-        tapCount = 0
-    end
-    
-    -- Increment tap count
-    tapCount = tapCount + 1
-    lastTapTime = currentTime
-    
-    -- ========= TAP 1: NORMAL TOGGLE =========
-    if tapCount == 1 then
-        -- Sound effect
-        SafeCall(function() 
-            PlaySound("Click")
-        end)
-        
-        -- Toggle MainFrame (behavior normal)
+    task.spawn(function()
         SafeCall(function()
-            local originalSize = MiniButton.TextSize
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize * 1.2
-            }):Play()
-            task.wait(0.1)
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize
-            }):Play()
-        end)
-        
-        if MainFrame then
-            MainFrame.Visible = not MainFrame.Visible
-        end
-        
-        -- Visual feedback
-        ShowTapFeedback(1)
-        PulseMiniButton(Color3.fromRGB(59, 15, 116), 1.1)  -- Purple, scale 1.1x
-        
-    -- ========= TAP 2: WARNING =========
-    elseif tapCount == 2 then
-        SafeCall(function() 
-            PlaySound("Toggle")
-        end)
-        
-        ShowTapFeedback(2)
-        PulseMiniButton(Color3.fromRGB(89, 45, 146), 1.15)  -- Lighter purple, scale 1.15x
-        
-    -- ========= TAP 3: CLOSE! =========
-    elseif tapCount >= 3 then
-        SafeCall(function() 
-            PlaySound("Success")
-        end)
-        
-        ShowTapFeedback(3)
-        PulseMiniButton(Color3.fromRGB(119, 75, 176), 1.2)  -- Even lighter purple, scale 1.2x
-        
-        -- Delay untuk user lihat feedback
-        task.wait(0.3)
-        
-        -- Execute close sequence
-        task.spawn(function()
-            SafeCall(function()
-                -- Stop all systems
+            local currentTime = tick()
+            
+            -- Reset jika sudah lewat dari TAP_WINDOW
+            if currentTime - lastTapTime > TAP_WINDOW then
+                tapCount = 0
+            end
+            
+            -- Increment tap count
+            tapCount = tapCount + 1
+            lastTapTime = currentTime
+            
+            -- ========= TAP 1: NORMAL TOGGLE =========
+            if tapCount == 1 then
+                -- Sound effect
+                PlaySound("Click")
+                
+                -- Animate button
+                local originalSize = MiniButton.TextSize
+                TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                    TextSize = originalSize * 1.2
+                }):Play()
+                task.wait(0.1)
+                TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                    TextSize = originalSize
+                }):Play()
+                
+                -- Toggle MainFrame
+                if MainFrame then
+                    MainFrame.Visible = not MainFrame.Visible
+                end
+                
+                -- Visual feedback
+                ShowTapFeedback(1)
+                PulseMiniButton(Color3.fromRGB(59, 15, 116), 1.1)
+                
+            -- ========= TAP 2: WARNING =========
+            elseif tapCount == 2 then
+                PlaySound("Toggle")
+                ShowTapFeedback(2)
+                PulseMiniButton(Color3.fromRGB(89, 45, 146), 1.15)
+                
+            -- ========= TAP 3: CLOSE! =========
+            elseif tapCount >= 3 then
+                PlaySound("Success")
+                ShowTapFeedback(3)
+                PulseMiniButton(Color3.fromRGB(119, 75, 176), 1.2)
+                
+                -- Delay untuk feedback
+                task.wait(0.3)
+                
+                -- Close sequence
                 if StudioIsRecording then StopStudioRecording() end
                 if IsPlaying or AutoLoop then StopPlayback() end
                 if ShiftLockEnabled then DisableVisibleShiftLock() end
@@ -3672,88 +3683,101 @@ MiniButton.MouseButton1Click:Connect(function()
                     titlePulseConnection = nil
                 end
                 
-                -- Cleanup connections
+                -- Cleanup
                 CleanupConnections()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
                 
-                -- Fade out animation
-                local mainTween = TweenService:Create(MainFrame, TweenInfo.new(0.4), {
-                    BackgroundTransparency = 1
-                })
+                -- Fade out
+                if MainFrame then
+                    TweenService:Create(MainFrame, TweenInfo.new(0.4), {
+                        BackgroundTransparency = 1
+                    }):Play()
+                end
                 
-                local miniTween = TweenService:Create(MiniButton, TweenInfo.new(0.4), {
-                    BackgroundTransparency = 1,
-                    TextTransparency = 1
-                })
-                
-                mainTween:Play()
-                miniTween:Play()
-                miniTween.Completed:Wait()
+                if MiniButton then
+                    local miniTween = TweenService:Create(MiniButton, TweenInfo.new(0.4), {
+                        BackgroundTransparency = 1,
+                        TextTransparency = 1
+                    })
+                    miniTween:Play()
+                    miniTween.Completed:Wait()
+                end
                 
                 task.wait(0.1)
-                ScreenGui:Destroy()
+                if ScreenGui then
+                    ScreenGui:Destroy()
+                end
+                
+                -- Reset
+                tapCount = 0
+            end
+            
+            -- Auto-reset
+            if tapResetConnection then
+                task.cancel(tapResetConnection)
+            end
+            
+            tapResetConnection = task.delay(TAP_WINDOW, function()
+                if tapCount < 3 then
+                    tapCount = 0
+                end
             end)
         end)
-        
-        -- Reset tap count
-        tapCount = 0
-    end
-    
-    -- Auto-reset setelah TAP_WINDOW
-    if tapResetConnection then
-        task.cancel(tapResetConnection)
-    end
-    
-    tapResetConnection = task.delay(TAP_WINDOW, function()
-        if tapCount < 3 then
-            tapCount = 0
-        end
     end)
 end)
 
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
+    -- ========= MINI BUTTON DRAGGING (PASTIKAN ADA INI) =========
+local dragging = false
+local dragStart = nil
+local startPos = nil
 
-    MiniButton.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = MiniButton.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    SafeCall(function()
-                        if hasFileSystem and writefile and HttpService then
-                            local absX = MiniButton.AbsolutePosition.X
-                            local absY = MiniButton.AbsolutePosition.Y
-                            writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
-                        end
-                    end)
-                end
-            end)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if not dragging then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        if not dragStart or not startPos then return end
-
-        SafeCall(function()
-            local delta = input.Position - dragStart
-            local newX = startPos.X.Offset + delta.X
-            local newY = startPos.Y.Offset + delta.Y
-
-            local cam = workspace.CurrentCamera
-            local vx, vy = (cam and cam.ViewportSize.X) or 1920, (cam and cam.ViewportSize.Y) or 1080
-            newX = math.clamp(newX, 0, math.max(0, vx - MiniButton.AbsoluteSize.X))
-            newY = math.clamp(newY, 0, math.max(0, vy - MiniButton.AbsoluteSize.Y))
-
-            MiniButton.Position = UDim2.fromOffset(newX, newY)
+MiniButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MiniButton.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                
+                -- Save position
+                SafeCall(function()
+                    if hasFileSystem and writefile and HttpService then
+                        local absX = MiniButton.AbsolutePosition.X
+                        local absY = MiniButton.AbsolutePosition.Y
+                        writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                    end
+                end)
+            end
         end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if not dragging then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if not dragStart or not startPos then return end
+
+    SafeCall(function()
+        local delta = input.Position - dragStart
+        local newX = startPos.X.Offset + delta.X
+        local newY = startPos.Y.Offset + delta.Y
+
+        local cam = workspace.CurrentCamera
+        local vx = (cam and cam.ViewportSize.X) or 1920
+        local vy = (cam and cam.ViewportSize.Y) or 1080
+        local margin = 4
+        local btnWidth = MiniButton.AbsoluteSize.X
+        local btnHeight = MiniButton.AbsoluteSize.Y
+
+        newX = math.clamp(newX, -btnWidth + margin, vx - margin)
+        newY = math.clamp(newY, -btnHeight + margin, vy - margin)
+
+        MiniButton.Position = UDim2.fromOffset(newX, newY)
     end)
+end)
     
     -- ✅ START TITLE PULSE (TAMBAHKAN INI!)
     StartTitlePulse(Title)
