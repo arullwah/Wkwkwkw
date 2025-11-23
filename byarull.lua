@@ -11,6 +11,8 @@ local KeyAccess = {
     "ALELOLii",
     "ayamm554", 
     "Username3",
+     "kvplie",
+     "777hvdy",
     -- Tambahkan username lainnya di sini
 }
 
