@@ -49,10 +49,7 @@ local INTERPOLATE_AFTER_LAG = true
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 4
-local MOVING_THRESHOLD = 1.0
-local TRANSITION_FRAMES_DECEL = 8
-local TRANSITION_FRAMES_ACCEL = 8
+local INTERPOLATION_LOOKAHEAD = 2
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -802,137 +799,6 @@ local function FindNearestFrame(recording, position)
         end
     end
     return nearestFrame, nearestDistance
-end
-
-local function PostProcessRecording(frames)
-    if not frames or #frames < 3 then return frames end
-    
-    local processed = {}
-    local IDLE_THRESHOLD = 0.5
-    local MIN_IDLE_TO_COMPRESS = 0.5  -- Idle > 0.5s akan di-compress
-    local COMPRESSED_IDLE_DURATION = 0.3  -- Jadi 0.3s (natural pause)
-    
-    local idleStartIndex = nil
-    local idleStartTime = nil
-    local timeOffset = 0  -- Track berapa banyak waktu yang di-compress
-    
-    for i = 1, #frames do
-        local currentFrame = frames[i]
-        local currentVel = Vector3.new(currentFrame.Velocity[1], currentFrame.Velocity[2], currentFrame.Velocity[3])
-        local currentSpeed = currentVel.Magnitude
-        local currentState = currentFrame.MoveState
-        
-        local isIdle = currentSpeed < IDLE_THRESHOLD
-        
-        -- ✅ CREATE adjusted frame dengan timestamp baru
-        local adjustedFrame = {
-            Position = currentFrame.Position,
-            LookVector = currentFrame.LookVector,
-            UpVector = currentFrame.UpVector,
-            Velocity = currentFrame.Velocity,
-            MoveState = currentFrame.MoveState,
-            WalkSpeed = currentFrame.WalkSpeed,
-            Timestamp = currentFrame.Timestamp - timeOffset
-        }
-        
-        if isIdle then
-            -- ✅ DETECT idle start
-            if not idleStartIndex then
-                idleStartIndex = i
-                idleStartTime = currentFrame.Timestamp
-                table.insert(processed, adjustedFrame)  -- Keep first idle frame
-            end
-        else
-            -- ✅ DETECT idle end (mulai gerak lagi)
-            if idleStartIndex then
-                local idleDuration = currentFrame.Timestamp - idleStartTime
-                
-                -- ⚠️ COMPRESS idle jika > threshold
-                if idleDuration > MIN_IDLE_TO_COMPRESS then
-                    local timeToRemove = idleDuration - COMPRESSED_IDLE_DURATION
-                    timeOffset = timeOffset + timeToRemove
-                    
-                    print("⏩ Compressed idle: " .. string.format("%.2f", idleDuration) .. "s → " .. string.format("%.2f", COMPRESSED_IDLE_DURATION) .. "s")
-                    
-                    -- ✅ Adjust timestamp untuk frame ini
-                    adjustedFrame.Timestamp = currentFrame.Timestamp - timeOffset
-                end
-                
-                idleStartIndex = nil
-                idleStartTime = nil
-            end
-            
-            -- ✅ Check state changes untuk Jump/Climb
-            if i > 1 then
-                local prevFrame = frames[i - 1]
-                local prevState = prevFrame.MoveState
-                
-                if currentState ~= prevState then
-                    if currentState == "Jumping" or 
-                       currentState == "Falling" or 
-                       currentState == "Climbing" or 
-                       currentState == "Swimming" then
-                        print("🔄 State change: " .. prevState .. " → " .. currentState)
-                        
-                        -- ✅ Add prep frame jika jump
-                        if currentState == "Jumping" and #processed > 0 then
-                            local lastProcessed = processed[#processed]
-                            if lastProcessed.Timestamp ~= (prevFrame.Timestamp - timeOffset) then
-                                table.insert(processed, {
-                                    Position = prevFrame.Position,
-                                    LookVector = prevFrame.LookVector,
-                                    UpVector = prevFrame.UpVector,
-                                    Velocity = prevFrame.Velocity,
-                                    MoveState = prevFrame.MoveState,
-                                    WalkSpeed = prevFrame.WalkSpeed,
-                                    Timestamp = prevFrame.Timestamp - timeOffset
-                                })
-                                print("⬆️ Added jump prep frame")
-                            end
-                        end
-                    end
-                end
-            end
-            
-            -- ✅ Detect pre-jump dan landing
-            if i > 1 and i < #frames then
-                local prevVel = Vector3.new(frames[i-1].Velocity[1], frames[i-1].Velocity[2], frames[i-1].Velocity[3])
-                local nextVel = Vector3.new(frames[i+1].Velocity[1], frames[i+1].Velocity[2], frames[i+1].Velocity[3])
-                
-                if currentSpeed < IDLE_THRESHOLD and nextVel.Y > 10 then
-                    print("⬆️ Pre-jump detected")
-                end
-                
-                if prevVel.Y > 5 and currentVel.Y < 1 then
-                    print("⬇️ Landing detected")
-                end
-            end
-            
-            table.insert(processed, adjustedFrame)
-        end
-    end
-    
-    -- ✅ Handle idle di akhir recording
-    if idleStartIndex then
-        local idleDuration = frames[#frames].Timestamp - idleStartTime
-        if idleDuration > MIN_IDLE_TO_COMPRESS then
-            local timeToRemove = idleDuration - COMPRESSED_IDLE_DURATION
-            timeOffset = timeOffset + timeToRemove
-            print("⏩ Compressed idle at end: " .. string.format("%.2f", idleDuration) .. "s → " .. string.format("%.2f", COMPRESSED_IDLE_DURATION) .. "s")
-        end
-    end
-    
-    print("✅ Smart compression: " .. #frames .. " → " .. #processed .. " frames")
-    if #processed > 0 and #frames > 0 then
-        local originalDuration = frames[#frames].Timestamp
-        local newDuration = processed[#processed].Timestamp
-        local timeSaved = originalDuration - newDuration
-        print("   Original: " .. string.format("%.2f", originalDuration) .. "s")
-        print("   Compressed: " .. string.format("%.2f", newDuration) .. "s")
-        print("   Time saved: " .. string.format("%.2f", timeSaved) .. "s")
-    end
-    
-    return processed
 end
 
 -- ========= LAG COMPENSATION =========
@@ -2097,7 +1963,6 @@ local function StartTitlePulse(titleLabel)
     AddConnection(titlePulseConnection)
 end
 
-
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
 local function UpdateStudioUI()
@@ -2195,64 +2060,53 @@ local function StartStudioRecording()
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
-    task.spawn(function()
-        SafeCall(function()
-            local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
-                return
-            end
-            
-            local hrp = char.HumanoidRootPart
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            
-            if IsTimelineMode then
-                return
-            end
-            
-            local now = tick()
-            if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
-            
-            local currentPos = hrp.Position
-            local currentVelocity = hrp.AssemblyLinearVelocity
-            
-            -- ✅ ALWAYS RECORD (jangan skip idle!)
-            -- Tapi skip kalau posisi benar-benar duplicate
-            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
-                -- ⚠️ HANYA skip kalau velocity JUGA 0 (benar-benar diam!)
-                if currentVelocity.Magnitude < 0.01 and #StudioCurrentRecording.Frames > 0 then
-                    local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
-                    local lastVel = Vector3.new(lastFrame.Velocity[1], lastFrame.Velocity[2], lastFrame.Velocity[3])
-                    
-                    -- Skip HANYA kalau frame sebelumnya juga idle
-                    if lastVel.Magnitude < 0.01 then
+                task.spawn(function()
+                    SafeCall(function()
+                        local char = player.Character
+                        if not char or not char:FindFirstChild("HumanoidRootPart") or #StudioCurrentRecording.Frames >= MAX_FRAMES then
+                            return
+                        end
+                        
+                        local hrp = char.HumanoidRootPart
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        
+                        if IsTimelineMode then
+                            return
+                        end
+                        
+                        local now = tick()
+                        if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
+                        
+                        local currentPos = hrp.Position
+                        local currentVelocity = hrp.AssemblyLinearVelocity
+                        
+                        if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
+                            lastStudioRecordTime = now
+                            return
+                        end
+                        
+                        local cf = hrp.CFrame
+                        local currentWalkSpeed = hum and hum.WalkSpeed or 16
+                        
+                        table.insert(StudioCurrentRecording.Frames, {
+                            Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
+                            LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
+                            UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
+                            Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
+                            MoveState = GetCurrentMoveState(hum),
+                            WalkSpeed = currentWalkSpeed,
+                            Timestamp = now - StudioCurrentRecording.StartTime
+                        })
+                        
                         lastStudioRecordTime = now
-                        return
-                    end
-                end
-            end
-            
-            local cf = hrp.CFrame
-            local currentWalkSpeed = hum and hum.WalkSpeed or 16
-            
-            table.insert(StudioCurrentRecording.Frames, {
-                Position = {cf.Position.X, cf.Position.Y, cf.Position.Z},
-                LookVector = {cf.LookVector.X, cf.LookVector.Y, cf.LookVector.Z},
-                UpVector = {cf.UpVector.X, cf.UpVector.Y, cf.UpVector.Z},
-                Velocity = {currentVelocity.X, currentVelocity.Y, currentVelocity.Z},
-                MoveState = GetCurrentMoveState(hum),
-                WalkSpeed = currentWalkSpeed,
-                Timestamp = now - StudioCurrentRecording.StartTime
-            })
-            
-            lastStudioRecordTime = now
-            lastStudioRecordPos = currentPos
-            CurrentTimelineFrame = #StudioCurrentRecording.Frames
-            TimelinePosition = CurrentTimelineFrame
-            
-            UpdateStudioUI()
-        end)
-    end)
-end)
+                        lastStudioRecordPos = currentPos
+                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                        TimelinePosition = CurrentTimelineFrame
+                        
+                        UpdateStudioUI()
+                    end)
+                end)
+            end)
             AddConnection(recordConnection)
         end)
     end)
@@ -2352,7 +2206,6 @@ local function ResumeStudioRecording()
             local lastState = lastRecordedFrame and lastRecordedFrame.MoveState or "Grounded"
             local lastWalkSpeed = lastRecordedFrame and lastRecordedFrame.WalkSpeed or 16
             
-            -- ✅ TRUNCATE frames setelah TimelinePosition
             if TimelinePosition < #StudioCurrentRecording.Frames then
                 local newFrames = {}
                 for i = 1, TimelinePosition do
@@ -2366,7 +2219,6 @@ local function ResumeStudioRecording()
                 end
             end
             
-            -- ✅ ORIGINAL INTERPOLATION (yang sudah 98% bagus!)
             if #StudioCurrentRecording.Frames > 0 and INTERPOLATION_LOOKAHEAD > 0 then
                 local lastFrame = StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames]
                 local currentPos = hrp.Position
@@ -2375,58 +2227,25 @@ local function ResumeStudioRecording()
                 if (currentPos - lastPos).Magnitude > 0.5 then
                     for i = 1, INTERPOLATION_LOOKAHEAD do
                         local alpha = i / (INTERPOLATION_LOOKAHEAD + 1)
-                        
                         local interpPos = lastPos:Lerp(currentPos, alpha)
                         
-                        local lastLook = Vector3.new(
-                            lastFrame.LookVector[1], 
-                            lastFrame.LookVector[2], 
-                            lastFrame.LookVector[3]
-                        )
-                        
-                        local movementDir = (currentPos - lastPos).Unit
-                        local targetLook = movementDir.Magnitude > 0.01 
-                            and movementDir 
-                            or lastLook
-                        
-                        local interpLook = lastLook:Lerp(targetLook, alpha).Unit
-                        
-                        local lastUp = Vector3.new(
-                            lastFrame.UpVector[1], 
-                            lastFrame.UpVector[2], 
-                            lastFrame.UpVector[3]
-                        )
-                        local interpUp = lastUp:Lerp(Vector3.new(0, 1, 0), alpha).Unit
-                        
-                        local lastVel = Vector3.new(
-                            lastFrame.Velocity[1], 
-                            lastFrame.Velocity[2], 
-                            lastFrame.Velocity[3]
-                        )
-                        
-                        local expectedVel = (currentPos - interpPos) * RECORDING_FPS
-                        local interpVel = lastVel:Lerp(expectedVel, alpha)
-                        
-                        local currentWS = hum and hum.WalkSpeed or 16
-                        local interpWS = lastFrame.WalkSpeed + (currentWS - lastFrame.WalkSpeed) * alpha
-                        
-                        table.insert(StudioCurrentRecording.Frames, {
+                        local interpFrame = {
                             Position = {interpPos.X, interpPos.Y, interpPos.Z},
-                            LookVector = {interpLook.X, interpLook.Y, interpLook.Z},
-                            UpVector = {interpUp.X, interpUp.Y, interpUp.Z},
-                            Velocity = {interpVel.X, interpVel.Y, interpVel.Z},
+                            LookVector = lastFrame.LookVector,
+                            UpVector = lastFrame.UpVector,
+                            Velocity = lastFrame.Velocity,
                             MoveState = lastState,
-                            WalkSpeed = interpWS,
+                            WalkSpeed = lastWalkSpeed,
                             Timestamp = lastFrame.Timestamp + (i * (1/RECORDING_FPS)),
                             IsInterpolated = true
-                        })
+                        }
+                        table.insert(StudioCurrentRecording.Frames, interpFrame)
                     end
                     
                     StudioCurrentRecording.StartTime = tick() - StudioCurrentRecording.Frames[#StudioCurrentRecording.Frames].Timestamp
                 end
             end
             
-            -- ✅ ⭐ INSTANT RESTORE (ini yang penting!)
             IsTimelineMode = false
             lastStudioRecordTime = tick()
             lastStudioRecordPos = hrp.Position
@@ -2458,11 +2277,7 @@ local function SaveStudioRecording()
                 StopStudioRecording()
             end
             
-            -- ✅ Step 1: Post-process (add smooth transitions)
-            local processedFrames = PostProcessRecording(StudioCurrentRecording.Frames)
-            
-            -- ✅ Step 2: Normalize timestamps
-            local normalizedFrames = NormalizeRecordingTimestamps(processedFrames)
+            local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
             
             RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
@@ -3490,7 +3305,6 @@ local uiSuccess, uiError = pcall(function()
             SaveStudioRecording()
         end)
     end)
-
 
 -- ========= MINI BUTTON: MOBILE-SAFE DRAG + TRIPLE TAP =========
 
