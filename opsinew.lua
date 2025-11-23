@@ -3306,17 +3306,17 @@ local uiSuccess, uiError = pcall(function()
         end)
     end)
 
--- ========= MINI BUTTON: MOBILE-SAFE DRAG + TRIPLE TAP =========
+-- ========= MINI BUTTON: MOBILE-SAFE DRAG + FIVE TAP (CLEAN) =========
 
--- Triple tap variables
+-- Five tap variables
 local tapCount = 0
 local lastTapTime = 0
-local TAP_WINDOW = 1.0
+local TAP_WINDOW = 1.5
 local tapResetConnection = nil
 
 -- Dragging variables
 local dragging = false
-local dragInput = nil  -- ✅ BARU: Track input object yang sedang drag
+local dragInput = nil
 local dragStart = nil
 local startPos = nil
 local dragThreshold = 5
@@ -3346,7 +3346,7 @@ local function ShowTapFeedback(count)
             indicator.Position = UDim2.new(0, MiniButton.AbsolutePosition.X - 5, 0, MiniButton.AbsolutePosition.Y - 30)
             indicator.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
             indicator.BackgroundTransparency = 0.2
-            indicator.Text = count .. "/3"
+            indicator.Text = count .. "/5"
             indicator.TextColor3 = Color3.fromRGB(255, 255, 255)
             indicator.Font = Enum.Font.GothamBold
             indicator.TextSize = 16
@@ -3384,9 +3384,6 @@ local function PulseButton(color, scale)
     local originalSize = MiniButton.Size
     local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
     
-    print("🎨 Pulsing to color:", color, "Scale:", scale)
-    
-    -- Tween OUT
     local tweenOut = TweenService:Create(
         MiniButton, 
         TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -3398,10 +3395,8 @@ local function PulseButton(color, scale)
     tweenOut:Play()
     tweenOut.Completed:Wait()
     
-    -- Hold
     task.wait(0.15)
     
-    -- Tween IN
     local tweenIn = TweenService:Create(
         MiniButton,
         TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
@@ -3412,11 +3407,9 @@ local function PulseButton(color, scale)
     )
     tweenIn:Play()
     tweenIn.Completed:Wait()
-    
-    print("🎨 Pulse completed!")
 end
 
--- Handle triple tap logic (TRAFFIC LIGHT + BLOCKING)
+-- Handle five tap logic
 local function HandleTap()
     local currentTime = tick()
     
@@ -3427,9 +3420,7 @@ local function HandleTap()
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    print("👆 TAP COUNT:", tapCount)
-    
-    -- TAP 1: HIJAU
+    -- TAP 1: TOGGLE MAINFRAME
     if tapCount == 1 then
         pcall(function() PlaySound("Click") end)
         
@@ -3438,23 +3429,34 @@ local function HandleTap()
         end
         
         ShowTapFeedback(1)
-        PulseButton(Color3.fromRGB(50, 200, 80), 1.1)  -- 🟢 HIJAU
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)
         
-    -- TAP 2: KUNING
+    -- TAP 2: SUBTLE FEEDBACK
     elseif tapCount == 2 then
-        pcall(function() PlaySound("Toggle") end)
+        pcall(function() PlaySound("Click") end)
         ShowTapFeedback(2)
-        PulseButton(Color3.fromRGB(255, 200, 0), 1.15)  -- 🟡 KUNING
+        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)
         
-    -- TAP 3: MERAH
-    elseif tapCount >= 3 then
-        pcall(function() PlaySound("Success") end)
+    -- TAP 3: WARNING START
+    elseif tapCount == 3 then
+        pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(3)
-        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 🔴 MERAH
+        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)
+        
+    -- TAP 4: STRONG WARNING
+    elseif tapCount == 4 then
+        pcall(function() PlaySound("Toggle") end)
+        ShowTapFeedback(4)
+        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)
+        
+    -- TAP 5: CLOSE
+    elseif tapCount >= 5 then
+        pcall(function() PlaySound("Success") end)
+        ShowTapFeedback(5)
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)
         
         task.wait(0.3)
         
-        -- Close sequence
         task.spawn(function()
             pcall(function()
                 if StudioIsRecording then StopStudioRecording() end
@@ -3499,36 +3501,33 @@ local function HandleTap()
     end
     
     tapResetConnection = task.delay(TAP_WINDOW, function()
-        if tapCount < 3 then
+        if tapCount < 5 then
             tapCount = 0
         end
     end)
 end
 
--- ✅ INPUT BEGAN: Track SPECIFIC input object
+-- INPUT BEGAN: Track specific input object
 MiniButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or 
        input.UserInputType == Enum.UserInputType.Touch then
         
         dragging = true
         hasDragged = false
-        dragInput = input  -- ✅ STORE input object yang INITIATE drag
+        dragInput = input
         dragStart = input.Position
         startPos = MiniButton.Position
         
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                -- ✅ ONLY reset jika input SAMA yang release
                 if dragInput == input then
                     dragging = false
                     dragInput = nil
                     
-                    -- Tap detection
                     if not hasDragged then
                         HandleTap()
                     end
                     
-                    -- Save position
                     if hasDragged then
                         SafeCall(function()
                             if hasFileSystem and writefile and HttpService then
@@ -3544,11 +3543,10 @@ MiniButton.InputBegan:Connect(function(input)
     end
 end)
 
--- ✅ INPUT CHANGED: HANYA process input yang SAMA dengan dragInput
+-- INPUT CHANGED: Only process input that initiated drag
 UserInputService.InputChanged:Connect(function(input)
-    -- ✅ CRITICAL FIX: Ignore input jika bukan yang initiate drag!
     if not dragging then return end
-    if dragInput ~= input then return end  -- ✅ FILTER input lain (analog stick)!
+    if dragInput ~= input then return end
     
     if input.UserInputType ~= Enum.UserInputType.MouseMovement and 
        input.UserInputType ~= Enum.UserInputType.Touch then return end
