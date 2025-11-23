@@ -2395,10 +2395,12 @@ if not hasBit32 then
     end
 end
 
--- ========= ENCRYPTION KEY =========
+-- ========= ENCRYPTION SYSTEM =========
+
+-- Encryption Key
 local ENCRYPTION_KEY = "ByaruLRecorder2024!Secret#Key@"
 
--- ========= FIELD MAPPING =========
+-- Field Mapping for Obfuscation
 local FIELD_MAPPING = {
     Position = "11",
     LookVector = "88",
@@ -2419,12 +2421,8 @@ local REVERSE_MAPPING = {
     ["66"] = "Timestamp"
 }
 
--- ========= FORWARD DECLARATIONS =========
-local SaveToEncryptedJSON
-local LoadFromEncryptedJSON
-local LoadFromOldJSON
+-- ========= HELPER FUNCTIONS =========
 
--- ========= OBFUSCATION FUNCTIONS =========
 local function ObfuscateRecordingData(recordingData)
     local obfuscated = {}
     for checkpointName, frames in pairs(recordingData) do
@@ -2467,40 +2465,7 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
-local function ConvertOldFormatToNew(oldData)
-    local function IsOldFormat(frames)
-        if not frames or #frames == 0 then return false end
-        local firstFrame = frames[1]
-        return firstFrame.Position ~= nil and firstFrame["11"] == nil
-    end
-    
-    local converted = {}
-    
-    for checkpointName, frames in pairs(oldData) do
-        if IsOldFormat(frames) then
-            local obfuscatedFrames = {}
-            for _, frame in ipairs(frames) do
-                local obfuscatedFrame = {}
-                for fieldName, fieldValue in pairs(frame) do
-                    local code = FIELD_MAPPING[fieldName]
-                    if code then
-                        obfuscatedFrame[code] = fieldValue
-                    else
-                        obfuscatedFrame[fieldName] = fieldValue
-                    end
-                end
-                table.insert(obfuscatedFrames, obfuscatedFrame)
-            end
-            converted[checkpointName] = obfuscatedFrames
-        else
-            converted[checkpointName] = frames
-        end
-    end
-    
-    return converted
-end
-
--- ========= XOR CIPHER =========
+-- XOR Cipher
 local function XORCipher(data, key)
     local result = {}
     local keyLen = #key
@@ -2513,7 +2478,7 @@ local function XORCipher(data, key)
     return table.concat(result)
 end
 
--- ========= BASE64 ENCODING =========
+-- Base64 Encoding
 local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
 local function Base64Encode(data)
@@ -2544,7 +2509,7 @@ local function Base64Decode(data)
     end))
 end
 
--- ========= CHECKSUM VALIDATION =========
+-- Checksum Generation
 local function GenerateChecksum(data)
     local hash = 5381
     for i = 1, #data do
@@ -2553,18 +2518,20 @@ local function GenerateChecksum(data)
     return tostring(hash)
 end
 
--- ========= 💾 SAVE FUNCTION =========
-SaveToEncryptedJSON = function()
+-- ========= SAVE FUNCTION =========
+
+local function SaveToEncryptedJSON()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Save",
-            Text = "Executor tidak support file system!",
+            Title = "❌ Save Failed",
+            Text = "Executor does not support file system!",
             Duration = 5
         })
         return
     end
     
+    -- Check if any recordings are checked
     local hasCheckedRecordings = false
     for name, checked in pairs(CheckedRecordings) do
         if checked then
@@ -2576,8 +2543,8 @@ SaveToEncryptedJSON = function()
     if not hasCheckedRecordings then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
-            Title = "⚠️ Tidak Ada Data",
-            Text = "Checklist recording terlebih dahulu!",
+            Title = "⚠️ No Data Selected",
+            Text = "Please check recordings first!",
             Duration = 3
         })
         return
@@ -2587,8 +2554,9 @@ SaveToEncryptedJSON = function()
     if filename == "" then filename = "MyReplays" end
 
     local success, err = pcall(function()
+        -- Prepare save data structure
         local saveData = {
-            Version = "3.3_Encrypted",
+            Version = "4.0_Encrypted",
             Signature = "ByaruLRecorder",
             Timestamp = os.time(),
             Checkpoints = {},
@@ -2596,6 +2564,7 @@ SaveToEncryptedJSON = function()
             CheckpointNames = {}
         }
         
+        -- Collect checked recordings
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
                 local frames = RecordedMovements[name]
@@ -2612,6 +2581,7 @@ SaveToEncryptedJSON = function()
             end
         end
         
+        -- Obfuscate frame data
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
             recordingsToObfuscate[name] = RecordedMovements[name]
@@ -2620,21 +2590,33 @@ SaveToEncryptedJSON = function()
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
+        -- Encode to JSON
         local jsonString = HttpService:JSONEncode(saveData)
+        
+        -- Generate checksum
         local checksum = GenerateChecksum(jsonString)
+        
+        -- Combine checksum with data
         local finalData = checksum .. "|" .. jsonString
+        
+        -- Encrypt with XOR
         local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
+        
+        -- Encode to Base64
         local encoded = Base64Encode(encrypted)
-        local header = "BRLREC" .. string.char(0x01, 0x00, 0x03, 0x03)
+        
+        -- Add file header
+        local header = "BRLREC" .. string.char(0x01, 0x00, 0x04, 0x00) -- Version 4.0
         local finalFile = header .. encoded
         
+        -- Write to file
         writefile(filename .. ".brl", finalFile)
         
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Sukses Save " .. filename,
-            Text = #saveData.RecordingOrder .. " recordings",
+            Title = "✅ Save Success: " .. filename,
+            Text = #saveData.RecordingOrder .. " recordings saved",
             Duration = 3
         })
     end)
@@ -2642,148 +2624,21 @@ SaveToEncryptedJSON = function()
     if not success then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Save",
+            Title = "❌ Save Failed",
             Text = tostring(err),
             Duration = 4
         })
     end
 end
 
--- ========= 📂 LOAD OLD JSON FORMAT =========
-LoadFromOldJSON = function()
+-- ========= LOAD FUNCTION =========
+
+local function LoadFromEncryptedJSON()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Load",
-            Text = "Executor tidak support file system!",
-            Duration = 5
-        })
-        return false
-    end
-    
-    local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
-
-    local success, result = pcall(function()
-        local jsonFile = filename .. ".json"
-        
-        local fileExists = false
-        pcall(function()
-            fileExists = isfile(jsonFile)
-        end)
-        
-        if not fileExists then
-            return false
-        end
-        
-        local fileContent = readfile(jsonFile)
-        local saveData = HttpService:JSONDecode(fileContent)
-        
-        local signature = saveData.Signature or "Unknown"
-        
-        local checkpointsData = nil
-        local recordingOrderData = {}
-        local checkpointNamesData = {}
-        
-        if saveData.Checkpoints and type(saveData.Checkpoints) == "table" then
-            checkpointsData = saveData.Checkpoints
-            recordingOrderData = saveData.RecordingOrder or {}
-            checkpointNamesData = saveData.CheckpointNames or {}
-        else
-            checkpointsData = {}
-            
-            for key, value in pairs(saveData) do
-                if key ~= "Signature" and key ~= "Version" and key ~= "Timestamp" 
-                   and key ~= "RecordingOrder" and key ~= "CheckpointNames" then
-                    
-                    if type(value) == "table" and #value > 0 then
-                        local firstItem = value[1]
-                        
-                        if type(firstItem) == "table" and firstItem.Position then
-                            table.insert(checkpointsData, {
-                                Name = key,
-                                DisplayName = key,
-                                Frames = value
-                            })
-                            
-                            table.insert(recordingOrderData, key)
-                            checkpointNamesData[key] = key
-                        end
-                    end
-                end
-            end
-        end
-        
-        if not checkpointsData or #checkpointsData == 0 then
-            error("No valid recordings")
-        end
-        
-        local loadedCount = 0
-        
-        for _, checkpointData in ipairs(checkpointsData) do
-            local name = checkpointData.Name
-            local frames = checkpointData.Frames
-            
-            if frames and #frames > 0 then
-                local firstFrame = frames[1]
-                
-                if not firstFrame.Position then
-                    continue
-                end
-                
-                for _, frame in ipairs(frames) do
-                    frame.Position = frame.Position or {0, 0, 0}
-                    frame.LookVector = frame.LookVector or {0, 0, 1}
-                    frame.UpVector = frame.UpVector or {0, 1, 0}
-                    frame.Velocity = frame.Velocity or {0, 0, 0}
-                    frame.MoveState = frame.MoveState or "Grounded"
-                    frame.WalkSpeed = frame.WalkSpeed or 16
-                    frame.Timestamp = frame.Timestamp or 0
-                end
-                
-                RecordedMovements[name] = frames
-                
-                local displayName = checkpointNamesData[name] or checkpointData.DisplayName or ("checkpoint_" .. (loadedCount + 1))
-                checkpointNames[name] = displayName
-                
-                if not table.find(RecordingOrder, name) then
-                    table.insert(RecordingOrder, name)
-                end
-                
-                loadedCount = loadedCount + 1
-            end
-        end
-        
-        if loadedCount == 0 then
-            error("No recordings loaded")
-        end
-        
-        UpdateRecordList()
-        PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Load Sukses " .. filename,
-            Text = loadedCount .. " recordings",
-            Duration = 3
-        })
-        
-        return true
-    end)
-
-    if not success then
-        return false
-    end
-    
-    return result
-end
-
--- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) =========
-LoadFromEncryptedJSON = function()
-    if not hasFileSystem then
-        PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Load",
-            Text = "Executor tidak support file system!",
+            Title = "❌ Load Failed",
+            Text = "Executor does not support file system!",
             Duration = 5
         })
         return
@@ -2793,6 +2648,7 @@ LoadFromEncryptedJSON = function()
     if filename == "" then filename = "MyReplays" end
 
     local success, err = pcall(function()
+        -- Check if file exists
         local fileExists = false
         pcall(function()
             fileExists = isfile(filename .. ".brl")
@@ -2801,58 +2657,73 @@ LoadFromEncryptedJSON = function()
         if not fileExists then
             PlaySound("Error")
             StarterGui:SetCore("SendNotification", {
-                Title = "⚠️ File Tidak Ada",
-                Text = filename .. ".brl tidak ditemukan",
+                Title = "⚠️ File Not Found",
+                Text = filename .. ".brl does not exist",
                 Duration = 3
             })
             return
         end
         
+        -- Read file
         local fileContent = readfile(filename .. ".brl")
         
+        -- Validate header
         local header = string.sub(fileContent, 1, 10)
         if not string.match(header, "^BRLREC") then
-            error("Invalid format")
+            error("Invalid file format - not a .brl file")
         end
         
+        -- Extract version from header
+        local versionBytes = {string.byte(header, 7, 10)}
+        local majorVersion = versionBytes[1]
+        local minorVersion = versionBytes[3]
+        
+        -- Only accept version 4.0+
+        if majorVersion < 4 then
+            error("Unsupported file version - please use version 4.0 or newer")
+        end
+        
+        -- Extract encoded data
         local encoded = string.sub(fileContent, 11)
+        
+        -- Decode Base64
         local encrypted = Base64Decode(encoded)
+        
+        -- Decrypt XOR
         local decrypted = XORCipher(encrypted, ENCRYPTION_KEY)
         
+        -- Split checksum and JSON
         local splitPos = string.find(decrypted, "|", 1, true)
         if not splitPos then
-            error("Corrupt")
+            error("File is corrupted - invalid data structure")
         end
         
         local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
         local jsonString = string.sub(decrypted, splitPos + 1)
         
+        -- Verify checksum
         local calculatedChecksum = GenerateChecksum(jsonString)
         if storedChecksum ~= calculatedChecksum then
-            error("Checksum fail")
+            error("File is corrupted - checksum verification failed")
         end
         
+        -- Parse JSON
         local saveData = HttpService:JSONDecode(jsonString)
         
+        -- Validate signature
         if saveData.Signature ~= "ByaruLRecorder" then
-            error("Invalid signature")
+            error("Invalid file signature - file may be tampered")
         end
         
+        -- Extract data
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
+        local obfuscatedFrames = saveData.ObfuscatedFrames or {}
         
-        local dataToProcess = saveData.ObfuscatedFrames
+        -- Deobfuscate frame data
+        local deobfuscatedData = DeobfuscateRecordingData(obfuscatedFrames)
         
-        if not dataToProcess then
-            dataToProcess = {}
-            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-                dataToProcess[checkpointData.Name] = checkpointData.Frames
-            end
-        end
-        
-        local convertedData = ConvertOldFormatToNew(dataToProcess)
-        local deobfuscatedData = DeobfuscateRecordingData(convertedData)
-        
+        -- Load recordings
         local loadedCount = 0
         
         for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
@@ -2860,9 +2731,18 @@ LoadFromEncryptedJSON = function()
             local frames = deobfuscatedData[name]
             
             if frames and #frames > 0 then
+                -- Validate frame structure
+                local firstFrame = frames[1]
+                if not firstFrame.Position or not firstFrame.LookVector then
+                    warn("⚠️ Skipping invalid recording:", name)
+                    continue
+                end
+                
+                -- Store recording
                 RecordedMovements[name] = frames
                 checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
                 
+                -- Add to order if not exists
                 if not table.find(RecordingOrder, name) then
                     table.insert(RecordingOrder, name)
                 end
@@ -2871,12 +2751,17 @@ LoadFromEncryptedJSON = function()
             end
         end
         
+        if loadedCount == 0 then
+            error("No valid recordings found in file")
+        end
+        
+        -- Update UI
         UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Load Sukses " .. filename,
-            Text = loadedCount .. " recordings",
+            Title = "✅ Load Success: " .. filename,
+            Text = loadedCount .. " recordings loaded",
             Duration = 3
         })
     end)
@@ -2884,24 +2769,29 @@ LoadFromEncryptedJSON = function()
     if not success then
         PlaySound("Error")
         
-        local errorMsg = "Error"
-        if string.match(tostring(err), "corrupt") or string.match(tostring(err), "Corrupt") or string.match(tostring(err), "Checksum") then
-            errorMsg = "File rusak"
-        elseif string.match(tostring(err), "Invalid") then
-            errorMsg = "File tidak valid"
+        -- Parse error type
+        local errorMsg = tostring(err)
+        local displayMsg = "Unknown error"
+        
+        if string.match(errorMsg, "corrupted") or string.match(errorMsg, "Corrupted") then
+            displayMsg = "File is corrupted or damaged"
+        elseif string.match(errorMsg, "checksum") or string.match(errorMsg, "Checksum") then
+            displayMsg = "File verification failed"
+        elseif string.match(errorMsg, "Invalid") or string.match(errorMsg, "invalid") then
+            displayMsg = "Invalid file format"
+        elseif string.match(errorMsg, "Unsupported") or string.match(errorMsg, "version") then
+            displayMsg = "Unsupported file version"
+        elseif string.match(errorMsg, "tampered") then
+            displayMsg = "File may be tampered"
         end
         
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Load",
-            Text = errorMsg,
-            Duration = 3
+            Title = "❌ Load Failed",
+            Text = displayMsg,
+            Duration = 4
         })
     end
 end
-
--- ========= 🔄 ALIASES =========
-SaveToObfuscatedJSON = SaveToEncryptedJSON
-LoadFromObfuscatedJSON = LoadFromEncryptedJSON
 
 -- ========= RECORDING LIST UI =========
 
@@ -3395,15 +3285,15 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.CornerRadius = UDim.new(0, 4)
     ListCorner.Parent = RecordingsList
 
--- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
+-- ========= MINI BUTTON WITH ULTIMATE ANIMATION (FIXED!) =========
 MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(30, 30)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
-MiniButton.TextSize = 35 -- ✅ BIGGER for FredokaOne!
+MiniButton.Font = Enum.Font.FredokaOne
+MiniButton.TextSize = 35
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
@@ -3414,6 +3304,9 @@ MiniButton.Parent = ScreenGui
 local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
+
+-- ✅ FIXED: Define CONSTANT size
+local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)
 
 -- ========= ULTIMATE COMBO ANIMATION =========
 do
@@ -3430,7 +3323,7 @@ do
             local hue = (now * 0.5) % 1
             MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
             
-            -- Pulsing scale
+            -- Pulsing scale (TEXT ONLY, bukan button size!)
             local scale = 24 + math.sin(now * 3) * 3
             MiniButton.TextSize = scale
             
@@ -3444,22 +3337,20 @@ do
                 MiniButton.Text = letters[currentIndex]
                 lastChangeTime = now
                 
-                -- Button pulse on letter change
+                -- ✅ FIXED: Button pulse dengan size constant
                 task.spawn(function()
                     pcall(function()
                         if not MiniButton or not MiniButton.Parent then return end
                         
-                        local originalSize = MiniButton.Size
-                        
                         TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(46, 46)
+                            Size = UDim2.fromOffset(36, 36)
                         }):Play()
                         
                         task.wait(0.1)
                         
                         if MiniButton and MiniButton.Parent then
                             TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                                Size = originalSize
+                                Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Always return to 30x30
                             }):Play()
                         end
                     end)
@@ -3766,21 +3657,16 @@ end
         end)
     end)
 
-    SaveFileBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(SaveFileBtn)
-        SaveToObfuscatedJSON()
-    end)
+    -- ========= BUTTON CONNECTIONS =========
 
-    LoadFileBtn.MouseButton1Click:Connect(function()
+SaveFileBtn.MouseButton1Click:Connect(function()
+    AnimateButtonClick(SaveFileBtn)
+    SaveToEncryptedJSON()
+end)
+
+LoadFileBtn.MouseButton1Click:Connect(function()
     AnimateButtonClick(LoadFileBtn)
-    
-    -- ✅ COBA LOAD OLD FORMAT DULU (.json)
-    local loadedOld = LoadFromOldJSON()
-    
-    -- ✅ KALAU GAGAL, COBA LOAD NEW FORMAT (.brl)
-    if not loadedOld then
-        LoadFromEncryptedJSON()
-    end
+    LoadFromEncryptedJSON()
 end)
 
     MergeBtn.MouseButton1Click:Connect(function()
@@ -3926,15 +3812,16 @@ local function ShowTapFeedback(count)
     end)
 end
 
--- Pulse button with color (ASYNC - NON-BLOCKING!)
+-- ✅ FIXED: Pulse button dengan size constant
+local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)  -- Define di top level
+
 local function PulseButton(color, scale)
     task.spawn(function()
         pcall(function()
             if not MiniButton or not MiniButton.Parent then return end
             
             local originalColor = MiniButton.BackgroundColor3
-            local originalSize = MiniButton.Size
-            local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+            local targetSize = UDim2.fromOffset(30 * scale, 30 * scale)  -- ✅ BASE: 30x30
             
             local tweenOut = TweenService:Create(
                 MiniButton, 
@@ -3949,12 +3836,13 @@ local function PulseButton(color, scale)
             
             task.wait(0.1)
             
+            -- ✅ FIXED: Always return to constant size
             local tweenIn = TweenService:Create(
                 MiniButton,
                 TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
                 {
                     BackgroundColor3 = originalColor,
-                    Size = originalSize
+                    Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Constant 30x30
                 }
             )
             tweenIn:Play()
@@ -3973,7 +3861,7 @@ local function HandleTap()
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    -- TAP 1: TOGGLE MAINFRAME (INSTANT!)
+    -- TAP 1: TOGGLE MAINFRAME
     if tapCount == 1 then
         pcall(function() PlaySound("Click") end)
         
@@ -3982,31 +3870,31 @@ local function HandleTap()
         end
         
         ShowTapFeedback(1)
-        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)  -- 30 * 1.05 = 31.5
         
     -- TAP 2: SUBTLE FEEDBACK
     elseif tapCount == 2 then
         pcall(function() PlaySound("Click") end)
         ShowTapFeedback(2)
-        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)
+        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)  -- 30 * 1.08 = 32.4
         
     -- TAP 3: WARNING START
     elseif tapCount == 3 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(3)
-        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)
+        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)  -- 30 * 1.12 = 33.6
         
     -- TAP 4: STRONG WARNING
     elseif tapCount == 4 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(4)
-        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)
+        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)  -- 30 * 1.16 = 34.8
         
     -- TAP 5: CLOSE
     elseif tapCount >= 5 then
         pcall(function() PlaySound("Success") end)
         ShowTapFeedback(5)
-        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 30 * 1.2 = 36
         
         task.wait(0.3)
         
