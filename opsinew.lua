@@ -708,25 +708,43 @@ local function ObfuscateRecordingData(recordingData)
     return obfuscated
 end
 
-local function DeobfuscateRecordingData(obfuscatedData)
-    local deobfuscated = {}
-    for checkpointName, frames in pairs(obfuscatedData) do
-        local deobfuscatedFrames = {}
-        for _, frame in ipairs(frames) do
-            local deobfuscatedFrame = {}
-            for code, fieldValue in pairs(frame) do
-                local fieldName = REVERSE_MAPPING[code]
-                if fieldName then
-                    deobfuscatedFrame[fieldName] = fieldValue
-                else
-                    deobfuscatedFrame[code] = fieldValue
-                end
-            end
-            table.insert(deobfuscatedFrames, deobfuscatedFrame)
-        end
-        deobfuscated[checkpointName] = deobfuscatedFrames
+-- ========= AUTO-CONVERT OLD JSON FORMAT =========
+local function ConvertOldFormatToNew(oldData)
+    -- Deteksi apakah JSON sudah pakai field mapping atau belum
+    local function IsOldFormat(frames)
+        if not frames or #frames == 0 then return false end
+        local firstFrame = frames[1]
+        -- Old format pakai "Position", bukan "11"
+        return firstFrame.Position ~= nil and firstFrame["11"] == nil
     end
-    return deobfuscated
+    
+    local converted = {}
+    
+    for checkpointName, frames in pairs(oldData) do
+        if IsOldFormat(frames) then
+            -- ✅ CONVERT: Old format → Obfuscated format
+            local obfuscatedFrames = {}
+            for _, frame in ipairs(frames) do
+                local obfuscatedFrame = {}
+                for fieldName, fieldValue in pairs(frame) do
+                    local code = FIELD_MAPPING[fieldName]
+                    if code then
+                        obfuscatedFrame[code] = fieldValue
+                    else
+                        -- Field yang tidak di-mapping, copy langsung
+                        obfuscatedFrame[fieldName] = fieldValue
+                    end
+                end
+                table.insert(obfuscatedFrames, obfuscatedFrame)
+            end
+            converted[checkpointName] = obfuscatedFrames
+        else
+            -- Sudah format baru, skip conversion
+            converted[checkpointName] = frames
+        end
+    end
+    
+    return converted
 end
 
 -- ========= FRAME MANIPULATION =========
@@ -2340,298 +2358,455 @@ end
 -- ========= DETECT EXECUTOR CAPABILITIES =========
 local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
 local hasBit32 = (bit32 ~= nil)
+
 -- ========= FALLBACK BIT32 =========
 if not hasBit32 then
-bit32 = {}
-function bit32.bxor(a, b)
-    local result = 0
-    local bitval = 1
-    while a > 0 or b > 0 do
-        local abit = a % 2
-        local bbit = b % 2
-        if abit ~= bbit then
-            result = result + bitval
+    bit32 = {}
+    function bit32.bxor(a, b)
+        local result = 0
+        local bitval = 1
+        while a > 0 or b > 0 do
+            local abit = a % 2
+            local bbit = b % 2
+            if abit ~= bbit then
+                result = result + bitval
+            end
+            bitval = bitval * 2
+            a = math.floor(a / 2)
+            b = math.floor(b / 2)
         end
-        bitval = bitval * 2
-        a = math.floor(a / 2)
-        b = math.floor(b / 2)
+        return result
     end
-    return result
 end
-end
+
 -- ========= ENCRYPTION KEY =========
 local ENCRYPTION_KEY = "ByaruLRecorder2024!Secret#Key@"
+
 -- ========= FIELD MAPPING (MUST BE DECLARED FIRST!) =========
 local FIELD_MAPPING = {
-Position = "11",
-LookVector = "88",
-UpVector = "55",
-Velocity = "22",
-MoveState = "33",
-WalkSpeed = "44",
-Timestamp = "66"
+    Position = "11",
+    LookVector = "88",
+    UpVector = "55",
+    Velocity = "22",
+    MoveState = "33",
+    WalkSpeed = "44",
+    Timestamp = "66"
 }
+
 local REVERSE_MAPPING = {
-["11"] = "Position",
-["88"] = "LookVector",
-["55"] = "UpVector",
-["22"] = "Velocity",
-["33"] = "MoveState",
-["44"] = "WalkSpeed",
-["66"] = "Timestamp"
+    ["11"] = "Position",
+    ["88"] = "LookVector",
+    ["55"] = "UpVector",
+    ["22"] = "Velocity",
+    ["33"] = "MoveState",
+    ["44"] = "WalkSpeed",
+    ["66"] = "Timestamp"
 }
--- ========= OBFUSCATION FUNCTIONS (DECLARED BEFORE SAVE/LOAD!) =========
+
+-- ========= OBFUSCATION FUNCTIONS =========
 local function ObfuscateRecordingData(recordingData)
-local obfuscated = {}
-for checkpointName, frames in pairs(recordingData) do
-local obfuscatedFrames = {}
-for _, frame in ipairs(frames) do
-local obfuscatedFrame = {}
-for fieldName, fieldValue in pairs(frame) do
-local code = FIELD_MAPPING[fieldName]
-if code then
-obfuscatedFrame[code] = fieldValue
-else
-obfuscatedFrame[fieldName] = fieldValue
-end
-end
-table.insert(obfuscatedFrames, obfuscatedFrame)
-end
-obfuscated[checkpointName] = obfuscatedFrames
-end
-return obfuscated
-end
-local function DeobfuscateRecordingData(obfuscatedData)
-local deobfuscated = {}
-for checkpointName, frames in pairs(obfuscatedData) do
-local deobfuscatedFrames = {}
-for _, frame in ipairs(frames) do
-local deobfuscatedFrame = {}
-for code, fieldValue in pairs(frame) do
-local fieldName = REVERSE_MAPPING[code]
-if fieldName then
-deobfuscatedFrame[fieldName] = fieldValue
-else
-deobfuscatedFrame[code] = fieldValue
-end
-end
-table.insert(deobfuscatedFrames, deobfuscatedFrame)
-end
-deobfuscated[checkpointName] = deobfuscatedFrames
-end
-return deobfuscated
-end
--- ========= XOR CIPHER =========
-local function XORCipher(data, key)
-local result = {}
-local keyLen = #key
-for i = 1, #data do
-    local dataByte = string.byte(data, i)
-    local keyByte = string.byte(key, ((i - 1) % keyLen) + 1)
-    local xorResult = bit32.bxor(dataByte, keyByte)
-    table.insert(result, string.char(xorResult))
-end
-
-return table.concat(result)
-end
--- ========= BASE64 ENCODING =========
-local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-local function Base64Encode(data)
-return ((data:gsub('.', function(x)
-local r,b='',x:byte()
-for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
-return r;
-end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-if (#x < 6) then return '' end
-local c=0
-for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-return base64chars:sub(c+1,c+1)
-end)..({ '', '==', '=' })[#data%3+1])
-end
-local function Base64Decode(data)
-data = string.gsub(data, '[^'..base64chars..'=]', '')
-return (data:gsub('.', function(x)
-if (x == '=') then return '' end
-local r,f='',(base64chars:find(x)-1)
-for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
-return r;
-end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-if (#x ~= 8) then return '' end
-local c=0
-for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
-return string.char(c)
-end))
-end
--- ========= CHECKSUM VALIDATION =========
-local function GenerateChecksum(data)
-local hash = 5381
-for i = 1, #data do
-hash = ((hash * 33) + string.byte(data, i)) % 2147483647
-end
-return tostring(hash)
-end
--- ========= 💾 SAVE FUNCTION =========
-local function SaveToEncryptedJSON()
-if not hasFileSystem then
-PlaySound("Error")
-StarterGui:SetCore("SendNotification", {
-Title = "❌ Gagal Save",
-Text = "Executor tidak support file system!",
-Duration = 5
-})
-return
-end
-local hasCheckedRecordings = false
-for name, checked in pairs(CheckedRecordings) do
-    if checked then
-        hasCheckedRecordings = true
-        break
-    end
-end
-
-if not hasCheckedRecordings then
-    PlaySound("Error")
-    StarterGui:SetCore("SendNotification", {
-        Title = "⚠️ Tidak Ada Data",
-        Text = "Checklist recording terlebih dahulu!",
-        Duration = 3
-    })
-    return
-end
-
-local filename = FilenameBox and FilenameBox.Text or ""
-if filename == "" then filename = "MyReplays" end
-
-local success, err = pcall(function()
-    local saveData = {
-        Version = "3.3_Encrypted",
-        Signature = "ByaruLRecorder",
-        Timestamp = os.time(),
-        Checkpoints = {},
-        RecordingOrder = {},
-        CheckpointNames = {}
-    }
-    
-    for _, name in ipairs(RecordingOrder) do
-        if CheckedRecordings[name] then
-            local frames = RecordedMovements[name]
-            if frames then
-                local checkpointData = {
-                    Name = name,
-                    DisplayName = checkpointNames[name] or "checkpoint",
-                    Frames = frames
-                }
-                table.insert(saveData.Checkpoints, checkpointData)
-                table.insert(saveData.RecordingOrder, name)
-                saveData.CheckpointNames[name] = checkpointNames[name]
+    local obfuscated = {}
+    for checkpointName, frames in pairs(recordingData) do
+        local obfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local obfuscatedFrame = {}
+            for fieldName, fieldValue in pairs(frame) do
+                local code = FIELD_MAPPING[fieldName]
+                if code then
+                    obfuscatedFrame[code] = fieldValue
+                else
+                    obfuscatedFrame[fieldName] = fieldValue
+                end
             end
+            table.insert(obfuscatedFrames, obfuscatedFrame)
+        end
+        obfuscated[checkpointName] = obfuscatedFrames
+    end
+    return obfuscated
+end
+
+local function DeobfuscateRecordingData(obfuscatedData)
+    local deobfuscated = {}
+    for checkpointName, frames in pairs(obfuscatedData) do
+        local deobfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local deobfuscatedFrame = {}
+            for code, fieldValue in pairs(frame) do
+                local fieldName = REVERSE_MAPPING[code]
+                if fieldName then
+                    deobfuscatedFrame[fieldName] = fieldValue
+                else
+                    deobfuscatedFrame[code] = fieldValue
+                end
+            end
+            table.insert(deobfuscatedFrames, deobfuscatedFrame)
+        end
+        deobfuscated[checkpointName] = deobfuscatedFrames
+    end
+    return deobfuscated
+end
+
+-- ========= AUTO-CONVERT OLD JSON FORMAT =========
+local function ConvertOldFormatToNew(oldData)
+    -- Deteksi apakah JSON sudah pakai field mapping atau belum
+    local function IsOldFormat(frames)
+        if not frames or #frames == 0 then return false end
+        local firstFrame = frames[1]
+        -- Old format pakai "Position", bukan "11"
+        return firstFrame.Position ~= nil and firstFrame["11"] == nil
+    end
+    
+    local converted = {}
+    
+    for checkpointName, frames in pairs(oldData) do
+        if IsOldFormat(frames) then
+            -- ✅ CONVERT: Old format → Obfuscated format
+            local obfuscatedFrames = {}
+            for _, frame in ipairs(frames) do
+                local obfuscatedFrame = {}
+                for fieldName, fieldValue in pairs(frame) do
+                    local code = FIELD_MAPPING[fieldName]
+                    if code then
+                        obfuscatedFrame[code] = fieldValue
+                    else
+                        -- Field yang tidak di-mapping, copy langsung
+                        obfuscatedFrame[fieldName] = fieldValue
+                    end
+                end
+                table.insert(obfuscatedFrames, obfuscatedFrame)
+            end
+            converted[checkpointName] = obfuscatedFrames
+        else
+            -- Sudah format baru, skip conversion
+            converted[checkpointName] = frames
         end
     end
     
-    local recordingsToObfuscate = {}
-    for _, name in ipairs(saveData.RecordingOrder) do
-        recordingsToObfuscate[name] = RecordedMovements[name]
+    return converted
+end
+
+-- ========= XOR CIPHER =========
+local function XORCipher(data, key)
+    local result = {}
+    local keyLen = #key
+    for i = 1, #data do
+        local dataByte = string.byte(data, i)
+        local keyByte = string.byte(key, ((i - 1) % keyLen) + 1)
+        local xorResult = bit32.bxor(dataByte, keyByte)
+        table.insert(result, string.char(xorResult))
     end
-    
-    -- ✅ CALL ObfuscateRecordingData (already declared above!)
-    local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
-    saveData.ObfuscatedFrames = obfuscatedData
-    
-    local jsonString = HttpService:JSONEncode(saveData)
-    local checksum = GenerateChecksum(jsonString)
-    local finalData = checksum .. "|" .. jsonString
-    local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
-    local encoded = Base64Encode(encrypted)
-    local header = "BRLREC" .. string.char(0x01, 0x00, 0x03, 0x03)
-    local finalFile = header .. encoded
-    
-    writefile(filename .. ".brl", finalFile)
-    
-    PlaySound("Success")
-    
-    StarterGui:SetCore("SendNotification", {
-        Title = "✅ Sukses Save " .. filename,
-        Text = "Total: " .. #saveData.RecordingOrder .. " recordings",
-        Duration = 4
-    })
-end)
+    return table.concat(result)
+end
 
-if not success then
-    PlaySound("Error")
-    StarterGui:SetCore("SendNotification", {
-        Title = "❌ Gagal Save",
-        Text = "Terjadi kesalahan: " .. tostring(err),
-        Duration = 4
-    })
-end
-end
--- ========= 📂 LOAD FUNCTION =========
-local function LoadFromEncryptedJSON()
-if not hasFileSystem then
-PlaySound("Error")
-StarterGui:SetCore("SendNotification", {
-Title = "❌ Gagal Load",
-Text = "Executor tidak support file system!",
-Duration = 5
-})
-return
-end
-local filename = FilenameBox and FilenameBox.Text or ""
-if filename == "" then filename = "MyReplays" end
+-- ========= BASE64 ENCODING =========
+local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
-local success, err = pcall(function()
-    local fileExists = false
-    pcall(function()
-        fileExists = isfile(filename .. ".brl")
-    end)
-    
-    if not fileExists then
+local function Base64Encode(data)
+    return ((data:gsub('.', function(x)
+        local r,b='',x:byte()
+        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
+        if (#x < 6) then return '' end
+        local c=0
+        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
+        return base64chars:sub(c+1,c+1)
+    end)..({ '', '==', '=' })[#data%3+1])
+end
+
+local function Base64Decode(data)
+    data = string.gsub(data, '[^'..base64chars..'=]', '')
+    return (data:gsub('.', function(x)
+        if (x == '=') then return '' end
+        local r,f='',(base64chars:find(x)-1)
+        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
+        return r;
+    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+        if (#x ~= 8) then return '' end
+        local c=0
+        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
+        return string.char(c)
+    end))
+end
+
+-- ========= CHECKSUM VALIDATION =========
+local function GenerateChecksum(data)
+    local hash = 5381
+    for i = 1, #data do
+        hash = ((hash * 33) + string.byte(data, i)) % 2147483647
+    end
+    return tostring(hash)
+end
+
+-- ========= 📂 LOAD OLD JSON FORMAT (UNENCRYPTED) =========
+local function LoadFromOldJSON()
+    if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
-            Title = "⚠️ File Tidak Ditemukan",
-            Text = filename .. ".brl tidak ada",
+            Title = "❌ Gagal Load",
+            Text = "Executor tidak support file system!",
+            Duration = 5
+        })
+        return false
+    end
+    
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "MyReplays" end
+
+    local success, err = pcall(function()
+        -- ✅ CEK FILE .json (old format)
+        local jsonFile = filename .. ".json"
+        
+        local fileExists = false
+        pcall(function()
+            fileExists = isfile(jsonFile)
+        end)
+        
+        if not fileExists then
+            return false -- File .json tidak ada, coba .brl
+        end
+        
+        -- ✅ BACA FILE JSON LANGSUNG
+        local fileContent = readfile(jsonFile)
+        local saveData = HttpService:JSONDecode(fileContent)
+        
+        if saveData.Signature ~= "ByaruLRecorder" then
+            error("Invalid file")
+        end
+        
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        
+        -- ✅ AMBIL DATA FRAMES (old format pakai field name asli)
+        local dataToProcess = {}
+        
+        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+            dataToProcess[checkpointData.Name] = checkpointData.Frames
+        end
+        
+        -- ✅ LOAD LANGSUNG (tidak perlu deobfuscate karena belum di-obfuscate)
+        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+            local name = checkpointData.Name
+            local frames = dataToProcess[name]
+            
+            if frames then
+                RecordedMovements[name] = frames
+                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                
+                if not table.find(RecordingOrder, name) then
+                    table.insert(RecordingOrder, name)
+                end
+            end
+        end
+        
+        UpdateRecordList()
+        PlaySound("Success")
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "✅ Load Old Format OK",
+            Text = filename .. ".json loaded (" .. #newRecordingOrder .. " recs)",
+            Duration = 4
+        })
+        
+        -- ✅ AUTO-SAVE KE FORMAT BARU (OPTIONAL)
+        task.wait(1)
+        SaveToEncryptedJSON()
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "💾 Auto-Converted!",
+            Text = "File saved as " .. filename .. ".brl",
             Duration = 3
+        })
+        
+        return true -- Sukses load old format
+    end)
+
+    if not success then
+        return false -- Gagal load old format
+    end
+    
+    return success
+end
+
+-- ========= 💾 SAVE FUNCTION =========
+local function SaveToEncryptedJSON()
+    if not hasFileSystem then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Save",
+            Text = "Executor tidak support file system!",
+            Duration = 5
         })
         return
     end
     
-    local fileContent = readfile(filename .. ".brl")
-    
-    local header = string.sub(fileContent, 1, 10)
-    if not string.match(header, "^BRLREC") then
-        error("Invalid file format")
+    local hasCheckedRecordings = false
+    for name, checked in pairs(CheckedRecordings) do
+        if checked then
+            hasCheckedRecordings = true
+            break
+        end
     end
-    
-    local encoded = string.sub(fileContent, 11)
-    local encrypted = Base64Decode(encoded)
-    local decrypted = XORCipher(encrypted, ENCRYPTION_KEY)
-    
-    local splitPos = string.find(decrypted, "|", 1, true)
-    if not splitPos then
-        error("File corrupt")
+
+    if not hasCheckedRecordings then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "⚠️ Tidak Ada Data",
+            Text = "Checklist recording terlebih dahulu!",
+            Duration = 3
+        })
+        return
     end
-    
-    local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
-    local jsonString = string.sub(decrypted, splitPos + 1)
-    
-    local calculatedChecksum = GenerateChecksum(jsonString)
-    if storedChecksum ~= calculatedChecksum then
-        error("File corrupt")
-    end
-    
-    local saveData = HttpService:JSONDecode(jsonString)
-    
-    if saveData.Signature ~= "ByaruLRecorder" then
-        error("Invalid file")
-    end
-    
-    local newRecordingOrder = saveData.RecordingOrder or {}
-    local newCheckpointNames = saveData.CheckpointNames or {}
-    
-    if saveData.ObfuscatedFrames then
-        -- ✅ CALL DeobfuscateRecordingData (already declared above!)
-        local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
+
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "MyReplays" end
+
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "3.3_Encrypted",
+            Signature = "ByaruLRecorder",
+            Timestamp = os.time(),
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
         
+        for _, name in ipairs(RecordingOrder) do
+            if CheckedRecordings[name] then
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
+            end
+        end
+        
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
+        
+        -- ✅ OBFUSCATE DATA
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        local checksum = GenerateChecksum(jsonString)
+        local finalData = checksum .. "|" .. jsonString
+        local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
+        local encoded = Base64Encode(encrypted)
+        local header = "BRLREC" .. string.char(0x01, 0x00, 0x03, 0x03)
+        local finalFile = header .. encoded
+        
+        writefile(filename .. ".brl", finalFile)
+        
+        PlaySound("Success")
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "✅ Sukses Save " .. filename,
+            Text = "Total: " .. #saveData.RecordingOrder .. " recordings",
+            Duration = 4
+        })
+    end)
+
+    if not success then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Save",
+            Text = "Terjadi kesalahan: " .. tostring(err),
+            Duration = 4
+        })
+    end
+end
+
+-- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) =========
+local function LoadFromEncryptedJSON()
+    if not hasFileSystem then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Load",
+            Text = "Executor tidak support file system!",
+            Duration = 5
+        })
+        return
+    end
+    
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "MyReplays" end
+
+    local success, err = pcall(function()
+        local fileExists = false
+        pcall(function()
+            fileExists = isfile(filename .. ".brl")
+        end)
+        
+        if not fileExists then
+            PlaySound("Error")
+            StarterGui:SetCore("SendNotification", {
+                Title = "⚠️ File Tidak Ditemukan",
+                Text = filename .. ".brl tidak ada",
+                Duration = 3
+            })
+            return
+        end
+        
+        local fileContent = readfile(filename .. ".brl")
+        
+        local header = string.sub(fileContent, 1, 10)
+        if not string.match(header, "^BRLREC") then
+            error("Invalid file format")
+        end
+        
+        local encoded = string.sub(fileContent, 11)
+        local encrypted = Base64Decode(encoded)
+        local decrypted = XORCipher(encrypted, ENCRYPTION_KEY)
+        
+        local splitPos = string.find(decrypted, "|", 1, true)
+        if not splitPos then
+            error("File corrupt")
+        end
+        
+        local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
+        local jsonString = string.sub(decrypted, splitPos + 1)
+        
+        local calculatedChecksum = GenerateChecksum(jsonString)
+        if storedChecksum ~= calculatedChecksum then
+            error("File corrupt")
+        end
+        
+        local saveData = HttpService:JSONDecode(jsonString)
+        
+        if saveData.Signature ~= "ByaruLRecorder" then
+            error("Invalid file")
+        end
+        
+        local newRecordingOrder = saveData.RecordingOrder or {}
+        local newCheckpointNames = saveData.CheckpointNames or {}
+        
+        -- ⭐ AUTO-DETECT DAN CONVERT OLD FORMAT
+        local dataToProcess = saveData.ObfuscatedFrames
+        
+        if not dataToProcess then
+            -- Fallback: coba load dari Checkpoints langsung (old format)
+            dataToProcess = {}
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                dataToProcess[checkpointData.Name] = checkpointData.Frames
+            end
+        end
+        
+        -- ✅ CONVERT OLD FORMAT → NEW FORMAT
+        local convertedData = ConvertOldFormatToNew(dataToProcess)
+        
+        -- ✅ DEOBFUSCATE (works untuk both old & new format sekarang!)
+        local deobfuscatedData = DeobfuscateRecordingData(convertedData)
+        
+        -- Load ke RecordedMovements
         for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
             local name = checkpointData.Name
             local frames = deobfuscatedData[name]
@@ -2645,35 +2820,35 @@ local success, err = pcall(function()
                 end
             end
         end
-    end
-    
-    UpdateRecordList()
-    PlaySound("Success")
-    
-    StarterGui:SetCore("SendNotification", {
-        Title = "✅ Sukses Load " .. filename,
-        Text = "Total: " .. #newRecordingOrder .. " recordings",
-        Duration = 4
-    })
-end)
+        
+        UpdateRecordList()
+        PlaySound("Success")
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "✅ Sukses Load " .. filename,
+            Text = "Total: " .. #newRecordingOrder .. " recordings",
+            Duration = 4
+        })
+    end)
 
-if not success then
-    PlaySound("Error")
-    
-    local errorMsg = "Terjadi kesalahan"
-    if string.match(tostring(err), "corrupt") then
-        errorMsg = "File rusak atau salah key"
-    elseif string.match(tostring(err), "Invalid") then
-        errorMsg = "File tidak valid"
+    if not success then
+        PlaySound("Error")
+        
+        local errorMsg = "Terjadi kesalahan"
+        if string.match(tostring(err), "corrupt") then
+            errorMsg = "File rusak atau salah key"
+        elseif string.match(tostring(err), "Invalid") then
+            errorMsg = "File tidak valid"
+        end
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Load",
+            Text = errorMsg,
+            Duration = 4
+        })
     end
-    
-    StarterGui:SetCore("SendNotification", {
-        Title = "❌ Gagal Load",
-        Text = errorMsg,
-        Duration = 4
-    })
 end
-end
+
 -- ========= 🔄 REPLACE OLD FUNCTIONS =========
 SaveToObfuscatedJSON = SaveToEncryptedJSON
 LoadFromObfuscatedJSON = LoadFromEncryptedJSON
@@ -3172,13 +3347,13 @@ local uiSuccess, uiError = pcall(function()
 
 -- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
 MiniButton = Instance.new("TextButton")
-MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Size = UDim2.fromOffset(30, 30)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
-MiniButton.TextSize = 30 -- ✅ BIGGER for FredokaOne!
+MiniButton.TextSize = 28 -- ✅ BIGGER for FredokaOne!
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
@@ -3547,9 +3722,16 @@ end
     end)
 
     LoadFileBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(LoadFileBtn)
-        LoadFromObfuscatedJSON()
-    end)
+    AnimateButtonClick(LoadFileBtn)
+    
+    -- ✅ COBA LOAD OLD FORMAT DULU (.json)
+    local loadedOld = LoadFromOldJSON()
+    
+    -- ✅ KALAU GAGAL, COBA LOAD NEW FORMAT (.brl)
+    if not loadedOld then
+        LoadFromEncryptedJSON()
+    end
+end)
 
     MergeBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MergeBtn)
