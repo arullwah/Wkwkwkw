@@ -3184,19 +3184,28 @@ do
     table.insert(activeConnections, ultimateAnimConn)
 end
 
-    PlaybackControl = Instance.new("Frame")
-    PlaybackControl.Size = UDim2.fromOffset(156, 120)
-    PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
-    PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    PlaybackControl.BorderSizePixel = 0
-    PlaybackControl.Active = true
-    PlaybackControl.Draggable = true
-    PlaybackControl.Visible = false
-    PlaybackControl.Parent = ScreenGui
+    -- ========= PLAYBACK CONTROL GUI =========
+PlaybackControl = Instance.new("Frame")
+PlaybackControl.Size = UDim2.fromOffset(156, 120)
+PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(15, 15, 20)  -- ✅ Dark gray, bukan hitam pekat
+PlaybackControl.BackgroundTransparency = 0.1  -- ✅ Sedikit transparan
+PlaybackControl.BorderSizePixel = 0
+PlaybackControl.Active = true
+PlaybackControl.Draggable = true
+PlaybackControl.Visible = false
+PlaybackControl.Parent = ScreenGui
 
-    local PlaybackCorner = Instance.new("UICorner")
-    PlaybackCorner.CornerRadius = UDim.new(0, 8)
-    PlaybackCorner.Parent = PlaybackControl
+local PlaybackCorner = Instance.new("UICorner")
+PlaybackCorner.CornerRadius = UDim.new(0, 8)
+PlaybackCorner.Parent = PlaybackControl
+
+-- ✅ TAMBAHKAN STROKE AGAR KELIATAN BORDER
+local PlaybackStroke = Instance.new("UIStroke")
+PlaybackStroke.Color = Color3.fromRGB(60, 60, 80)
+PlaybackStroke.Thickness = 2
+PlaybackStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+PlaybackStroke.Parent = PlaybackControl
 
     local PlaybackContent = Instance.new("Frame")
     PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3249,19 +3258,28 @@ end
     ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
     ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
-    RecordingStudio = Instance.new("Frame")
-    RecordingStudio.Size = UDim2.fromOffset(156, 120)
-    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-    RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    RecordingStudio.BorderSizePixel = 0
-    RecordingStudio.Active = true
-    RecordingStudio.Draggable = true
-    RecordingStudio.Visible = false
-    RecordingStudio.Parent = ScreenGui
+    -- ========= RECORDING STUDIO GUI =========
+RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(156, 120)
+RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(15, 15, 20)  -- ✅ Dark gray
+RecordingStudio.BackgroundTransparency = 0.1  -- ✅ Sedikit transparan
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-    local StudioCorner = Instance.new("UICorner")
-    StudioCorner.CornerRadius = UDim.new(0, 8)
-    StudioCorner.Parent = RecordingStudio
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 8)
+StudioCorner.Parent = RecordingStudio
+
+-- ✅ TAMBAHKAN STROKE
+local StudioStroke = Instance.new("UIStroke")
+StudioStroke.Color = Color3.fromRGB(60, 60, 80)
+StudioStroke.Thickness = 2
+StudioStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+StudioStroke.Parent = RecordingStudio
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
