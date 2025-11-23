@@ -2947,23 +2947,39 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.CornerRadius = UDim.new(0, 4)
     ListCorner.Parent = RecordingsList
 
-    MiniButton = Instance.new("TextButton")
+    -- ========= MINI BUTTON WITH RAINBOW TEXT =========
+MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
-MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0) 
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)  -- BLACK
 MiniButton.Text = "A"
-MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)  
+MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 34
-MiniButton.TextStrokeTransparency = 0.5  -- ✅ TAMBAH: Text stroke biar lebih pop
+MiniButton.TextSize = 25
+MiniButton.TextStrokeTransparency = 0.5
+MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
 MiniButton.Active = true
 MiniButton.Draggable = false
 MiniButton.Parent = ScreenGui
 
-    local MiniCorner = Instance.new("UICorner")
-    MiniCorner.CornerRadius = UDim.new(0, 8)
-    MiniCorner.Parent = MiniButton
+local MiniCorner = Instance.new("UICorner")
+MiniCorner.CornerRadius = UDim.new(0, 8)
+MiniCorner.Parent = MiniButton
+
+-- Rainbow animation (inline, guaranteed to work!)
+do
+    local rainbowConn = RunService.RenderStepped:Connect(function()
+        if MiniButton and MiniButton.Parent then
+            local hue = (tick() * 0.5) % 1
+            MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
+        else
+            rainbowConn:Disconnect()
+        end
+    end)
+    
+    table.insert(activeConnections, rainbowConn)
+end
 
     PlaybackControl = Instance.new("Frame")
     PlaybackControl.Size = UDim2.fromOffset(156, 120)
