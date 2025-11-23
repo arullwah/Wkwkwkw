@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 -- DAFTAR USERNAME YANG DIIZINKAN
 -- ===================================
 local KeyAccess = {
-    "ALELOLii",
+    "ALELOLi",
     "Username2", 
     "Username3",
     -- Tambahkan username lainnya di sini
@@ -47,7 +47,7 @@ if not adaAkses then
     
     -- Kick player setelah 3 detik
     wait(3)
-    kickPlayer("DIKASIH FREE MALAH DIJUAL😁\n\nUsername Anda tidak terdaftar!\nKirim username '" .. username .. "' untuk verifikasi akses.")
+    kickPlayer("DIKASIH FREE MALAH DIJUAL,KIRIM USERNAME KE YANG PUNYA\n\nUsername Anda tidak terdaftar!\nKirim username '" .. username .. "' untuk verifikasi akses.")
     return
 end
 
