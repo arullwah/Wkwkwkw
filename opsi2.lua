@@ -3362,17 +3362,23 @@ end
     -- ========= BUTTON CONNECTIONS =========
 
     PlayBtnControl.MouseButton1Click:Connect(function()
-        AnimateButtonClick(PlayBtnControl)
-        if IsPlaying or IsAutoLoopPlaying then
-            StopPlayback()
+    AnimateButtonClick(PlayBtnControl)
+    if IsPlaying or IsAutoLoopPlaying then
+        -- ✅ STOP → PAUSE
+        StopPlayback()
+        PlayBtnControl.Text = "RESUME"  -- ✅ Ubah jadi RESUME
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)  -- ✅ Hijau untuk resume
+    else
+        -- ✅ PLAY/RESUME → STOP
+        if AutoLoop then
+            StartAutoLoopAll()
         else
-            if AutoLoop then
-                StartAutoLoopAll()
-            else
-                SmartPlayRecording(50)
-            end
+            SmartPlayRecording(50)
         end
-    end)
+        PlayBtnControl.Text = "STOP"  -- ✅ Ubah jadi STOP
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)  -- ✅ Merah untuk stop
+    end
+end)
 
     LoopBtnControl.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoopBtnControl)
