@@ -1256,7 +1256,7 @@ local function ApplyFrameDirect(frame)
                 hrp.AssemblyLinearVelocity = Vector3.new(
                     frameVelocity.X,  -- ✅ Exact dari recording
                     0,                -- ✅ Y = 0 untuk grounded (smooth!)
-                    frameVelocity.Z   // ✅ Exact dari recording
+                    frameVelocity.Z   -- ✅ Exact dari recording
                 )
             else
                 -- Standing still - direct CFrame
