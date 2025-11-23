@@ -3384,30 +3384,39 @@ local function PulseButton(color, scale)
     local originalSize = MiniButton.Size
     local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
     
+    print("🎨 Pulsing to color:", color, "Scale:", scale)
+    
+    -- Tween OUT
     local tweenOut = TweenService:Create(
         MiniButton, 
-        TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+        TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {
             BackgroundColor3 = color,
             Size = targetSize
         }
     )
     tweenOut:Play()
+    tweenOut.Completed:Wait()
     
+    -- Hold
     task.wait(0.15)
     
+    -- Tween IN
     local tweenIn = TweenService:Create(
         MiniButton,
-        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
         {
             BackgroundColor3 = originalColor,
             Size = originalSize
         }
     )
     tweenIn:Play()
+    tweenIn.Completed:Wait()
+    
+    print("🎨 Pulse completed!")
 end
 
--- Handle triple tap logic
+-- Handle triple tap logic (TRAFFIC LIGHT + BLOCKING)
 local function HandleTap()
     local currentTime = tick()
     
@@ -3418,7 +3427,9 @@ local function HandleTap()
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    -- TAP 1: Toggle MainFrame
+    print("👆 TAP COUNT:", tapCount)
+    
+    -- TAP 1: HIJAU
     if tapCount == 1 then
         pcall(function() PlaySound("Click") end)
         
@@ -3427,22 +3438,23 @@ local function HandleTap()
         end
         
         ShowTapFeedback(1)
-        PulseButton(Color3.fromRGB(59, 15, 116), 1.1)
+        PulseButton(Color3.fromRGB(50, 200, 80), 1.1)  -- 🟢 HIJAU
         
-    -- TAP 2: Warning
+    -- TAP 2: KUNING
     elseif tapCount == 2 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(2)
-        PulseButton(Color3.fromRGB(89, 45, 146), 1.15)
+        PulseButton(Color3.fromRGB(255, 200, 0), 1.15)  -- 🟡 KUNING
         
-    -- TAP 3: Close
+    -- TAP 3: MERAH
     elseif tapCount >= 3 then
         pcall(function() PlaySound("Success") end)
         ShowTapFeedback(3)
-        PulseButton(Color3.fromRGB(119, 75, 176), 1.2)
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 🔴 MERAH
         
-        task.wait(0.4)
+        task.wait(0.3)
         
+        -- Close sequence
         task.spawn(function()
             pcall(function()
                 if StudioIsRecording then StopStudioRecording() end
