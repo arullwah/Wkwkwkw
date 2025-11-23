@@ -2512,7 +2512,7 @@ function UpdateRecordList()
             outerStroke.Parent = item
             
             -- ═══════════════════════════════════════════
-            -- ROW 1: CHECKBOX + NAME (WITH RGB BORDER!)
+            -- ROW 1: CHECKBOX + TEXTBOX (NAME + INFO!)
             -- ═══════════════════════════════════════════
             
             local topRow = Instance.new("Frame")
@@ -2543,46 +2543,72 @@ function UpdateRecordList()
             checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             checkStroke.Parent = checkBox
             
-            -- 📝 NAME TEXTBOX (WITH RGB BORDER!)
+            -- ✨ TEXTBOX CONTAINER (WITH INFO INSIDE!)
+            local textboxContainer = Instance.new("Frame")
+            textboxContainer.Size = UDim2.new(1, -25, 1, 0)
+            textboxContainer.Position = UDim2.fromOffset(23, 0)
+            textboxContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            textboxContainer.BorderSizePixel = 0
+            textboxContainer.Parent = topRow
+            
+            local containerCorner = Instance.new("UICorner")
+            containerCorner.CornerRadius = UDim.new(0, 3)
+            containerCorner.Parent = textboxContainer
+            
+            -- ✅ RGB RAINBOW BORDER
+            local rgbStroke = Instance.new("UIStroke")
+            rgbStroke.Thickness = 0.8
+            rgbStroke.Color = Color3.fromRGB(255, 0, 0)
+            rgbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            rgbStroke.Parent = textboxContainer
+            
+            -- ✅ ANIMATE RAINBOW
+            task.spawn(function()
+                local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                while rgbStroke and rgbStroke.Parent do
+                    hue = (hue + 0.005) % 1
+                    rgbStroke.Color = Color3.fromHSV(hue, 1, 1)
+                    task.wait(0.03)
+                end
+            end)
+            
+            -- 📝 NAME TEXTBOX (LEFT SIDE)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -25, 1, 0)
-            nameBox.Position = UDim2.fromOffset(23, 0)
-            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            nameBox.BorderSizePixel = 0
+            nameBox.Size = UDim2.new(0.55, 0, 1, 0)  -- 55% width
+            nameBox.Position = UDim2.fromOffset(5, 0)
+            nameBox.BackgroundTransparency = 1
             nameBox.Text = checkpointNames[name] or "Checkpoint"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.TextStrokeTransparency = 0.6
             nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Center
+            nameBox.TextXAlignment = Enum.TextXAlignment.Left
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
-            nameBox.Parent = topRow
+            nameBox.Parent = textboxContainer
             
-            local nameBoxCorner = Instance.new("UICorner")
-            nameBoxCorner.CornerRadius = UDim.new(0, 3)
-            nameBoxCorner.Parent = nameBox
-            
-            -- ✅ RGB RAINBOW BORDER (ANIMATED!)
-            local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 0.8
-            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
-            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            nameBoxStroke.Parent = nameBox
-            
-            -- ✅ ANIMATE RAINBOW
-            task.spawn(function()
-                local hue = (index - 1) / math.max(#RecordingOrder, 1)
-                while nameBoxStroke and nameBoxStroke.Parent do
-                    hue = (hue + 0.005) % 1
-                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
-                    task.wait(0.03)
-                end
-            end)
+            -- ℹ️ INFO LABEL (RIGHT SIDE - READ ONLY!)
+            local infoLabel = Instance.new("TextLabel")
+            infoLabel.Size = UDim2.new(0.45, -5, 1, 0)  -- 45% width
+            infoLabel.Position = UDim2.new(0.55, 0, 0, 0)
+            infoLabel.BackgroundTransparency = 1
+            if #rec > 0 then
+                local totalSeconds = rec[#rec].Timestamp
+                local minutes = math.floor(totalSeconds / 60)
+                local seconds = math.floor(totalSeconds % 60)
+                infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)
+            else
+                infoLabel.Text = "⏱0:00│📊0"
+            end
+            infoLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+            infoLabel.Font = Enum.Font.GothamBold
+            infoLabel.TextSize = 8
+            infoLabel.TextXAlignment = Enum.TextXAlignment.Right
+            infoLabel.Parent = textboxContainer
             
             -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (FIXED WIDTH!)
+            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS!)
             -- ═══════════════════════════════════════════
             
             local segmentedBar = Instance.new("Frame")
@@ -2603,11 +2629,11 @@ function UpdateRecordList()
             barStroke.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 1: PLAY BUTTON
+            -- SEGMENT 1: PLAY BUTTON (LEFT SIDE)
             -- ═══════════════════════════════════════════
             
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.new(0.20, 0, 1, -4)
+            playBtn.Size = UDim2.new(0.30, 0, 1, -4)  -- 30% width
             playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             playBtn.Text = "PLAY"
@@ -2624,18 +2650,18 @@ function UpdateRecordList()
             -- Divider 1
             local divider1 = Instance.new("Frame")
             divider1.Size = UDim2.new(0, 1, 1, -8)
-            divider1.Position = UDim2.new(0.20, 2, 0, 4)
+            divider1.Position = UDim2.new(0.30, 2, 0, 4)
             divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider1.BorderSizePixel = 0
             divider1.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 2: DELETE BUTTON
+            -- SEGMENT 2: DELETE BUTTON (LEFT SIDE)
             -- ═══════════════════════════════════════════
             
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(0.20, 0, 1, -4)
-            delBtn.Position = UDim2.new(0.20, 5, 0, 2)
+            delBtn.Size = UDim2.new(0.30, 0, 1, -4)  -- 30% width
+            delBtn.Position = UDim2.new(0.30, 5, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "DEL"
             delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2648,56 +2674,30 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- Divider 2
+            -- ═══════════════════════════════════════════
+            -- [SPACE KOSONG DI TENGAH - NO ELEMENT!]
+            -- ═══════════════════════════════════════════
+            
+            -- Divider 2 (sebelum Up button)
             local divider2 = Instance.new("Frame")
             divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(0.40, 7, 0, 4)
+            divider2.Position = UDim2.new(1, -68, 0, 4)  -- ✅ FROM RIGHT!
             divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider2.BorderSizePixel = 0
             divider2.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 3: INFO DISPLAY (REDUCED WIDTH!)
-            -- ═══════════════════════════════════════════
-            
-            local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(0.30, 0, 1, 0)  -- ✅ FIXED: 38% → 30%
-            infoLabel.Position = UDim2.new(0.40, 10, 0, 0)
-            infoLabel.BackgroundTransparency = 1
-            if #rec > 0 then
-                local totalSeconds = rec[#rec].Timestamp
-                local minutes = math.floor(totalSeconds / 60)
-                local seconds = math.floor(totalSeconds % 60)
-                infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)  -- ✅ COMPACT: removed spaces
-            else
-                infoLabel.Text = "⏱0:00│📊0"
-            end
-            infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-            infoLabel.Font = Enum.Font.GothamBold
-            infoLabel.TextSize = 9
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Center
-            infoLabel.Parent = segmentedBar
-            
-            -- Divider 3
-            local divider3 = Instance.new("Frame")
-            divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(0.70, 12, 0, 4)  -- ✅ FIXED: 0.74 → 0.70
-            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider3.BorderSizePixel = 0
-            divider3.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- SEGMENT 4: UP BUTTON (LARGER!)
+            -- SEGMENT 3: UP BUTTON (RIGHT SIDE!)
             -- ═══════════════════════════════════════════
             
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.new(0.14, 0, 1, -4)  -- ✅ FIXED: 0.12 → 0.14
-            upBtn.Position = UDim2.new(0.70, 15, 0, 2)
+            upBtn.Size = UDim2.fromOffset(30, 22)  -- ✅ FIXED SIZE
+            upBtn.Position = UDim2.new(1, -65, 0, 2)  -- ✅ FROM RIGHT: -65px
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             upBtn.Text = "▲"
             upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 20
+            upBtn.TextSize = 25
             upBtn.BorderSizePixel = 0
             upBtn.Parent = segmentedBar
             
@@ -2705,26 +2705,26 @@ function UpdateRecordList()
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
-            -- Divider 4
-            local divider4 = Instance.new("Frame")
-            divider4.Size = UDim2.new(0, 1, 1, -8)
-            divider4.Position = UDim2.new(0.84, 17, 0, 4)  -- ✅ FIXED: 0.86 → 0.84
-            divider4.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider4.BorderSizePixel = 0
-            divider4.Parent = segmentedBar
+            -- Divider 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(1, -33, 0, 4)  -- ✅ FROM RIGHT!
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 5: DOWN BUTTON (LARGER!)
+            -- SEGMENT 4: DOWN BUTTON (RIGHT SIDE!)
             -- ═══════════════════════════════════════════
             
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.new(0.14, 0, 1, -4)  -- ✅ FIXED: 0.12 → 0.14
-            downBtn.Position = UDim2.new(0.84, 20, 0, 2)
+            downBtn.Size = UDim2.fromOffset(30, 22)  -- ✅ FIXED SIZE
+            downBtn.Position = UDim2.new(1, -30, 0, 2)  -- ✅ FROM RIGHT: -30px
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             downBtn.Text = "▼"
             downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 20
+            downBtn.TextSize = 25
             downBtn.BorderSizePixel = 0
             downBtn.Parent = segmentedBar
             
@@ -2812,7 +2812,6 @@ function UpdateRecordList()
             yPos = yPos + 63
         end
         
-        -- ✅ FIXED: Tambah padding agar item terakhir tidak terpotong
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
     end)
 end
