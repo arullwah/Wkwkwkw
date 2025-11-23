@@ -2538,6 +2538,103 @@ local function GenerateChecksum(data)
     return tostring(hash)
 end
 
+-- ========= 💾 SAVE FUNCTION =========
+local function SaveToEncryptedJSON()
+    if not hasFileSystem then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Save",
+            Text = "Executor tidak support file system!",
+            Duration = 5
+        })
+        return
+    end
+    
+    local hasCheckedRecordings = false
+    for name, checked in pairs(CheckedRecordings) do
+        if checked then
+            hasCheckedRecordings = true
+            break
+        end
+    end
+
+    if not hasCheckedRecordings then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "⚠️ Tidak Ada Data",
+            Text = "Checklist recording terlebih dahulu!",
+            Duration = 3
+        })
+        return
+    end
+
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "MyReplays" end
+
+    local success, err = pcall(function()
+        local saveData = {
+            Version = "3.3_Encrypted",
+            Signature = "ByaruLRecorder",
+            Timestamp = os.time(),
+            Checkpoints = {},
+            RecordingOrder = {},
+            CheckpointNames = {}
+        }
+        
+        for _, name in ipairs(RecordingOrder) do
+            if CheckedRecordings[name] then
+                local frames = RecordedMovements[name]
+                if frames then
+                    local checkpointData = {
+                        Name = name,
+                        DisplayName = checkpointNames[name] or "checkpoint",
+                        Frames = frames
+                    }
+                    table.insert(saveData.Checkpoints, checkpointData)
+                    table.insert(saveData.RecordingOrder, name)
+                    saveData.CheckpointNames[name] = checkpointNames[name]
+                end
+            end
+        end
+        
+        local recordingsToObfuscate = {}
+        for _, name in ipairs(saveData.RecordingOrder) do
+            recordingsToObfuscate[name] = RecordedMovements[name]
+        end
+        
+        -- ✅ OBFUSCATE DATA
+        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
+        saveData.ObfuscatedFrames = obfuscatedData
+        
+        local jsonString = HttpService:JSONEncode(saveData)
+        local checksum = GenerateChecksum(jsonString)
+        local finalData = checksum .. "|" .. jsonString
+        local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
+        local encoded = Base64Encode(encrypted)
+        local header = "BRLREC" .. string.char(0x01, 0x00, 0x03, 0x03)
+        local finalFile = header .. encoded
+        
+        writefile(filename .. ".brl", finalFile)
+        
+        PlaySound("Success")
+        
+        StarterGui:SetCore("SendNotification", {
+            Title = "✅ Sukses Save " .. filename,
+            Text = "Total: " .. #saveData.RecordingOrder .. " recordings",
+            Duration = 4
+        })
+    end)
+
+    if not success then
+        PlaySound("Error")
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Gagal Save",
+            Text = "Terjadi kesalahan: " .. tostring(err),
+            Duration = 4
+        })
+    end
+end
+
 -- ========= 📂 LOAD OLD JSON FORMAT - ULTRA COMPATIBLE =========
 local function LoadFromOldJSON()
     if not hasFileSystem then
@@ -2803,103 +2900,6 @@ local function LoadFromOldJSON()
     end
     
     return result
-end
-
--- ========= 💾 SAVE FUNCTION =========
-local function SaveToEncryptedJSON()
-    if not hasFileSystem then
-        PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Save",
-            Text = "Executor tidak support file system!",
-            Duration = 5
-        })
-        return
-    end
-    
-    local hasCheckedRecordings = false
-    for name, checked in pairs(CheckedRecordings) do
-        if checked then
-            hasCheckedRecordings = true
-            break
-        end
-    end
-
-    if not hasCheckedRecordings then
-        PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "⚠️ Tidak Ada Data",
-            Text = "Checklist recording terlebih dahulu!",
-            Duration = 3
-        })
-        return
-    end
-
-    local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
-
-    local success, err = pcall(function()
-        local saveData = {
-            Version = "3.3_Encrypted",
-            Signature = "ByaruLRecorder",
-            Timestamp = os.time(),
-            Checkpoints = {},
-            RecordingOrder = {},
-            CheckpointNames = {}
-        }
-        
-        for _, name in ipairs(RecordingOrder) do
-            if CheckedRecordings[name] then
-                local frames = RecordedMovements[name]
-                if frames then
-                    local checkpointData = {
-                        Name = name,
-                        DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
-                    }
-                    table.insert(saveData.Checkpoints, checkpointData)
-                    table.insert(saveData.RecordingOrder, name)
-                    saveData.CheckpointNames[name] = checkpointNames[name]
-                end
-            end
-        end
-        
-        local recordingsToObfuscate = {}
-        for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
-        end
-        
-        -- ✅ OBFUSCATE DATA
-        local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
-        saveData.ObfuscatedFrames = obfuscatedData
-        
-        local jsonString = HttpService:JSONEncode(saveData)
-        local checksum = GenerateChecksum(jsonString)
-        local finalData = checksum .. "|" .. jsonString
-        local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
-        local encoded = Base64Encode(encrypted)
-        local header = "BRLREC" .. string.char(0x01, 0x00, 0x03, 0x03)
-        local finalFile = header .. encoded
-        
-        writefile(filename .. ".brl", finalFile)
-        
-        PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Sukses Save " .. filename,
-            Text = "Total: " .. #saveData.RecordingOrder .. " recordings",
-            Duration = 4
-        })
-    end)
-
-    if not success then
-        PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Save",
-            Text = "Terjadi kesalahan: " .. tostring(err),
-            Duration = 4
-        })
-    end
 end
 
 -- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) =========
