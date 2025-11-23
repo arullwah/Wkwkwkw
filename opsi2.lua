@@ -2608,7 +2608,7 @@ function UpdateRecordList()
             infoLabel.Parent = textboxContainer
             
             -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS!)
+            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
             -- ═══════════════════════════════════════════
             
             local segmentedBar = Instance.new("Frame")
@@ -2628,18 +2628,22 @@ function UpdateRecordList()
             barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
             barStroke.Parent = segmentedBar
             
+            -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
+            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
+            local buttonSpacing = 3   -- Space between buttons
+            
             -- ═══════════════════════════════════════════
-            -- SEGMENT 1: PLAY BUTTON (LEFT SIDE)
+            -- BUTTON 1: PLAY (25% width)
             -- ═══════════════════════════════════════════
             
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.new(0.30, 0, 1, -4)  -- 30% width
+            playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             playBtn.Text = "PLAY"
             playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             playBtn.Font = Enum.Font.GothamBold
-            playBtn.TextSize = 10
+            playBtn.TextSize = 9
             playBtn.BorderSizePixel = 0
             playBtn.Parent = segmentedBar
             
@@ -2650,23 +2654,23 @@ function UpdateRecordList()
             -- Divider 1
             local divider1 = Instance.new("Frame")
             divider1.Size = UDim2.new(0, 1, 1, -8)
-            divider1.Position = UDim2.new(0.30, 2, 0, 4)
+            divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
             divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider1.BorderSizePixel = 0
             divider1.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 2: DELETE BUTTON (LEFT SIDE)
+            -- BUTTON 2: DELETE (25% width)
             -- ═══════════════════════════════════════════
             
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(0.30, 0, 1, -4)  -- 30% width
-            delBtn.Position = UDim2.new(0.30, 5, 0, 2)
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "DEL"
             delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 10
+            delBtn.TextSize = 9
             delBtn.BorderSizePixel = 0
             delBtn.Parent = segmentedBar
             
@@ -2674,30 +2678,26 @@ function UpdateRecordList()
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- ═══════════════════════════════════════════
-            -- [SPACE KOSONG DI TENGAH - NO ELEMENT!]
-            -- ═══════════════════════════════════════════
-            
-            -- Divider 2 (sebelum Up button)
+            -- Divider 2
             local divider2 = Instance.new("Frame")
             divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(1, -68, 0, 4)  -- ✅ FROM RIGHT!
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
             divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider2.BorderSizePixel = 0
             divider2.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 3: UP BUTTON (RIGHT SIDE!)
+            -- BUTTON 3: NAIK (25% width)
             -- ═══════════════════════════════════════════
             
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(30, 22)  -- ✅ FIXED SIZE
-            upBtn.Position = UDim2.new(1, -65, 0, 2)  -- ✅ FROM RIGHT: -65px
+            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            upBtn.Text = "▲"
+            upBtn.Text = "Naik"
             upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 25
+            upBtn.TextSize = 9
             upBtn.BorderSizePixel = 0
             upBtn.Parent = segmentedBar
             
@@ -2708,23 +2708,23 @@ function UpdateRecordList()
             -- Divider 3
             local divider3 = Instance.new("Frame")
             divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(1, -33, 0, 4)  -- ✅ FROM RIGHT!
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
             divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider3.BorderSizePixel = 0
             divider3.Parent = segmentedBar
             
             -- ═══════════════════════════════════════════
-            -- SEGMENT 4: DOWN BUTTON (RIGHT SIDE!)
+            -- BUTTON 4: TURUN (25% width)
             -- ═══════════════════════════════════════════
             
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(30, 22)  -- ✅ FIXED SIZE
-            downBtn.Position = UDim2.new(1, -30, 0, 2)  -- ✅ FROM RIGHT: -30px
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            downBtn.Text = "▼"
+            downBtn.Text = "Turun"
             downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 25
+            downBtn.TextSize = 9
             downBtn.BorderSizePixel = 0
             downBtn.Parent = segmentedBar
             
@@ -2784,7 +2784,10 @@ function UpdateRecordList()
                 end
             end)
             
-            -- Hover effects
+            -- ═══════════════════════════════════════════
+            -- HOVER EFFECTS FOR ALL BUTTONS
+            -- ═══════════════════════════════════════════
+            
             playBtn.MouseEnter:Connect(function()
                 TweenService:Create(playBtn, TweenInfo.new(0.2), {
                     BackgroundColor3 = Color3.fromRGB(80, 25, 150)
@@ -2806,6 +2809,34 @@ function UpdateRecordList()
             delBtn.MouseLeave:Connect(function()
                 TweenService:Create(delBtn, TweenInfo.new(0.2), {
                     BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                }):Play()
+            end)
+            
+            upBtn.MouseEnter:Connect(function()
+                if index > 1 then
+                    TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            upBtn.MouseLeave:Connect(function()
+                TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                }):Play()
+            end)
+            
+            downBtn.MouseEnter:Connect(function()
+                if index < #RecordingOrder then
+                    TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            downBtn.MouseLeave:Connect(function()
+                TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
                 }):Play()
             end)
             
