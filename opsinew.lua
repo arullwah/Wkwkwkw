@@ -158,6 +158,21 @@ local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
 
+-- ========= FORWARD DECLARATIONS (TAMBAHKAN INI!) =========
+local UpdateRecordList
+local SaveToEncryptedJSON
+local LoadFromEncryptedJSON
+local LoadFromOldJSON
+local PlaySound
+local AnimateButtonClick
+local ObfuscateRecordingData
+local DeobfuscateRecordingData
+local ConvertOldFormatToNew
+local XORCipher
+local Base64Encode
+local Base64Decode
+local GenerateChecksum
+
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
