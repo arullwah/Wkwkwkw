@@ -3492,24 +3492,34 @@ local uiSuccess, uiError = pcall(function()
     end)
 
 
-    -- ========= MINI BUTTON FUNCTIONALITY =========
+-- ========= MINI BUTTON: MOBILE-SAFE DRAG + TRIPLE TAP =========
 
-    local miniSaveFile = "MiniButtonPos.json"
-
-    SafeCall(function()
-        if hasFileSystem and isfile and isfile(miniSaveFile) then
-            local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
-            if ok and type(data) == "table" and data.x and data.y then
-                MiniButton.Position = UDim2.fromOffset(data.x, data.y)
-            end
-        end
-    end)
-
--- ========= TRIPLE TAP CLOSE SYSTEM (FIXED WITH COLORS) =========
+-- Triple tap variables
 local tapCount = 0
 local lastTapTime = 0
 local TAP_WINDOW = 1.0
 local tapResetConnection = nil
+
+-- Dragging variables
+local dragging = false
+local dragInput = nil  -- ✅ BARU: Track input object yang sedang drag
+local dragStart = nil
+local startPos = nil
+local dragThreshold = 5
+local hasDragged = false
+
+-- Save file
+local miniSaveFile = "MiniButtonPos.json"
+
+-- Load saved position
+SafeCall(function()
+    if hasFileSystem and isfile and isfile(miniSaveFile) then
+        local ok, data = pcall(function() return HttpService:JSONDecode(readfile(miniSaveFile)) end)
+        if ok and type(data) == "table" and data.x and data.y then
+            MiniButton.Position = UDim2.fromOffset(data.x, data.y)
+        end
+    end
+end)
 
 -- Show tap indicator
 local function ShowTapFeedback(count)
@@ -3534,7 +3544,6 @@ local function ShowTapFeedback(count)
             corner.CornerRadius = UDim.new(0, 6)
             corner.Parent = indicator
             
-            -- Pop animation
             indicator.TextSize = 0
             TweenService:Create(indicator, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 TextSize = 16
@@ -3553,100 +3562,73 @@ local function ShowTapFeedback(count)
     end)
 end
 
--- Pulse with color SYNCHRONOUS (blocking)
-local function PulseMiniButtonSync(color, scale)
-    pcall(function()
-        if not MiniButton then return end
-        
-        local originalColor = MiniButton.BackgroundColor3
-        local originalSize = MiniButton.Size
-        local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
-        
-        -- Pulse OUT
-        local tweenOut = TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+-- Pulse button with color
+local function PulseButton(color, scale)
+    if not MiniButton or not MiniButton.Parent then return end
+    
+    local originalColor = MiniButton.BackgroundColor3
+    local originalSize = MiniButton.Size
+    local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+    
+    local tweenOut = TweenService:Create(
+        MiniButton, 
+        TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), 
+        {
             BackgroundColor3 = color,
             Size = targetSize
-        })
-        tweenOut:Play()
-        tweenOut.Completed:Wait()
-        
-        -- Pulse IN
-        local tweenIn = TweenService:Create(MiniButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        }
+    )
+    tweenOut:Play()
+    
+    task.wait(0.15)
+    
+    local tweenIn = TweenService:Create(
+        MiniButton,
+        TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
             BackgroundColor3 = originalColor,
             Size = originalSize
-        })
-        tweenIn:Play()
-        tweenIn.Completed:Wait()
-    end)
+        }
+    )
+    tweenIn:Play()
 end
 
--- Main click handler
-MiniButton.MouseButton1Click:Connect(function()
+-- Handle triple tap logic
+local function HandleTap()
     local currentTime = tick()
     
-    -- Reset if timeout
     if currentTime - lastTapTime > TAP_WINDOW then
         tapCount = 0
     end
     
-    -- Increment
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    -- ========= TAP 1 =========
+    -- TAP 1: Toggle MainFrame
     if tapCount == 1 then
-        -- Sound
         pcall(function() PlaySound("Click") end)
         
-        -- Animate text size
-        pcall(function()
-            local originalSize = MiniButton.TextSize
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize * 1.2
-            }):Play()
-            task.wait(0.1)
-            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                TextSize = originalSize
-            }):Play()
-        end)
-        
-        -- Toggle MainFrame
         if MainFrame then
             MainFrame.Visible = not MainFrame.Visible
         end
         
-        -- Visual feedback
         ShowTapFeedback(1)
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.1)
         
-        -- COLOR PULSE - Purple
-        task.spawn(function()
-            PulseMiniButtonSync(Color3.fromRGB(59, 15, 116), 1.1)
-        end)
-        
-    -- ========= TAP 2 =========
+    -- TAP 2: Warning
     elseif tapCount == 2 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(2)
+        PulseButton(Color3.fromRGB(89, 45, 146), 1.15)
         
-        -- COLOR PULSE - Lighter Purple
-        task.spawn(function()
-            PulseMiniButtonSync(Color3.fromRGB(89, 45, 146), 1.15)
-        end)
-        
-    -- ========= TAP 3 =========
+    -- TAP 3: Close
     elseif tapCount >= 3 then
         pcall(function() PlaySound("Success") end)
         ShowTapFeedback(3)
+        PulseButton(Color3.fromRGB(119, 75, 176), 1.2)
         
-        -- COLOR PULSE - Even Lighter Purple
-        task.spawn(function()
-            PulseMiniButtonSync(Color3.fromRGB(119, 75, 176), 1.2)
-        end)
-        
-        -- Wait for pulse to finish
         task.wait(0.4)
         
-        -- Close sequence
         task.spawn(function()
             pcall(function()
                 if StudioIsRecording then StopStudioRecording() end
@@ -3663,7 +3645,6 @@ MiniButton.MouseButton1Click:Connect(function()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
                 
-                -- Fade out
                 if MainFrame then
                     TweenService:Create(MainFrame, TweenInfo.new(0.4), {
                         BackgroundTransparency = 1
@@ -3687,7 +3668,6 @@ MiniButton.MouseButton1Click:Connect(function()
         tapCount = 0
     end
     
-    -- Auto-reset
     if tapResetConnection then
         task.cancel(tapResetConnection)
     end
@@ -3697,57 +3677,81 @@ MiniButton.MouseButton1Click:Connect(function()
             tapCount = 0
         end
     end)
-end)
+end
 
-    -- ========= MINI BUTTON DRAGGING (PASTIKAN ADA INI) =========
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
+-- ✅ INPUT BEGAN: Track SPECIFIC input object
 MiniButton.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        
         dragging = true
+        hasDragged = false
+        dragInput = input  -- ✅ STORE input object yang INITIATE drag
         dragStart = input.Position
         startPos = MiniButton.Position
         
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-                
-                -- Save position
-                SafeCall(function()
-                    if hasFileSystem and writefile and HttpService then
-                        local absX = MiniButton.AbsolutePosition.X
-                        local absY = MiniButton.AbsolutePosition.Y
-                        writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                -- ✅ ONLY reset jika input SAMA yang release
+                if dragInput == input then
+                    dragging = false
+                    dragInput = nil
+                    
+                    -- Tap detection
+                    if not hasDragged then
+                        HandleTap()
                     end
-                end)
+                    
+                    -- Save position
+                    if hasDragged then
+                        SafeCall(function()
+                            if hasFileSystem and writefile and HttpService then
+                                local absX = MiniButton.AbsolutePosition.X
+                                local absY = MiniButton.AbsolutePosition.Y
+                                writefile(miniSaveFile, HttpService:JSONEncode({x = absX, y = absY}))
+                            end
+                        end)
+                    end
+                end
             end
         end)
     end
 end)
 
+-- ✅ INPUT CHANGED: HANYA process input yang SAMA dengan dragInput
 UserInputService.InputChanged:Connect(function(input)
+    -- ✅ CRITICAL FIX: Ignore input jika bukan yang initiate drag!
     if not dragging then return end
-    if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+    if dragInput ~= input then return end  -- ✅ FILTER input lain (analog stick)!
+    
+    if input.UserInputType ~= Enum.UserInputType.MouseMovement and 
+       input.UserInputType ~= Enum.UserInputType.Touch then return end
     if not dragStart or not startPos then return end
 
     SafeCall(function()
         local delta = input.Position - dragStart
-        local newX = startPos.X.Offset + delta.X
-        local newY = startPos.Y.Offset + delta.Y
+        local distance = math.sqrt(delta.X^2 + delta.Y^2)
+        
+        if distance > dragThreshold then
+            hasDragged = true
+        end
+        
+        if hasDragged then
+            local newX = startPos.X.Offset + delta.X
+            local newY = startPos.Y.Offset + delta.Y
 
-        local cam = workspace.CurrentCamera
-        local vx = (cam and cam.ViewportSize.X) or 1920
-        local vy = (cam and cam.ViewportSize.Y) or 1080
-        local margin = 4
-        local btnWidth = MiniButton.AbsoluteSize.X
-        local btnHeight = MiniButton.AbsoluteSize.Y
+            local cam = workspace.CurrentCamera
+            local vx = (cam and cam.ViewportSize.X) or 1920
+            local vy = (cam and cam.ViewportSize.Y) or 1080
+            local margin = 4
+            local btnWidth = MiniButton.AbsoluteSize.X
+            local btnHeight = MiniButton.AbsoluteSize.Y
 
-        newX = math.clamp(newX, -btnWidth + margin, vx - margin)
-        newY = math.clamp(newY, -btnHeight + margin, vy - margin)
+            newX = math.clamp(newX, -btnWidth + margin, vx - margin)
+            newY = math.clamp(newY, -btnHeight + margin, vy - margin)
 
-        MiniButton.Position = UDim2.fromOffset(newX, newY)
+            MiniButton.Position = UDim2.fromOffset(newX, newY)
+        end
     end)
 end)
     
