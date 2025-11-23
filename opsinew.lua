@@ -2635,7 +2635,7 @@ local function SaveToEncryptedJSON()
     end
 end
 
--- ========= 📂 LOAD OLD JSON FORMAT - ULTRA COMPATIBLE =========
+-- ========= 📂 LOAD OLD JSON FORMAT - NO FREEZE + REPLACE FILE =========
 local function LoadFromOldJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2682,7 +2682,6 @@ local function LoadFromOldJSON()
         local signature = saveData.Signature or "Unknown"
         print("[DEBUG] Signature:", signature)
         
-        -- ⭐ TIDAK ERROR KALAU SIGNATURE NIL! (PENTING!)
         if signature ~= "ByaruLRecorder" and signature ~= "Unknown" then
             warn("[WARNING] Unexpected signature:", signature, "- Loading anyway...")
         end
@@ -2708,15 +2707,12 @@ local function LoadFromOldJSON()
             checkpointsData = {}
             
             for key, value in pairs(saveData) do
-                -- Skip metadata fields
                 if key ~= "Signature" and key ~= "Version" and key ~= "Timestamp" 
                    and key ~= "RecordingOrder" and key ~= "CheckpointNames" then
                     
-                    -- Check if this is a valid recording (has frames array)
                     if type(value) == "table" and #value > 0 then
                         local firstItem = value[1]
                         
-                        -- Validate it's a frame (has Position field)
                         if type(firstItem) == "table" and firstItem.Position then
                             print("[DEBUG] Found recording:", key, "Frames:", #value)
                             
@@ -2751,7 +2747,6 @@ local function LoadFromOldJSON()
             print("[DEBUG] Processing:", name, "Frames:", frames and #frames or 0)
             
             if frames and #frames > 0 then
-                -- ✅ VALIDATE FIRST FRAME
                 local firstFrame = frames[1]
                 
                 if not firstFrame.Position then
@@ -2813,41 +2808,31 @@ local function LoadFromOldJSON()
             Duration = 4
         })
         
-        -- ✅ AUTO-SAVE KE FORMAT BARU (DENGAN DEBUG LENGKAP!)
+        -- ⭐ AUTO-CONVERT + DELETE OLD JSON (NO MORE FREEZE!)
         task.spawn(function()
             task.wait(1.5)
             
-            print("[DEBUG] === AUTO-SAVE STARTING ===")
+            print("[DEBUG] === AUTO-CONVERT STARTING ===")
             print("[DEBUG] Filename:", filename)
-            print("[DEBUG] RecordingOrder count:", #RecordingOrder)
             
             -- ✅ CHECK ALL RECORDINGS
             local checkedCount = 0
             for _, name in ipairs(RecordingOrder) do
                 CheckedRecordings[name] = true
                 checkedCount = checkedCount + 1
-                print("[DEBUG] Checked:", name)
             end
             
             print("[DEBUG] Total checked:", checkedCount)
             
             if checkedCount == 0 then
                 warn("[ERROR] No recordings to save!")
-                
-                StarterGui:SetCore("SendNotification", {
-                    Title = "⚠️ Auto-Save Skipped",
-                    Text = "No recordings checked",
-                    Duration = 3
-                })
-                
                 return
             end
             
-            -- ✅ TEMPORARILY SET FILENAME BOX (PENTING!)
+            -- ✅ TEMPORARILY SET FILENAME BOX
             local originalFilename = FilenameBox and FilenameBox.Text or ""
             if FilenameBox then
                 FilenameBox.Text = filename
-                print("[DEBUG] Set FilenameBox to:", filename)
             end
             
             print("[DEBUG] Calling SaveToEncryptedJSON...")
@@ -2857,18 +2842,38 @@ local function LoadFromOldJSON()
             end)
             
             if saveSuccess then
-                print("[DEBUG] ✅ Auto-save SUCCESS!")
+                print("[DEBUG] ✅ Save SUCCESS!")
                 
-                StarterGui:SetCore("SendNotification", {
-                    Title = "💾 Auto-Converted",
-                    Text = "Saved as " .. filename .. ".brl",
-                    Duration = 3
-                })
+                -- ⭐ DELETE OLD JSON FILE (PENTING!)
+                task.wait(0.5)
+                
+                local deleteSuccess = pcall(function()
+                    if isfile(jsonFile) then
+                        delfile(jsonFile)
+                        print("[DEBUG] ✅ Deleted old JSON:", jsonFile)
+                    end
+                end)
+                
+                if deleteSuccess then
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "💾 Converted to BRL",
+                        Text = filename .. ".json → " .. filename .. ".brl",
+                        Duration = 3
+                    })
+                else
+                    warn("[WARNING] Could not delete old JSON file")
+                    
+                    StarterGui:SetCore("SendNotification", {
+                        Title = "⚠️ Partial Success",
+                        Text = "Saved .brl but couldn't delete .json",
+                        Duration = 3
+                    })
+                end
             else
                 warn("[ERROR] Auto-save FAILED:", saveError)
                 
                 StarterGui:SetCore("SendNotification", {
-                    Title = "⚠️ Auto-Save Failed",
+                    Title = "⚠️ Convert Failed",
                     Text = "Please save manually",
                     Duration = 3
                 })
@@ -2878,10 +2883,9 @@ local function LoadFromOldJSON()
             if FilenameBox and originalFilename ~= "" then
                 task.wait(0.5)
                 FilenameBox.Text = originalFilename
-                print("[DEBUG] Restored FilenameBox to:", originalFilename)
             end
             
-            print("[DEBUG] === AUTO-SAVE DONE ===")
+            print("[DEBUG] === AUTO-CONVERT DONE ===")
         end)
         
         return true
