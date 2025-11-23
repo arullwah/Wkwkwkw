@@ -3326,8 +3326,8 @@ StudioStroke.Parent = RecordingStudio
 
     SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
     StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-    ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-    PrevBtn = CreateStudioBtn("◀ PREV", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
+    ResumeBtn = CreateStudioBtn("LANJUT REC", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+    PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
 
 -- ✅ ADD: Hold detection
 local prevHoldConnection = nil
@@ -3371,7 +3371,7 @@ PrevBtn.InputEnded:Connect(function(input)
 end)
 
 -- ✅ SAME for NextBtn:
-NextBtn = CreateStudioBtn("NEXT ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
 
 local nextHoldConnection = nil
 local nextHoldActive = false
@@ -3436,7 +3436,7 @@ end)
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or walkSpeed > 1000 then return false, "WalkSpeed must be between 8 and 1000" end
+        if walkSpeed < 8 or walkSpeed > 5000 then return false, "WalkSpeed must be between 8 and 5000" end
         return true, walkSpeed
     end
 
@@ -3474,7 +3474,7 @@ end)
         else
             SmartPlayRecording(50)
         end
-        PlayBtnControl.Text = "STOP"  -- ✅ Ubah jadi STOP
+        PlayBtnControl.Text = "PAUSE"  -- ✅ Ubah jadi STOP
         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)  -- ✅ Merah untuk stop
     end
 end)
@@ -3735,15 +3735,16 @@ local function ShowTapFeedback(count)
     end)
 end
 
--- Pulse button with color (ASYNC - NON-BLOCKING!)
+-- ✅ FIXED: Pulse button dengan size constant
+local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)  -- Define di top level
+
 local function PulseButton(color, scale)
     task.spawn(function()
         pcall(function()
             if not MiniButton or not MiniButton.Parent then return end
             
             local originalColor = MiniButton.BackgroundColor3
-            local originalSize = MiniButton.Size
-            local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+            local targetSize = UDim2.fromOffset(30 * scale, 30 * scale)  -- ✅ BASE: 30x30
             
             local tweenOut = TweenService:Create(
                 MiniButton, 
@@ -3758,12 +3759,13 @@ local function PulseButton(color, scale)
             
             task.wait(0.1)
             
+            -- ✅ FIXED: Always return to constant size
             local tweenIn = TweenService:Create(
                 MiniButton,
                 TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
                 {
                     BackgroundColor3 = originalColor,
-                    Size = originalSize
+                    Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Constant 30x30
                 }
             )
             tweenIn:Play()
@@ -3782,7 +3784,7 @@ local function HandleTap()
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    -- TAP 1: TOGGLE MAINFRAME (INSTANT!)
+    -- TAP 1: TOGGLE MAINFRAME
     if tapCount == 1 then
         pcall(function() PlaySound("Click") end)
         
@@ -3791,31 +3793,31 @@ local function HandleTap()
         end
         
         ShowTapFeedback(1)
-        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)  -- 30 * 1.05 = 31.5
         
     -- TAP 2: SUBTLE FEEDBACK
     elseif tapCount == 2 then
         pcall(function() PlaySound("Click") end)
         ShowTapFeedback(2)
-        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)
+        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)  -- 30 * 1.08 = 32.4
         
     -- TAP 3: WARNING START
     elseif tapCount == 3 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(3)
-        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)
+        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)  -- 30 * 1.12 = 33.6
         
     -- TAP 4: STRONG WARNING
     elseif tapCount == 4 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(4)
-        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)
+        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)  -- 30 * 1.16 = 34.8
         
     -- TAP 5: CLOSE
     elseif tapCount >= 5 then
         pcall(function() PlaySound("Success") end)
         ShowTapFeedback(5)
-        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 30 * 1.2 = 36
         
         task.wait(0.3)
         
