@@ -2885,20 +2885,6 @@ local uiSuccess, uiError = pcall(function()
     Title.TextXAlignment = Enum.TextXAlignment.Center
     Title.Parent = Header
 
-    CloseBtn = Instance.new("TextButton")
-    CloseBtn.Size = UDim2.fromOffset(20, 20)
-    CloseBtn.Position = UDim2.new(1, -20, 0.5, -10)
-    CloseBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-    CloseBtn.Text = "X"
-    CloseBtn.TextColor3 = Color3.new(1, 1, 1)
-    CloseBtn.Font = Enum.Font.GothamBold
-    CloseBtn.TextSize = 12
-    CloseBtn.Parent = Header
-
-    local CloseCorner = Instance.new("UICorner")
-    CloseCorner.CornerRadius = UDim.new(0, 4)
-    CloseCorner.Parent = CloseBtn
-
     local Content = Instance.new("Frame")
     Content.Size = UDim2.new(1, -6, 1, -38)
     Content.Position = UDim2.new(0, 3, 0, 36)
