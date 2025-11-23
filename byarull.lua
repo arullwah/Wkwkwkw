@@ -34,6 +34,31 @@ local function kickPlayer(alasan)
 end
 
 -- ===================================
+-- FUNGSI CLEANUP GUI (PENTING!)
+-- ===================================
+local function CleanupAllGUIs()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    
+    -- Hapus GUI lama yang mungkin conflict
+    local guiNames = {
+        "KeyAccessGUI",
+        "MainGUI",
+        "ByaruLRecorderElegant",
+        "LoadingGUI"
+    }
+    
+    for _, guiName in ipairs(guiNames) do
+        local oldGui = playerGui:FindFirstChild(guiName)
+        if oldGui then
+            oldGui:Destroy()
+        end
+    end
+    
+    wait(0.1) -- Pastikan destroy selesai
+end
+
+-- ===================================
 -- VERIFIKASI USERNAME
 -- ===================================
 local username = LocalPlayer.Name
@@ -52,13 +77,18 @@ if not adaAkses then
 end
 
 -- ===================================
+-- CLEANUP GUI LAMA DULU
+-- ===================================
+CleanupAllGUIs()
+
+-- ===================================
 -- JIKA TERVERIFIKASI, BUAT GUI
 -- ===================================
 print("✅ Akses diterima untuk: " .. username)
 
--- Membuat ScreenGui
+-- Membuat ScreenGui dengan nama unik
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "MainGUI"
+ScreenGui.Name = "KeyAccessGUI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -146,8 +176,8 @@ spawn(function()
         {progress = 0.2, text = "Connecting...", wait = 0.3},
         {progress = 0.4, text = "Verifying...", wait = 0.3},
         {progress = 0.6, text = "Loading data...", wait = 0.3},
-        {progress = 0.8, text = "Fetching script...", wait = 0.4},
-        {progress = 1.0, text = "Executing...", wait = 0.3}
+        {progress = 0.8, text = "Fetching script...", wait = 0.5},
+        {progress = 1.0, text = "Preparing...", wait = 0.4}
     }
     
     for _, step in ipairs(steps) do
@@ -165,9 +195,23 @@ spawn(function()
     -- Execute script dari link
     LoadingText.Text = "✅ Success!"
     LoadingText.TextColor3 = Color3.fromRGB(100, 255, 100)
-    StatusText.Text = "Script loaded!"
+    StatusText.Text = "Starting loader..."
     
     wait(0.5)
+    
+    -- ✅ HAPUS GUI DULU SEBELUM EXECUTE!
+    print("🗑️ Cleaning up KeyAccess GUI...")
+    ScreenGui:Destroy()
+    
+    -- ✅ DELAY untuk pastikan GUI benar-benar hilang
+    wait(0.3)
+    
+    -- ✅ CLEANUP SEMUA GUI LAMA
+    CleanupAllGUIs()
+    
+    wait(0.2)
+    
+    print("🚀 Loading loader.lua...")
     
     -- Load dan jalankan script dari GitHub
     local success, err = pcall(function()
@@ -175,19 +219,41 @@ spawn(function()
     end)
     
     if success then
-        print("✅ Script berhasil dijalankan untuk: " .. username)
+        print("✅ loader.lua berhasil dijalankan untuk: " .. username)
     else
-        warn("❌ Error saat menjalankan script: " .. tostring(err))
-        LoadingText.Text = "❌ Error!"
-        LoadingText.TextColor3 = Color3.fromRGB(255, 100, 100)
-        StatusText.Text = "Failed to load"
-        wait(2)
+        warn("❌ Error saat menjalankan loader.lua:")
+        warn(err)
+        
+        -- Tampilkan error notification
+        local errorGui = Instance.new("ScreenGui")
+        errorGui.Name = "ErrorGUI"
+        errorGui.ResetOnSpawn = false
+        errorGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        
+        local errorFrame = Instance.new("Frame")
+        errorFrame.Size = UDim2.fromOffset(250, 80)
+        errorFrame.Position = UDim2.new(0.5, -125, 0.5, -40)
+        errorFrame.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+        errorFrame.Parent = errorGui
+        
+        local errorCorner = Instance.new("UICorner")
+        errorCorner.CornerRadius = UDim.new(0, 10)
+        errorCorner.Parent = errorFrame
+        
+        local errorLabel = Instance.new("TextLabel")
+        errorLabel.Size = UDim2.new(1, -20, 1, -20)
+        errorLabel.Position = UDim2.fromOffset(10, 10)
+        errorLabel.BackgroundTransparency = 1
+        errorLabel.Text = "❌ Error Loading Script!\nCheck console (F9)"
+        errorLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        errorLabel.Font = Enum.Font.GothamBold
+        errorLabel.TextSize = 14
+        errorLabel.TextWrapped = true
+        errorLabel.Parent = errorFrame
+        
+        wait(5)
+        errorGui:Destroy()
     end
-    
-    -- Hapus GUI setelah execute
-    wait(1)
-    ScreenGui:Destroy()
-    print("GUI dihapus")
 end)
 
 -- ===================================
@@ -228,3 +294,5 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
         update(input)
     end
 end)
+
+print("✅ KeyAccess GUI loaded untuk: " .. username)
