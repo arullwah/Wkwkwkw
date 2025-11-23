@@ -2697,7 +2697,7 @@ function UpdateRecordList()
             upBtn.Text = "▲"
             upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 10
+            upBtn.TextSize = 20
             upBtn.BorderSizePixel = 0
             upBtn.Parent = segmentedBar
             
@@ -2724,7 +2724,7 @@ function UpdateRecordList()
             downBtn.Text = "▼"
             downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 10
+            downBtn.TextSize = 20
             downBtn.BorderSizePixel = 0
             downBtn.Parent = segmentedBar
             
@@ -2812,7 +2812,8 @@ function UpdateRecordList()
             yPos = yPos + 63
         end
         
-        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
+        -- ✅ FIXED: Tambah padding agar item terakhir tidak terpotong
+        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
     end)
 end
 
