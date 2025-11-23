@@ -158,21 +158,6 @@ local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
 
--- ========= FORWARD DECLARATIONS (TAMBAHKAN INI!) =========
-local UpdateRecordList
-local SaveToEncryptedJSON
-local LoadFromEncryptedJSON
-local LoadFromOldJSON
-local PlaySound
-local AnimateButtonClick
-local ObfuscateRecordingData
-local DeobfuscateRecordingData
-local ConvertOldFormatToNew
-local XORCipher
-local Base64Encode
-local Base64Decode
-local GenerateChecksum
-
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
     Click = "rbxassetid://4499400560",
@@ -723,43 +708,25 @@ local function ObfuscateRecordingData(recordingData)
     return obfuscated
 end
 
--- ========= AUTO-CONVERT OLD JSON FORMAT =========
-local function ConvertOldFormatToNew(oldData)
-    -- Deteksi apakah JSON sudah pakai field mapping atau belum
-    local function IsOldFormat(frames)
-        if not frames or #frames == 0 then return false end
-        local firstFrame = frames[1]
-        -- Old format pakai "Position", bukan "11"
-        return firstFrame.Position ~= nil and firstFrame["11"] == nil
-    end
-    
-    local converted = {}
-    
-    for checkpointName, frames in pairs(oldData) do
-        if IsOldFormat(frames) then
-            -- ✅ CONVERT: Old format → Obfuscated format
-            local obfuscatedFrames = {}
-            for _, frame in ipairs(frames) do
-                local obfuscatedFrame = {}
-                for fieldName, fieldValue in pairs(frame) do
-                    local code = FIELD_MAPPING[fieldName]
-                    if code then
-                        obfuscatedFrame[code] = fieldValue
-                    else
-                        -- Field yang tidak di-mapping, copy langsung
-                        obfuscatedFrame[fieldName] = fieldValue
-                    end
+local function DeobfuscateRecordingData(obfuscatedData)
+    local deobfuscated = {}
+    for checkpointName, frames in pairs(obfuscatedData) do
+        local deobfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local deobfuscatedFrame = {}
+            for code, fieldValue in pairs(frame) do
+                local fieldName = REVERSE_MAPPING[code]
+                if fieldName then
+                    deobfuscatedFrame[fieldName] = fieldValue
+                else
+                    deobfuscatedFrame[code] = fieldValue
                 end
-                table.insert(obfuscatedFrames, obfuscatedFrame)
             end
-            converted[checkpointName] = obfuscatedFrames
-        else
-            -- Sudah format baru, skip conversion
-            converted[checkpointName] = frames
+            table.insert(deobfuscatedFrames, deobfuscatedFrame)
         end
+        deobfuscated[checkpointName] = deobfuscatedFrames
     end
-    
-    return converted
+    return deobfuscated
 end
 
 -- ========= FRAME MANIPULATION =========
@@ -2370,168 +2337,18 @@ local function SaveStudioRecording()
     end)
 end
 
+-- ========= FILE SAVE/LOAD =========
 
--- ========= DETECT EXECUTOR CAPABILITIES =========
-local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
-local hasBit32 = (bit32 ~= nil)
-
--- ========= FALLBACK BIT32 =========
-if not hasBit32 then
-    bit32 = {}
-    function bit32.bxor(a, b)
-        local result = 0
-        local bitval = 1
-        while a > 0 or b > 0 do
-            local abit = a % 2
-            local bbit = b % 2
-            if abit ~= bbit then
-                result = result + bitval
-            end
-            bitval = bitval * 2
-            a = math.floor(a / 2)
-            b = math.floor(b / 2)
-        end
-        return result
-    end
-end
-
--- ========= ENCRYPTION SYSTEM =========
-
--- Encryption Key
-local ENCRYPTION_KEY = "ByaruLRecorder2024!Secret#Key@"
-
--- Field Mapping for Obfuscation
-local FIELD_MAPPING = {
-    Position = "11",
-    LookVector = "88",
-    UpVector = "55",
-    Velocity = "22",
-    MoveState = "33",
-    WalkSpeed = "44",
-    Timestamp = "66"
-}
-
-local REVERSE_MAPPING = {
-    ["11"] = "Position",
-    ["88"] = "LookVector",
-    ["55"] = "UpVector",
-    ["22"] = "Velocity",
-    ["33"] = "MoveState",
-    ["44"] = "WalkSpeed",
-    ["66"] = "Timestamp"
-}
-
--- ========= HELPER FUNCTIONS =========
-
-local function ObfuscateRecordingData(recordingData)
-    local obfuscated = {}
-    for checkpointName, frames in pairs(recordingData) do
-        local obfuscatedFrames = {}
-        for _, frame in ipairs(frames) do
-            local obfuscatedFrame = {}
-            for fieldName, fieldValue in pairs(frame) do
-                local code = FIELD_MAPPING[fieldName]
-                if code then
-                    obfuscatedFrame[code] = fieldValue
-                else
-                    obfuscatedFrame[fieldName] = fieldValue
-                end
-            end
-            table.insert(obfuscatedFrames, obfuscatedFrame)
-        end
-        obfuscated[checkpointName] = obfuscatedFrames
-    end
-    return obfuscated
-end
-
-local function DeobfuscateRecordingData(obfuscatedData)
-    local deobfuscated = {}
-    for checkpointName, frames in pairs(obfuscatedData) do
-        local deobfuscatedFrames = {}
-        for _, frame in ipairs(frames) do
-            local deobfuscatedFrame = {}
-            for code, fieldValue in pairs(frame) do
-                local fieldName = REVERSE_MAPPING[code]
-                if fieldName then
-                    deobfuscatedFrame[fieldName] = fieldValue
-                else
-                    deobfuscatedFrame[code] = fieldValue
-                end
-            end
-            table.insert(deobfuscatedFrames, deobfuscatedFrame)
-        end
-        deobfuscated[checkpointName] = deobfuscatedFrames
-    end
-    return deobfuscated
-end
-
--- XOR Cipher
-local function XORCipher(data, key)
-    local result = {}
-    local keyLen = #key
-    for i = 1, #data do
-        local dataByte = string.byte(data, i)
-        local keyByte = string.byte(key, ((i - 1) % keyLen) + 1)
-        local xorResult = bit32.bxor(dataByte, keyByte)
-        table.insert(result, string.char(xorResult))
-    end
-    return table.concat(result)
-end
-
--- Base64 Encoding
-local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-
-local function Base64Encode(data)
-    return ((data:gsub('.', function(x)
-        local r,b='',x:byte()
-        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
-        return r;
-    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-        if (#x < 6) then return '' end
-        local c=0
-        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-        return base64chars:sub(c+1,c+1)
-    end)..({ '', '==', '=' })[#data%3+1])
-end
-
-local function Base64Decode(data)
-    data = string.gsub(data, '[^'..base64chars..'=]', '')
-    return (data:gsub('.', function(x)
-        if (x == '=') then return '' end
-        local r,f='',(base64chars:find(x)-1)
-        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
-        return r;
-    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-        if (#x ~= 8) then return '' end
-        local c=0
-        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
-        return string.char(c)
-    end))
-end
-
--- Checksum Generation
-local function GenerateChecksum(data)
-    local hash = 5381
-    for i = 1, #data do
-        hash = ((hash * 33) + string.byte(data, i)) % 2147483647
-    end
-    return tostring(hash)
-end
-
--- ========= SAVE FUNCTION =========
-
-local function SaveToEncryptedJSON()
+local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Save Failed",
-            Text = "Executor does not support file system!",
-            Duration = 5
-        })
         return
     end
     
-    -- Check if any recordings are checked
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "MyReplays" end
+    filename = filename .. ".json"
+    
     local hasCheckedRecordings = false
     for name, checked in pairs(CheckedRecordings) do
         if checked then
@@ -2539,32 +2356,21 @@ local function SaveToEncryptedJSON()
             break
         end
     end
-
+    
     if not hasCheckedRecordings then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "⚠️ No Data Selected",
-            Text = "Please check recordings first!",
-            Duration = 3
-        })
         return
     end
-
-    local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
-
+    
     local success, err = pcall(function()
-        -- Prepare save data structure
         local saveData = {
-            Version = "4.0_Encrypted",
-            Signature = "ByaruLRecorder",
-            Timestamp = os.time(),
+            Version = "3.3",
+            Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
             CheckpointNames = {}
         }
         
-        -- Collect checked recordings
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
                 local frames = RecordedMovements[name]
@@ -2581,7 +2387,6 @@ local function SaveToEncryptedJSON()
             end
         end
         
-        -- Obfuscate frame data
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
             recordingsToObfuscate[name] = RecordedMovements[name]
@@ -2590,218 +2395,63 @@ local function SaveToEncryptedJSON()
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
-        -- Encode to JSON
         local jsonString = HttpService:JSONEncode(saveData)
         
-        -- Generate checksum
-        local checksum = GenerateChecksum(jsonString)
-        
-        -- Combine checksum with data
-        local finalData = checksum .. "|" .. jsonString
-        
-        -- Encrypt with XOR
-        local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
-        
-        -- Encode to Base64
-        local encoded = Base64Encode(encrypted)
-        
-        -- Add file header
-        local header = "BRLREC" .. string.char(0x01, 0x00, 0x04, 0x00) -- Version 4.0
-        local finalFile = header .. encoded
-        
-        -- Write to file
-        writefile(filename .. ".brl", finalFile)
-        
+        writefile(filename, jsonString)
         PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Save Success: " .. filename,
-            Text = #saveData.RecordingOrder .. " recordings saved",
-            Duration = 3
-        })
     end)
-
+    
     if not success then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Save Failed",
-            Text = tostring(err),
-            Duration = 4
-        })
     end
 end
 
--- ========= LOAD FUNCTION =========
-
-local function LoadFromEncryptedJSON()
+local function LoadFromObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Failed",
-            Text = "Executor does not support file system!",
-            Duration = 5
-        })
         return
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
     if filename == "" then filename = "MyReplays" end
-
+    filename = filename .. ".json"
+    
     local success, err = pcall(function()
-        -- Check if file exists
-        local fileExists = false
-        pcall(function()
-            fileExists = isfile(filename .. ".brl")
-        end)
-        
-        if not fileExists then
+        if not isfile(filename) then
             PlaySound("Error")
-            StarterGui:SetCore("SendNotification", {
-                Title = "⚠️ File Not Found",
-                Text = filename .. ".brl does not exist",
-                Duration = 3
-            })
             return
         end
         
-        -- Read file
-        local fileContent = readfile(filename .. ".brl")
-        
-        -- Validate header
-        local header = string.sub(fileContent, 1, 10)
-        if not string.match(header, "^BRLREC") then
-            error("Invalid file format - not a .brl file")
-        end
-        
-        -- ✅ FIXED: Accept version 3.x and 4.x
-        local versionBytes = {string.byte(header, 7, 10)}
-        local majorVersion = versionBytes[1] or 0
-        local minorVersion = versionBytes[3] or 0
-        
-        -- ✅ ALLOW version 3.0+
-        if majorVersion < 3 then
-            error("Unsupported file version - please use version 3.0 or newer")
-        end
-        
-        -- Extract encoded data
-        local encoded = string.sub(fileContent, 11)
-        
-        -- Decode Base64
-        local encrypted = Base64Decode(encoded)
-        
-        -- Decrypt XOR
-        local decrypted = XORCipher(encrypted, ENCRYPTION_KEY)
-        
-        -- Split checksum and JSON
-        local splitPos = string.find(decrypted, "|", 1, true)
-        if not splitPos then
-            error("File is corrupted - invalid data structure")
-        end
-        
-        local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
-        local jsonString = string.sub(decrypted, splitPos + 1)
-        
-        -- Verify checksum
-        local calculatedChecksum = GenerateChecksum(jsonString)
-        if storedChecksum ~= calculatedChecksum then
-            error("File is corrupted - checksum verification failed")
-        end
-        
-        -- Parse JSON
+        local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        -- Validate signature
-        if saveData.Signature ~= "ByaruLRecorder" then
-            error("Invalid file signature - file may be tampered")
-        end
-        
-        -- Extract data
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ HANDLE both ObfuscatedFrames (new) and direct Frames (old)
-        local framesToProcess = {}
-        
-        if saveData.ObfuscatedFrames then
-            -- New format with obfuscation
-            framesToProcess = saveData.ObfuscatedFrames
-        else
-            -- Old format without obfuscation
-            for _, checkpoint in ipairs(saveData.Checkpoints or {}) do
-                framesToProcess[checkpoint.Name] = checkpoint.Frames
-            end
-        end
-        
-        -- Deobfuscate frame data
-        local deobfuscatedData = DeobfuscateRecordingData(framesToProcess)
-        
-        -- Load recordings
-        local loadedCount = 0
-        
-        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-            local name = checkpointData.Name
-            local frames = deobfuscatedData[name]
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
-            if frames and #frames > 0 then
-                -- Validate frame structure
-                local firstFrame = frames[1]
-                if not firstFrame.Position or not firstFrame.LookVector then
-                    warn("⚠️ Skipping invalid recording:", name)
-                    continue
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
-                
-                -- Store recording
-                RecordedMovements[name] = frames
-                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                
-                -- Add to order if not exists
-                if not table.find(RecordingOrder, name) then
-                    table.insert(RecordingOrder, name)
-                end
-                
-                loadedCount = loadedCount + 1
             end
         end
         
-        if loadedCount == 0 then
-            error("No valid recordings found in file")
-        end
-        
-        -- Update UI
         UpdateRecordList()
         PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Load Success: " .. filename,
-            Text = loadedCount .. " recordings loaded",
-            Duration = 3
-        })
     end)
-
+    
     if not success then
         PlaySound("Error")
-        
-        -- Parse error type
-        local errorMsg = tostring(err)
-        local displayMsg = "Unknown error"
-        
-        if string.match(errorMsg, "corrupted") or string.match(errorMsg, "Corrupted") then
-            displayMsg = "File is corrupted or damaged"
-        elseif string.match(errorMsg, "checksum") or string.match(errorMsg, "Checksum") then
-            displayMsg = "File verification failed"
-        elseif string.match(errorMsg, "Invalid") or string.match(errorMsg, "invalid") then
-            displayMsg = "Invalid file format"
-        elseif string.match(errorMsg, "Unsupported") or string.match(errorMsg, "version") then
-            displayMsg = "Unsupported file version"
-        elseif string.match(errorMsg, "tampered") then
-            displayMsg = "File may be tampered"
-        end
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Failed",
-            Text = displayMsg,
-            Duration = 4
-        })
     end
 end
 
@@ -2842,148 +2492,226 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ ITEM FRAME
+            -- ✨ MAIN CONTAINER
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 60)
+            item.Size = UDim2.new(1, -6, 0, 58)
             item.Position = UDim2.new(0, 3, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            item.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+            item.BorderSizePixel = 0
             item.Parent = RecordingsList
         
             local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 4)
+            corner.CornerRadius = UDim.new(0, 6)
             corner.Parent = item
+            
+            -- Outer stroke
+            local outerStroke = Instance.new("UIStroke")
+            outerStroke.Color = Color3.fromRGB(40, 40, 50)
+            outerStroke.Thickness = 1
+            outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            outerStroke.Parent = item
+            
+            -- ═══════════════════════════════════════════
+            -- ROW 1: CHECKBOX + NAME
+            -- ═══════════════════════════════════════════
+            
+            local topRow = Instance.new("Frame")
+            topRow.Size = UDim2.new(1, -10, 0, 22)
+            topRow.Position = UDim2.fromOffset(5, 5)
+            topRow.BackgroundTransparency = 1
+            topRow.Parent = item
             
             -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
-            checkBox.Position = UDim2.fromOffset(5, 5)
-            checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            checkBox.Position = UDim2.fromOffset(0, 2)
+            checkBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
             checkBox.Text = CheckedRecordings[name] and "✓" or ""
             checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
             checkBox.Font = Enum.Font.GothamBold
             checkBox.TextSize = 12
-            checkBox.Parent = item
+            checkBox.BorderSizePixel = 0
+            checkBox.Parent = topRow
             
             local checkCorner = Instance.new("UICorner")
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
-            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
+            local checkStroke = Instance.new("UIStroke")
+            checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
+            checkStroke.Thickness = 1.5
+            checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            checkStroke.Parent = checkBox
+            
+            -- 📝 NAME TEXTBOX
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
-            nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
+            nameBox.Size = UDim2.new(1, -25, 1, 0)
+            nameBox.Position = UDim2.fromOffset(23, 0)
+            nameBox.BackgroundTransparency = 1
+            nameBox.Text = checkpointNames[name] or "Checkpoint"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-            nameBox.TextStrokeTransparency = 0.6
-            nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
-            nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
-            nameBox.PlaceholderText = "Name"
+            nameBox.TextSize = 11
+            nameBox.TextXAlignment = Enum.TextXAlignment.Left
+            nameBox.PlaceholderText = "Recording Name"
             nameBox.ClearTextOnFocus = false
-            nameBox.Parent = item
+            nameBox.Parent = topRow
             
-            local nameBoxCorner = Instance.new("UICorner")
-            nameBoxCorner.CornerRadius = UDim.new(0, 3)
-            nameBoxCorner.Parent = nameBox
+            -- ═══════════════════════════════════════════
+            -- ROW 2: SEGMENTED CONTROL BAR
+            -- ═══════════════════════════════════════════
             
-            -- ✅ RAINBOW BORDER (THICKNESS = 1)
-            local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
-            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
-            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            nameBoxStroke.Parent = nameBox
+            local segmentedBar = Instance.new("Frame")
+            segmentedBar.Size = UDim2.new(1, -10, 0, 26)
+            segmentedBar.Position = UDim2.fromOffset(5, 29)
+            segmentedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+            segmentedBar.BorderSizePixel = 0
+            segmentedBar.Parent = item
             
-            -- ✅ ANIMATED RAINBOW
-            task.spawn(function()
-                local hue = (index - 1) / math.max(#RecordingOrder, 1)
-                while nameBoxStroke and nameBoxStroke.Parent do
-                    hue = (hue + 0.05) % 1
-                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
-                    task.wait(0.03)
-                end
-            end)
+            local barCorner = Instance.new("UICorner")
+            barCorner.CornerRadius = UDim.new(0, 4)
+            barCorner.Parent = segmentedBar
             
-            -- ✅ INFO LABEL (FIXED POSITION!)
-            local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
-            infoLabel.Position = UDim2.fromOffset(28, 35)
-            infoLabel.BackgroundTransparency = 1
-            if #rec > 0 then
-                local totalSeconds = rec[#rec].Timestamp
-                infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
-            else
-                infoLabel.Text = "🕐 0:00 📊 0 frames"
-            end
-            infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-            infoLabel.Font = Enum.Font.GothamBold
-            infoLabel.TextSize = 8
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-            infoLabel.Parent = item
+            local barStroke = Instance.new("UIStroke")
+            barStroke.Color = Color3.fromRGB(50, 50, 60)
+            barStroke.Thickness = 1
+            barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            barStroke.Parent = segmentedBar
             
-            -- ✅ PLAY BUTTON
+            -- ═══════════════════════════════════════════
+            -- SEGMENT 1: PLAY BUTTON
+            -- ═══════════════════════════════════════════
+            
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(38, 20)
-            playBtn.Position = UDim2.new(1, -79, 0, 5)
+            playBtn.Size = UDim2.new(0.18, 0, 1, -4)
+            playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            playBtn.Text = "Play"
-            playBtn.TextColor3 = Color3.new(1, 1, 1)
+            playBtn.Text = "PLAY"
+            playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             playBtn.Font = Enum.Font.GothamBold
-            playBtn.TextSize = 9
-            playBtn.Parent = item
+            playBtn.TextSize = 10
+            playBtn.BorderSizePixel = 0
+            playBtn.Parent = segmentedBar
             
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
-            -- ✅ DELETE BUTTON
+            -- Divider 1
+            local divider1 = Instance.new("Frame")
+            divider1.Size = UDim2.new(0, 1, 1, -8)
+            divider1.Position = UDim2.new(0.18, 2, 0, 4)
+            divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider1.BorderSizePixel = 0
+            divider1.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- SEGMENT 2: DELETE BUTTON
+            -- ═══════════════════════════════════════════
+            
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(38, 20)
-            delBtn.Position = UDim2.new(1, -38, 0, 5)
+            delBtn.Size = UDim2.new(0.18, 0, 1, -4)
+            delBtn.Position = UDim2.new(0.18, 5, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Delete"
-            delBtn.TextColor3 = Color3.new(1, 1, 1)
+            delBtn.Text = "DELETE"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 8
-            delBtn.Parent = item
+            delBtn.TextSize = 9
+            delBtn.BorderSizePixel = 0
+            delBtn.Parent = segmentedBar
             
             local delCorner = Instance.new("UICorner")
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- ✅ NAIK BUTTON
+            -- Divider 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(0.36, 7, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- SEGMENT 3: INFO DISPLAY
+            -- ═══════════════════════════════════════════
+            
+            local infoLabel = Instance.new("TextLabel")
+            infoLabel.Size = UDim2.new(0.38, 0, 1, 0)
+            infoLabel.Position = UDim2.new(0.36, 10, 0, 0)
+            infoLabel.BackgroundTransparency = 1
+            if #rec > 0 then
+                local totalSeconds = rec[#rec].Timestamp
+                local minutes = math.floor(totalSeconds / 60)
+                local seconds = math.floor(totalSeconds % 60)
+                infoLabel.Text = string.format("⏱ %d:%02d │ 📊 %d", minutes, seconds, #rec)
+            else
+                infoLabel.Text = "⏱ 0:00 │ 📊 0"
+            end
+            infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+            infoLabel.Font = Enum.Font.GothamBold
+            infoLabel.TextSize = 9
+            infoLabel.TextXAlignment = Enum.TextXAlignment.Center
+            infoLabel.Parent = segmentedBar
+            
+            -- Divider 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(0.74, 12, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- SEGMENT 4: UP BUTTON
+            -- ═══════════════════════════════════════════
+            
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(38, 20)
-            upBtn.Position = UDim2.new(1, -79, 0, 30)
-            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
-            upBtn.Text = "Naik"
-            upBtn.TextColor3 = Color3.new(1, 1, 1)
+            upBtn.Size = UDim2.new(0.12, 0, 1, -4)
+            upBtn.Position = UDim2.new(0.74, 15, 0, 2)
+            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+            upBtn.Text = "▲"
+            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 9
-            upBtn.Parent = item
+            upBtn.TextSize = 10
+            upBtn.BorderSizePixel = 0
+            upBtn.Parent = segmentedBar
             
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
-            -- ✅ TURUN BUTTON
+            -- Divider 4
+            local divider4 = Instance.new("Frame")
+            divider4.Size = UDim2.new(0, 1, 1, -8)
+            divider4.Position = UDim2.new(0.86, 17, 0, 4)
+            divider4.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider4.BorderSizePixel = 0
+            divider4.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- SEGMENT 5: DOWN BUTTON
+            -- ═══════════════════════════════════════════
+            
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(38, 20)
-            downBtn.Position = UDim2.new(1, -38, 0, 30)
-            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
-            downBtn.Text = "Turun"
-            downBtn.TextColor3 = Color3.new(1, 1, 1)
+            downBtn.Size = UDim2.new(0.12, 0, 1, -4)
+            downBtn.Position = UDim2.new(0.86, 20, 0, 2)
+            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+            downBtn.Text = "▼"
+            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 9
-            downBtn.Parent = item
+            downBtn.TextSize = 10
+            downBtn.BorderSizePixel = 0
+            downBtn.Parent = segmentedBar
             
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
-            -- ✅ EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            -- EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -2995,6 +2723,7 @@ function UpdateRecordList()
             checkBox.MouseButton1Click:Connect(function()
                 CheckedRecordings[name] = not CheckedRecordings[name]
                 checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
                 AnimateButtonClick(checkBox)
             end)
             
@@ -3031,7 +2760,32 @@ function UpdateRecordList()
                 end
             end)
             
-            yPos = yPos + 65
+            -- Hover effects
+            playBtn.MouseEnter:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(80, 25, 150)
+                }):Play()
+            end)
+            
+            playBtn.MouseLeave:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                }):Play()
+            end)
+            
+            delBtn.MouseEnter:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(230, 70, 80)
+                }):Play()
+            end)
+            
+            delBtn.MouseLeave:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                }):Play()
+            end)
+            
+            yPos = yPos + 63
         end
         
         RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
@@ -3297,15 +3051,15 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.CornerRadius = UDim.new(0, 4)
     ListCorner.Parent = RecordingsList
 
--- ========= MINI BUTTON WITH ULTIMATE ANIMATION (FIXED!) =========
+-- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
 MiniButton = Instance.new("TextButton")
-MiniButton.Size = UDim2.fromOffset(30, 30)
+MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MiniButton.Font = Enum.Font.FredokaOne
-MiniButton.TextSize = 35
+MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
+MiniButton.TextSize = 30 -- ✅ BIGGER for FredokaOne!
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
@@ -3316,9 +3070,6 @@ MiniButton.Parent = ScreenGui
 local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
-
--- ✅ FIXED: Define CONSTANT size
-local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)
 
 -- ========= ULTIMATE COMBO ANIMATION =========
 do
@@ -3335,7 +3086,7 @@ do
             local hue = (now * 0.5) % 1
             MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
             
-            -- Pulsing scale (TEXT ONLY, bukan button size!)
+            -- Pulsing scale
             local scale = 24 + math.sin(now * 3) * 3
             MiniButton.TextSize = scale
             
@@ -3349,20 +3100,22 @@ do
                 MiniButton.Text = letters[currentIndex]
                 lastChangeTime = now
                 
-                -- ✅ FIXED: Button pulse dengan size constant
+                -- Button pulse on letter change
                 task.spawn(function()
                     pcall(function()
                         if not MiniButton or not MiniButton.Parent then return end
                         
+                        local originalSize = MiniButton.Size
+                        
                         TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                            Size = UDim2.fromOffset(36, 36)
+                            Size = UDim2.fromOffset(46, 46)
                         }):Play()
                         
                         task.wait(0.1)
                         
                         if MiniButton and MiniButton.Parent then
                             TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                                Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Always return to 30x30
+                                Size = originalSize
                             }):Play()
                         end
                     end)
@@ -3669,17 +3422,15 @@ end
         end)
     end)
 
-    -- ========= BUTTON CONNECTIONS =========
+    SaveFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(SaveFileBtn)
+        SaveToObfuscatedJSON()
+    end)
 
-SaveFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(SaveFileBtn)
-    SaveToEncryptedJSON()
-end)
-
-LoadFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadFileBtn)
-    LoadFromEncryptedJSON()
-end)
+    LoadFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(LoadFileBtn)
+        LoadFromObfuscatedJSON()
+    end)
 
     MergeBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MergeBtn)
@@ -3824,16 +3575,15 @@ local function ShowTapFeedback(count)
     end)
 end
 
--- ✅ FIXED: Pulse button dengan size constant
-local MINI_BUTTON_SIZE = UDim2.fromOffset(30, 30)  -- Define di top level
-
+-- Pulse button with color (ASYNC - NON-BLOCKING!)
 local function PulseButton(color, scale)
     task.spawn(function()
         pcall(function()
             if not MiniButton or not MiniButton.Parent then return end
             
             local originalColor = MiniButton.BackgroundColor3
-            local targetSize = UDim2.fromOffset(30 * scale, 30 * scale)  -- ✅ BASE: 30x30
+            local originalSize = MiniButton.Size
+            local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
             
             local tweenOut = TweenService:Create(
                 MiniButton, 
@@ -3848,13 +3598,12 @@ local function PulseButton(color, scale)
             
             task.wait(0.1)
             
-            -- ✅ FIXED: Always return to constant size
             local tweenIn = TweenService:Create(
                 MiniButton,
                 TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
                 {
                     BackgroundColor3 = originalColor,
-                    Size = MINI_BUTTON_SIZE  -- ✅ FIXED: Constant 30x30
+                    Size = originalSize
                 }
             )
             tweenIn:Play()
@@ -3873,7 +3622,7 @@ local function HandleTap()
     tapCount = tapCount + 1
     lastTapTime = currentTime
     
-    -- TAP 1: TOGGLE MAINFRAME
+    -- TAP 1: TOGGLE MAINFRAME (INSTANT!)
     if tapCount == 1 then
         pcall(function() PlaySound("Click") end)
         
@@ -3882,31 +3631,31 @@ local function HandleTap()
         end
         
         ShowTapFeedback(1)
-        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)  -- 30 * 1.05 = 31.5
+        PulseButton(Color3.fromRGB(59, 15, 116), 1.05)
         
     -- TAP 2: SUBTLE FEEDBACK
     elseif tapCount == 2 then
         pcall(function() PlaySound("Click") end)
         ShowTapFeedback(2)
-        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)  -- 30 * 1.08 = 32.4
+        PulseButton(Color3.fromRGB(80, 40, 140), 1.08)
         
     -- TAP 3: WARNING START
     elseif tapCount == 3 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(3)
-        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)  -- 30 * 1.12 = 33.6
+        PulseButton(Color3.fromRGB(200, 150, 50), 1.12)
         
     -- TAP 4: STRONG WARNING
     elseif tapCount == 4 then
         pcall(function() PlaySound("Toggle") end)
         ShowTapFeedback(4)
-        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)  -- 30 * 1.16 = 34.8
+        PulseButton(Color3.fromRGB(255, 150, 0), 1.16)
         
     -- TAP 5: CLOSE
     elseif tapCount >= 5 then
         pcall(function() PlaySound("Success") end)
         ShowTapFeedback(5)
-        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)  -- 30 * 1.2 = 36
+        PulseButton(Color3.fromRGB(255, 50, 50), 1.2)
         
         task.wait(0.3)
         
