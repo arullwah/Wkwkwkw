@@ -2538,7 +2538,7 @@ local function GenerateChecksum(data)
     return tostring(hash)
 end
 
--- ========= 📂 LOAD OLD JSON FORMAT (UNENCRYPTED) =========
+-- ========= 📂 LOAD OLD JSON FORMAT (UNENCRYPTED) - FIXED =========
 local function LoadFromOldJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2553,7 +2553,7 @@ local function LoadFromOldJSON()
     local filename = FilenameBox and FilenameBox.Text or ""
     if filename == "" then filename = "MyReplays" end
 
-    local success, err = pcall(function()
+    local success, result = pcall(function()
         -- ✅ CEK FILE .json (old format)
         local jsonFile = filename .. ".json"
         
@@ -2563,69 +2563,126 @@ local function LoadFromOldJSON()
         end)
         
         if not fileExists then
+            print("[DEBUG] File not found:", jsonFile)
             return false -- File .json tidak ada, coba .brl
         end
         
+        print("[DEBUG] Loading file:", jsonFile)
+        
         -- ✅ BACA FILE JSON LANGSUNG
         local fileContent = readfile(jsonFile)
+        print("[DEBUG] File size:", #fileContent, "bytes")
+        
         local saveData = HttpService:JSONDecode(fileContent)
+        print("[DEBUG] JSON decoded successfully")
+        
+        -- ✅ DEBUG: Print struktur data
+        print("[DEBUG] Signature:", saveData.Signature)
+        print("[DEBUG] Version:", saveData.Version)
+        print("[DEBUG] Checkpoints count:", saveData.Checkpoints and #saveData.Checkpoints or 0)
         
         if saveData.Signature ~= "ByaruLRecorder" then
+            warn("[ERROR] Invalid signature:", saveData.Signature)
             error("Invalid file")
         end
         
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ AMBIL DATA FRAMES (old format pakai field name asli)
-        local dataToProcess = {}
+        print("[DEBUG] RecordingOrder count:", #newRecordingOrder)
+        print("[DEBUG] CheckpointNames count:", newCheckpointNames and #newCheckpointNames or 0)
         
-        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-            dataToProcess[checkpointData.Name] = checkpointData.Frames
-        end
+        -- ✅ CLEAR EXISTING DATA (PENTING!)
+        -- RecordedMovements = {} -- JANGAN di-clear kalau mau append
+        -- RecordingOrder = {}
         
-        -- ✅ LOAD LANGSUNG (tidak perlu deobfuscate karena belum di-obfuscate)
+        -- ✅ LOAD FRAMES
+        local loadedCount = 0
+        
         for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
             local name = checkpointData.Name
-            local frames = dataToProcess[name]
+            local frames = checkpointData.Frames
             
-            if frames then
+            print("[DEBUG] Processing checkpoint:", name, "Frames:", frames and #frames or 0)
+            
+            if frames and #frames > 0 then
+                -- ✅ VALIDASI FRAME FORMAT
+                local firstFrame = frames[1]
+                print("[DEBUG] First frame keys:", table.concat(
+                    (function()
+                        local keys = {}
+                        for k,v in pairs(firstFrame) do table.insert(keys, k) end
+                        return keys
+                    end)(), ", "
+                ))
+                
+                -- ✅ LOAD KE MEMORY
                 RecordedMovements[name] = frames
-                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName or "checkpoint_" .. loadedCount
                 
                 if not table.find(RecordingOrder, name) then
                     table.insert(RecordingOrder, name)
                 end
+                
+                loadedCount = loadedCount + 1
+                print("[DEBUG] Loaded:", name, "Total frames:", #frames)
+            else
+                warn("[WARNING] Empty frames for:", name)
             end
         end
         
+        print("[DEBUG] Total loaded:", loadedCount, "recordings")
+        
+        if loadedCount == 0 then
+            warn("[ERROR] No recordings loaded!")
+            error("No valid recordings found")
+        end
+        
+        -- ✅ UPDATE UI
         UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
             Title = "✅ Load Old Format OK",
-            Text = filename .. ".json loaded (" .. #newRecordingOrder .. " recs)",
+            Text = filename .. ".json (" .. loadedCount .. " recs)",
             Duration = 4
         })
         
-        -- ✅ AUTO-SAVE KE FORMAT BARU (OPTIONAL)
-        task.wait(1)
-        SaveToEncryptedJSON()
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "💾 Auto-Converted!",
-            Text = "File saved as " .. filename .. ".brl",
-            Duration = 3
-        })
+        -- ✅ AUTO-SAVE KE FORMAT BARU
+        task.spawn(function()
+            task.wait(1)
+            
+            -- ✅ SET SEMUA JADI CHECKED SEBELUM SAVE
+            for _, name in ipairs(RecordingOrder) do
+                CheckedRecordings[name] = true
+            end
+            
+            SaveToEncryptedJSON()
+            
+            StarterGui:SetCore("SendNotification", {
+                Title = "💾 Auto-Converted!",
+                Text = "Saved as " .. filename .. ".brl",
+                Duration = 3
+            })
+        end)
         
         return true -- Sukses load old format
     end)
 
     if not success then
-        return false -- Gagal load old format
+        warn("[ERROR] Load failed:", result)
+        
+        -- ✅ SHOW ERROR NOTIFICATION
+        StarterGui:SetCore("SendNotification", {
+            Title = "❌ Load Error",
+            Text = tostring(result),
+            Duration = 5
+        })
+        
+        return false
     end
     
-    return success
+    return result
 end
 
 -- ========= 💾 SAVE FUNCTION =========
@@ -3353,7 +3410,7 @@ MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
-MiniButton.TextSize = 28 -- ✅ BIGGER for FredokaOne!
+MiniButton.TextSize = 35 -- ✅ BIGGER for FredokaOne!
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
