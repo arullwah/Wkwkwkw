@@ -171,7 +171,7 @@ spawn(function()
     
     -- Load dan jalankan script dari GitHub
     local success, err = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/byarull.lua"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/arullwah/Wkwkwkw/refs/heads/main/loader.lua"))()
     end)
     
     if success then
