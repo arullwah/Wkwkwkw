@@ -167,6 +167,10 @@ local previousFrameVelocity = Vector3.zero
 local consecutiveJumpFrames = 0
 local lastGroundedTime = 0
 local climbingDuration = 0
+local SMOOTH_TRANSITION_ENABLED = true
+local TRANSITION_BLEND_DURATION = 0.3
+local TRANSITION_TELEPORT_THRESHOLD = 50
+local TRANSITION_VELOCITY_BLEND = 0.7
 local PathsHiddenOnce = false
 local ShiftLockVisualIndicator = nil
 local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
@@ -1873,19 +1877,53 @@ local function StartAutoLoopAll()
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
                     
+                    -- ✅ SMOOTH TRANSITION ke checkpoint baru
+                    local currentPos = hrp.Position
                     local targetCFrame = GetFrameCFrame(recordingToPlay[1])
-                    hrp.CFrame = targetCFrame
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                    hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    local targetPos = targetCFrame.Position
+                    local distance = (targetPos - currentPos).Magnitude
                     
-                    task.wait(0.5)
+                    if SMOOTH_TRANSITION_ENABLED and distance < TRANSITION_TELEPORT_THRESHOLD then
+                        -- ✅ SMOOTH BLEND ke posisi baru
+                        local blendFrames = math.ceil(TRANSITION_BLEND_DURATION * 60)
+                        
+                        for i = 1, blendFrames do
+                            if not AutoLoop or not IsAutoLoopPlaying then break end
+                            if not char or not hrp or not hrp.Parent then break end
+                            
+                            local alpha = i / blendFrames
+                            local blendedPos = currentPos:Lerp(targetPos, alpha)
+                            local currentCF = hrp.CFrame
+                            local blendedCF = currentCF:Lerp(targetCFrame, alpha)
+                            hrp.CFrame = CFrame.new(blendedPos) * (blendedCF - blendedCF.Position)
+                            
+                            local currentVel = hrp.AssemblyLinearVelocity
+                            hrp.AssemblyLinearVelocity = currentVel:Lerp(Vector3.zero, alpha)
+                            hrp.AssemblyAngularVelocity = Vector3.zero
+                            
+                            task.wait(1/60)
+                        end
+                        
+                        hrp.CFrame = targetCFrame
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                        
+                    else
+                        hrp.CFrame = targetCFrame
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                        hrp.AssemblyAngularVelocity = Vector3.zero
+                    end
+                    
+                    task.wait(0.2)
                 end
             end)
             
             local playbackCompleted = false
             local currentFrame = 1
             local playbackStartTime = tick()
-            local loopAccumulator = 0
+            if not loopAccumulator then
+                loopAccumulator = 0
+            end
             
             lastPlaybackState = nil
             lastStateChangeTime = 0
@@ -2005,13 +2043,32 @@ local function StartAutoLoopAll()
                         end
                         
                         if not playbackCompleted then
-                            local frame = recordingToPlay[currentFrame]
-                            if frame then
-                                -- ⭐ HYBRID: Apply frame directly
+                    local frame = recordingToPlay[currentFrame]
+                    if frame then
+                        -- ✅ SMOOTH FIRST FRAME
+                        if currentFrame == 1 and SMOOTH_TRANSITION_ENABLED then
+                            local char = player.Character
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            
+                            if hrp then
+                                local currentVel = hrp.AssemblyLinearVelocity
+                                local targetVel = GetFrameVelocity(frame, frame.MoveState)
+                                local blendedVel = currentVel:Lerp(targetVel, TRANSITION_VELOCITY_BLEND)
+                                
+                                local originalVel = {frame.Velocity[1], frame.Velocity[2], frame.Velocity[3]}
+                                frame.Velocity = {blendedVel.X, blendedVel.Y, blendedVel.Z}
+                                
+                                ApplyFrameDirect(frame)
+                                
+                                frame.Velocity = originalVel
+                            else
                                 ApplyFrameDirect(frame)
                             end
+                        else
+                            ApplyFrameDirect(frame)
                         end
                     end
+                end
                 end)
                 
                 if playbackCompleted then
