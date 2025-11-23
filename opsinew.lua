@@ -2716,24 +2716,75 @@ local function LoadFromOldJSON()
             Duration = 4
         })
         
-        -- ✅ AUTO-SAVE KE FORMAT BARU
+        -- ✅ AUTO-SAVE KE FORMAT BARU (DENGAN DEBUG LENGKAP!)
         task.spawn(function()
             task.wait(1.5)
             
-            print("[DEBUG] Auto-converting to .brl format...")
+            print("[DEBUG] === AUTO-SAVE STARTING ===")
+            print("[DEBUG] Filename:", filename)
+            print("[DEBUG] RecordingOrder count:", #RecordingOrder)
             
             -- ✅ CHECK ALL RECORDINGS
+            local checkedCount = 0
             for _, name in ipairs(RecordingOrder) do
                 CheckedRecordings[name] = true
+                checkedCount = checkedCount + 1
+                print("[DEBUG] Checked:", name)
             end
             
-            SaveToEncryptedJSON()
+            print("[DEBUG] Total checked:", checkedCount)
             
-            StarterGui:SetCore("SendNotification", {
-                Title = "💾 Auto-Converted",
-                Text = "Saved as " .. filename .. ".brl",
-                Duration = 3
-            })
+            if checkedCount == 0 then
+                warn("[ERROR] No recordings to save!")
+                
+                StarterGui:SetCore("SendNotification", {
+                    Title = "⚠️ Auto-Save Skipped",
+                    Text = "No recordings checked",
+                    Duration = 3
+                })
+                
+                return
+            end
+            
+            -- ✅ TEMPORARILY SET FILENAME BOX (PENTING!)
+            local originalFilename = FilenameBox and FilenameBox.Text or ""
+            if FilenameBox then
+                FilenameBox.Text = filename
+                print("[DEBUG] Set FilenameBox to:", filename)
+            end
+            
+            print("[DEBUG] Calling SaveToEncryptedJSON...")
+            
+            local saveSuccess, saveError = pcall(function()
+                SaveToEncryptedJSON()
+            end)
+            
+            if saveSuccess then
+                print("[DEBUG] ✅ Auto-save SUCCESS!")
+                
+                StarterGui:SetCore("SendNotification", {
+                    Title = "💾 Auto-Converted",
+                    Text = "Saved as " .. filename .. ".brl",
+                    Duration = 3
+                })
+            else
+                warn("[ERROR] Auto-save FAILED:", saveError)
+                
+                StarterGui:SetCore("SendNotification", {
+                    Title = "⚠️ Auto-Save Failed",
+                    Text = "Please save manually",
+                    Duration = 3
+                })
+            end
+            
+            -- ✅ RESTORE ORIGINAL FILENAME
+            if FilenameBox and originalFilename ~= "" then
+                task.wait(0.5)
+                FilenameBox.Text = originalFilename
+                print("[DEBUG] Restored FilenameBox to:", originalFilename)
+            end
+            
+            print("[DEBUG] === AUTO-SAVE DONE ===")
         end)
         
         return true
