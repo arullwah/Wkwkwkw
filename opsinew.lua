@@ -2954,8 +2954,8 @@ MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MiniButton.Font = Enum.Font.GothamBold
-MiniButton.TextSize = 25
+MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
+MiniButton.TextSize = 30 -- ✅ BIGGER for FredokaOne!
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
@@ -2969,7 +2969,7 @@ MiniCorner.Parent = MiniButton
 
 -- ========= ULTIMATE COMBO ANIMATION =========
 do
-    local letters = {"A", "R", "U", "L"}
+    local letters = {"B", "Y", "A", "R", "U", "L"}
     local currentIndex = 1
     local lastChangeTime = 0
     local changeInterval = 0.8
