@@ -2673,14 +2673,14 @@ local function LoadFromEncryptedJSON()
             error("Invalid file format - not a .brl file")
         end
         
-        -- Extract version from header
+        -- ✅ FIXED: Accept version 3.x and 4.x
         local versionBytes = {string.byte(header, 7, 10)}
-        local majorVersion = versionBytes[1]
-        local minorVersion = versionBytes[3]
+        local majorVersion = versionBytes[1] or 0
+        local minorVersion = versionBytes[3] or 0
         
-        -- Only accept version 4.0+
-        if majorVersion < 4 then
-            error("Unsupported file version - please use version 4.0 or newer")
+        -- ✅ ALLOW version 3.0+
+        if majorVersion < 3 then
+            error("Unsupported file version - please use version 3.0 or newer")
         end
         
         -- Extract encoded data
@@ -2718,10 +2718,22 @@ local function LoadFromEncryptedJSON()
         -- Extract data
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
-        local obfuscatedFrames = saveData.ObfuscatedFrames or {}
+        
+        -- ✅ HANDLE both ObfuscatedFrames (new) and direct Frames (old)
+        local framesToProcess = {}
+        
+        if saveData.ObfuscatedFrames then
+            -- New format with obfuscation
+            framesToProcess = saveData.ObfuscatedFrames
+        else
+            -- Old format without obfuscation
+            for _, checkpoint in ipairs(saveData.Checkpoints or {}) do
+                framesToProcess[checkpoint.Name] = checkpoint.Frames
+            end
+        end
         
         -- Deobfuscate frame data
-        local deobfuscatedData = DeobfuscateRecordingData(obfuscatedFrames)
+        local deobfuscatedData = DeobfuscateRecordingData(framesToProcess)
         
         -- Load recordings
         local loadedCount = 0
