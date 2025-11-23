@@ -1102,11 +1102,23 @@ local function UpdatePlayButtonStatus()
     
     SafeCall(function()
         if nearestRecording and distance <= 50 then
-            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+            local distanceInt = math.floor(distance)
+            
+            -- ✅ Color code berdasarkan jarak
+            local buttonColor
+            if distanceInt <= 10 then
+                buttonColor = Color3.fromRGB(40, 180, 80)  -- 🟢 Hijau (very close)
+            elseif distanceInt <= 30 then
+                buttonColor = Color3.fromRGB(200, 180, 50)  -- 🟡 Kuning (close)
+            else
+                buttonColor = Color3.fromRGB(255, 140, 50)  -- 🟠 Orange (far)
+            end
+            
+            PlayBtnControl.Text = string.format("PLAY (%dm)", distanceInt)
+            PlayBtnControl.BackgroundColor3 = buttonColor
         else
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            PlayBtnControl.Text = "PLAY 0"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)  -- 🟣 Purple (no checkpoint)
         end
     end)
 end
@@ -1913,7 +1925,7 @@ local function StartTitlePulse(titleLabel)
     letterContainer.BackgroundTransparency = 1
     letterContainer.Parent = titleLabel
 
-    local fullText = "ByaruL Recorder"
+    local fullText = "ByaruL RecordeR"
     local letters = {}
     local letterWidth = 15  -- Width per character
 
@@ -2346,7 +2358,7 @@ local function SaveToObfuscatedJSON()
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
+    if filename == "" then filename = "ByaruL" end
     filename = filename .. ".json"
     
     local hasCheckedRecordings = false
@@ -2413,7 +2425,7 @@ local function LoadFromObfuscatedJSON()
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
+    if filename == "" then filename = "ByaruL" end
     filename = filename .. ".json"
     
     local success, err = pcall(function()
@@ -2601,7 +2613,7 @@ function UpdateRecordList()
             else
                 infoLabel.Text = "⏱0:00│📊0"
             end
-            infoLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
+            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
             infoLabel.Font = Enum.Font.GothamBold
             infoLabel.TextSize = 8
             infoLabel.TextXAlignment = Enum.TextXAlignment.Right
@@ -2640,7 +2652,7 @@ function UpdateRecordList()
             playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            playBtn.Text = "PLAY"
+            playBtn.Text = "Main"
             playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             playBtn.Font = Enum.Font.GothamBold
             playBtn.TextSize = 9
@@ -2667,7 +2679,7 @@ function UpdateRecordList()
             delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "DEL"
+            delBtn.Text = "Hapus"
             delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             delBtn.Font = Enum.Font.GothamBold
             delBtn.TextSize = 9
@@ -2886,7 +2898,7 @@ local uiSuccess, uiError = pcall(function()
     Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 1, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ByaruL Recorder"
+    Title.Text = "ByaruL RecordeR"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.Font = Enum.Font.GothamBold
     Title.TextSize = 14
@@ -3188,8 +3200,8 @@ end
 PlaybackControl = Instance.new("Frame")
 PlaybackControl.Size = UDim2.fromOffset(156, 120)
 PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(15, 15, 20)  -- ✅ Dark gray, bukan hitam pekat
-PlaybackControl.BackgroundTransparency = 0.1  -- ✅ Sedikit transparan
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.BackgroundTransparency = 0.4 -- ✅ Sedikit transparan
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
 PlaybackControl.Draggable = true
@@ -3199,13 +3211,6 @@ PlaybackControl.Parent = ScreenGui
 local PlaybackCorner = Instance.new("UICorner")
 PlaybackCorner.CornerRadius = UDim.new(0, 8)
 PlaybackCorner.Parent = PlaybackControl
-
--- ✅ TAMBAHKAN STROKE AGAR KELIATAN BORDER
-local PlaybackStroke = Instance.new("UIStroke")
-PlaybackStroke.Color = Color3.fromRGB(60, 60, 80)
-PlaybackStroke.Thickness = 2
-PlaybackStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-PlaybackStroke.Parent = PlaybackControl
 
     local PlaybackContent = Instance.new("Frame")
     PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3256,14 +3261,14 @@ PlaybackStroke.Parent = PlaybackControl
     RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
     ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
     ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
 RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(156, 120)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-RecordingStudio.BackgroundColor3 = Color3.fromRGB(15, 15, 20)  -- ✅ Dark gray
-RecordingStudio.BackgroundTransparency = 0.1  -- ✅ Sedikit transparan
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
@@ -3273,13 +3278,6 @@ RecordingStudio.Parent = ScreenGui
 local StudioCorner = Instance.new("UICorner")
 StudioCorner.CornerRadius = UDim.new(0, 8)
 StudioCorner.Parent = RecordingStudio
-
--- ✅ TAMBAHKAN STROKE
-local StudioStroke = Instance.new("UIStroke")
-StudioStroke.Color = Color3.fromRGB(60, 60, 80)
-StudioStroke.Thickness = 2
-StudioStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-StudioStroke.Parent = RecordingStudio
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3326,7 +3324,7 @@ StudioStroke.Parent = RecordingStudio
 
     SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
     StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-    ResumeBtn = CreateStudioBtn("LANJUT REC", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+    ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
     PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
 
 -- ✅ ADD: Hold detection
@@ -4036,7 +4034,7 @@ if hasFileSystem then
     task.spawn(function()
         task.wait(2)
         SafeCall(function()
-            local filename = "MyReplays.json"
+            local filename = "ByaruL.json"
             if isfile(filename) then
                 FilenameBox.Text = "MyReplays"
                 LoadFromObfuscatedJSON()
