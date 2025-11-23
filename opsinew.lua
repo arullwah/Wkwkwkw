@@ -2636,7 +2636,7 @@ local function SaveToEncryptedJSON()
 end
 
 -- ========= 📂 LOAD OLD JSON FORMAT - NO FREEZE + REPLACE FILE =========
-llocal function LoadFromOldJSON()
+local function LoadFromOldJSON()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
