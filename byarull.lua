@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 -- DAFTAR USERNAME YANG DIIZINKAN
 -- ===================================
 local KeyAccess = {
-    "ALELOLi",
+    "ALELOLii",
     "Username2", 
     "Username3",
     -- Tambahkan username lainnya di sini
@@ -187,7 +187,7 @@ spawn(function()
     -- Hapus GUI setelah execute
     wait(1)
     ScreenGui:Destroy()
-    print("🗑️ GUI dihapus otomatis")
+    print("GUI dihapus")
 end)
 
 -- ===================================
