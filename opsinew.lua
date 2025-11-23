@@ -2947,11 +2947,11 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.CornerRadius = UDim.new(0, 4)
     ListCorner.Parent = RecordingsList
 
-    -- ========= MINI BUTTON WITH RAINBOW TEXT =========
+-- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
 MiniButton = Instance.new("TextButton")
 MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
-MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)  -- BLACK
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MiniButton.Font = Enum.Font.GothamBold
@@ -2967,18 +2967,62 @@ local MiniCorner = Instance.new("UICorner")
 MiniCorner.CornerRadius = UDim.new(0, 8)
 MiniCorner.Parent = MiniButton
 
--- Rainbow animation (inline, guaranteed to work!)
+-- ========= ULTIMATE COMBO ANIMATION =========
 do
-    local rainbowConn = RunService.RenderStepped:Connect(function()
+    local letters = {"A", "R", "U", "L"}
+    local currentIndex = 1
+    local lastChangeTime = 0
+    local changeInterval = 0.8
+    
+    local ultimateAnimConn = RunService.RenderStepped:Connect(function()
         if MiniButton and MiniButton.Parent then
-            local hue = (tick() * 0.5) % 1
+            local now = tick()
+            
+            -- Rainbow color
+            local hue = (now * 0.5) % 1
             MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
+            
+            -- Pulsing scale
+            local scale = 24 + math.sin(now * 3) * 3
+            MiniButton.TextSize = scale
+            
+            -- Subtle rotation
+            local angle = math.sin(now * 1.5) * 8
+            MiniButton.Rotation = angle
+            
+            -- Rotating letters
+            if now - lastChangeTime >= changeInterval then
+                currentIndex = (currentIndex % #letters) + 1
+                MiniButton.Text = letters[currentIndex]
+                lastChangeTime = now
+                
+                -- Button pulse on letter change
+                task.spawn(function()
+                    pcall(function()
+                        if not MiniButton or not MiniButton.Parent then return end
+                        
+                        local originalSize = MiniButton.Size
+                        
+                        TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            Size = UDim2.fromOffset(46, 46)
+                        }):Play()
+                        
+                        task.wait(0.1)
+                        
+                        if MiniButton and MiniButton.Parent then
+                            TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                                Size = originalSize
+                            }):Play()
+                        end
+                    end)
+                end)
+            end
         else
-            rainbowConn:Disconnect()
+            ultimateAnimConn:Disconnect()
         end
     end)
     
-    table.insert(activeConnections, rainbowConn)
+    table.insert(activeConnections, ultimateAnimConn)
 end
 
     PlaybackControl = Instance.new("Frame")
