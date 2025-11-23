@@ -31,10 +31,10 @@ end
 -- ========= OPTIMIZED CONFIGURATION =========
 local RECORDING_FPS = 60
 local MAX_FRAMES = 30000
-local MIN_DISTANCE_THRESHOLD = 0.005
+local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-local TIMELINE_STEP_SECONDS = 0.03
+local TIMELINE_STEP_SECONDS = 0.04
 local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
@@ -151,6 +151,22 @@ local IsLoopTransitioning = false
 local titlePulseConnection = nil
 local previousFrameData = nil
 local PathHasBeenUsed = {}
+
+-- ========= ADAPTIVE PLAYBACK VARIABLES =========
+local ADAPTIVE_MODE = true
+local PRECISION_VELOCITY_SMOOTHING = 0.1
+local PRECISION_CORRECTION_STRENGTH = 1.0
+local PRECISION_POSITION_THRESHOLD = 0.8
+local SMOOTH_VELOCITY_SMOOTHING = 0.6
+local SMOOTH_CORRECTION_STRENGTH = 0.75
+local SMOOTH_POSITION_THRESHOLD = 2.5
+local PARKOUR_DETECTION_VELOCITY = 15
+local PARKOUR_DETECTION_HEIGHT = 5
+local currentPlaybackMode = "SMOOTH"
+local previousFrameVelocity = Vector3.zero
+local consecutiveJumpFrames = 0
+local lastGroundedTime = 0
+local climbingDuration = 0
 local PathsHiddenOnce = false
 local ShiftLockVisualIndicator = nil
 local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
@@ -605,21 +621,124 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
-local function GetFrameVelocity(frame, moveState)
-    if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
+-- ========= ADAPTIVE VELOCITY SYSTEM =========
+local function DetectPlaybackMode(frame, hrp)
+    if not ADAPTIVE_MODE then return "SMOOTH" end
+    
+    local moveState = frame.MoveState
+    local velocity = Vector3.new(frame.Velocity[1], frame.Velocity[2], frame.Velocity[3])
+    local currentTime = tick()
+    
+    if moveState == "Jumping" or moveState == "Falling" then
+        consecutiveJumpFrames = consecutiveJumpFrames + 1
+        return "PRECISION"
+    else
+        consecutiveJumpFrames = 0
+    end
+    
+    local horizontalSpeed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+    if horizontalSpeed > PARKOUR_DETECTION_VELOCITY then
+        return "PRECISION"
+    end
+    
+    if moveState == "Climbing" then
+        climbingDuration = climbingDuration + (1/60)
+        if climbingDuration > 0.3 then
+            return "PRECISION"
+        end
+    else
+        climbingDuration = 0
+    end
+    
+    if currentTime - lastGroundedTime < 0.5 then
+        return "PRECISION"
+    end
+    
+    if moveState == "Grounded" then
+        lastGroundedTime = currentTime
+    end
+    
+    return "SMOOTH"
+end
+
+local function GetAdaptiveVelocity(frame, mode, hrp)
+    if not frame or not frame.Velocity then return Vector3.zero end
     
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
+    local moveState = frame.MoveState
+    local char = player.Character
     
-    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
-    if moveState == "Grounded" or moveState == nil then
-        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
+    if mode == "PRECISION" then
+        if moveState == "Jumping" or moveState == "Falling" or moveState == "Climbing" then
+            local targetVel = Vector3.new(velocityX, velocityY, velocityZ)
+            if PRECISION_VELOCITY_SMOOTHING > 0 then
+                targetVel = previousFrameVelocity:Lerp(targetVel, 1 - PRECISION_VELOCITY_SMOOTHING)
+            end
+            previousFrameVelocity = targetVel
+            return targetVel
+        end
+        
+        if moveState == "Grounded" then
+            local targetVel = Vector3.new(velocityX, 0, velocityZ)
+            if PRECISION_VELOCITY_SMOOTHING > 0 then
+                targetVel = previousFrameVelocity:Lerp(targetVel, 1 - PRECISION_VELOCITY_SMOOTHING)
+            end
+            previousFrameVelocity = targetVel
+            return targetVel
+        end
     end
     
-    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
+    if mode == "SMOOTH" then
+        if hrp and moveState == "Grounded" then
+            local rayOrigin = hrp.Position
+            local rayDirection = Vector3.new(0, -4, 0)
+            
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+            raycastParams.FilterDescendantsInstances = {char}
+            
+            local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+            
+            if rayResult then
+                local groundDist = rayResult.Distance
+                local groundNormal = rayResult.Normal
+                
+                if groundDist < 1.0 then
+                    local slopeAngle = math.acos(groundNormal.Y)
+                    local maxYVel = math.tan(slopeAngle) * 8
+                    velocityY = math.clamp(velocityY, -maxYVel, maxYVel)
+                else
+                    velocityY = 0
+                end
+            else
+                velocityY = 0
+            end
+        else
+            if moveState == "Grounded" or moveState == nil then
+                velocityY = 0
+            end
+        end
+        
+        local targetVel = Vector3.new(velocityX, velocityY, velocityZ)
+        
+        if SMOOTH_VELOCITY_SMOOTHING > 0 then
+            targetVel = previousFrameVelocity:Lerp(targetVel, 1 - SMOOTH_VELOCITY_SMOOTHING)
+        end
+        
+        previousFrameVelocity = targetVel
+        return targetVel
+    end
+    
     return Vector3.new(velocityX, velocityY, velocityZ)
+end
+
+local function GetFrameVelocity(frame, moveState)
+    local char = player.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    local mode = DetectPlaybackMode(frame, hrp)
+    return GetAdaptiveVelocity(frame, mode, hrp)
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -784,6 +903,39 @@ end
 local function GetFramePosition(frame)
     if not frame then return Vector3.new() end
     return Vector3.new(frame.Position[1], frame.Position[2], frame.Position[3])
+end
+
+-- ========= ADAPTIVE POSITION CORRECTION =========
+local function ApplyAdaptiveCorrection(hrp, targetCFrame, currentVelocity, mode)
+    local currentPos = hrp.Position
+    local targetPos = targetCFrame.Position
+    local positionError = targetPos - currentPos
+    local distance = positionError.Magnitude
+    
+    local threshold = (mode == "PRECISION") and PRECISION_POSITION_THRESHOLD or SMOOTH_POSITION_THRESHOLD
+    local strength = (mode == "PRECISION") and PRECISION_CORRECTION_STRENGTH or SMOOTH_CORRECTION_STRENGTH
+    
+    if mode == "PRECISION" then
+        if distance >= threshold then
+            hrp.CFrame = targetCFrame
+            return currentVelocity
+        else
+            local correctionVel = positionError * strength * 15
+            return currentVelocity + correctionVel
+        end
+    end
+    
+    if mode == "SMOOTH" then
+        if distance > 0.5 and distance < threshold then
+            local correctionVel = positionError * strength * 8
+            return currentVelocity + correctionVel
+        elseif distance >= threshold then
+            hrp.CFrame = targetCFrame
+            return currentVelocity
+        end
+    end
+    
+    return currentVelocity
 end
 
 local function FindNearestFrame(recording, position)
@@ -1175,8 +1327,23 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
-        hrp.CFrame = GetFrameCFrame(frame)
+        -- ✅ ADAPTIVE SYSTEM
+        local targetCFrame = GetFrameCFrame(frame)
+        local mode = DetectPlaybackMode(frame, hrp)
+        currentPlaybackMode = mode
+        
+        -- ✅ Get adaptive velocity
+        local adaptiveVelocity = GetAdaptiveVelocity(frame, mode, hrp)
+        
+        -- ✅ Apply position correction
+        local correctedVelocity = ApplyAdaptiveCorrection(hrp, targetCFrame, adaptiveVelocity, mode)
+        
+        -- ✅ Apply velocity (main movement!)
+        hrp.AssemblyLinearVelocity = correctedVelocity
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        
+        -- ✅ Apply rotation only (not position!)
+        hrp.CFrame = CFrame.new(hrp.Position) * (targetCFrame - targetCFrame.Position)
         
         -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
@@ -1262,6 +1429,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
+    previousFrameVelocity = Vector3.zero
+    consecutiveJumpFrames = 0
+    climbingDuration = 0
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1287,9 +1457,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     SaveHumanoidState()
     
-    -- ✅ ShiftLock TIDAK dimatikan saat playback!
-    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
-    
     PlaySound("Toggle")
     
     if PlayBtnControl then
@@ -1302,14 +1469,13 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             if not IsPlaying then
                 playbackConnection:Disconnect()
                 RestoreFullUserControl()
-                
-                -- ✅ ShiftLock tetap sesuai state user
-                -- TIDAK restore, karena sudah persistent
-                
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                previousFrameVelocity = Vector3.zero
+                consecutiveJumpFrames = 0
+                climbingDuration = 0
                 if PlayBtnControl then
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1326,6 +1492,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                previousFrameVelocity = Vector3.zero
+                consecutiveJumpFrames = 0
+                climbingDuration = 0
                 if PlayBtnControl then
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1343,6 +1512,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                previousFrameVelocity = Vector3.zero
+                consecutiveJumpFrames = 0
+                climbingDuration = 0
                 if PlayBtnControl then
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1372,6 +1544,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
+                    previousFrameVelocity = Vector3.zero
+                    consecutiveJumpFrames = 0
+                    climbingDuration = 0
                     if PlayBtnControl then
                         PlayBtnControl.Text = "PLAY"
                         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1388,6 +1563,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
+                    previousFrameVelocity = Vector3.zero
+                    consecutiveJumpFrames = 0
+                    climbingDuration = 0
                     if PlayBtnControl then
                         PlayBtnControl.Text = "PLAY"
                         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1396,7 +1574,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                -- ⭐ HYBRID: Apply frame directly
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
