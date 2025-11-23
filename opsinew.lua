@@ -1963,6 +1963,40 @@ local function StartTitlePulse(titleLabel)
     AddConnection(titlePulseConnection)
 end
 
+-- ========= RAINBOW TEXT "A" ANIMATION (SYNC WITH TITLE) =========
+local miniButtonRainbowConnection = nil
+
+local function StartMiniButtonRainbow()
+    if miniButtonRainbowConnection then
+        pcall(function() miniButtonRainbowConnection:Disconnect() end)
+        miniButtonRainbowConnection = nil
+    end
+    
+    if not MiniButton or not MiniButton.Parent then return end
+    
+    miniButtonRainbowConnection = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not MiniButton or not MiniButton.Parent then
+                if miniButtonRainbowConnection then 
+                    miniButtonRainbowConnection:Disconnect() 
+                end
+                return
+            end
+            
+            local now = tick()
+            local hue = (now * 0.5) % 1  -- Same speed as title letters
+            MiniButton.TextColor3 = Color3.fromHSV(hue, 1, 1)
+        end)
+    end)
+    
+    AddConnection(miniButtonRainbowConnection)
+end
+
+-- Start rainbow animation
+if MiniButton and MiniButton.Parent then
+    StartMiniButtonRainbow()
+end
+
 -- ========= STUDIO RECORDING FUNCTIONS =========
 
 local function UpdateStudioUI()
@@ -2914,17 +2948,18 @@ local uiSuccess, uiError = pcall(function()
     ListCorner.Parent = RecordingsList
 
     MiniButton = Instance.new("TextButton")
-    MiniButton.Size = UDim2.fromOffset(40, 40)
-    MiniButton.Position = UDim2.new(0, 10, 0, 10)
-    MiniButton.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-    MiniButton.Text = "A"
-    MiniButton.TextColor3 = Color3.new(1, 1, 1)
-    MiniButton.Font = Enum.Font.GothamBold
-    MiniButton.TextSize = 25
-    MiniButton.Visible = true
-    MiniButton.Active = true
-    MiniButton.Draggable = false
-    MiniButton.Parent = ScreenGui
+MiniButton.Size = UDim2.fromOffset(40, 40)
+MiniButton.Position = UDim2.new(0, 10, 0, 10)
+MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0) 
+MiniButton.Text = "A"
+MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)  
+MiniButton.Font = Enum.Font.GothamBold
+MiniButton.TextSize = 34
+MiniButton.TextStrokeTransparency = 0.5  -- ✅ TAMBAH: Text stroke biar lebih pop
+MiniButton.Visible = true
+MiniButton.Active = true
+MiniButton.Draggable = false
+MiniButton.Parent = ScreenGui
 
     local MiniCorner = Instance.new("UICorner")
     MiniCorner.CornerRadius = UDim.new(0, 8)
