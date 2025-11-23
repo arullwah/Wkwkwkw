@@ -2370,6 +2370,7 @@ local function SaveStudioRecording()
     end)
 end
 
+
 -- ========= DETECT EXECUTOR CAPABILITIES =========
 local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
 local hasBit32 = (bit32 ~= nil)
@@ -2397,7 +2398,7 @@ end
 -- ========= ENCRYPTION KEY =========
 local ENCRYPTION_KEY = "ByaruLRecorder2024!Secret#Key@"
 
--- ========= FIELD MAPPING (MUST BE DECLARED FIRST!) =========
+-- ========= FIELD MAPPING =========
 local FIELD_MAPPING = {
     Position = "11",
     LookVector = "88",
@@ -2417,6 +2418,11 @@ local REVERSE_MAPPING = {
     ["44"] = "WalkSpeed",
     ["66"] = "Timestamp"
 }
+
+-- ========= FORWARD DECLARATIONS =========
+local SaveToEncryptedJSON
+local LoadFromEncryptedJSON
+local LoadFromOldJSON
 
 -- ========= OBFUSCATION FUNCTIONS =========
 local function ObfuscateRecordingData(recordingData)
@@ -2461,13 +2467,10 @@ local function DeobfuscateRecordingData(obfuscatedData)
     return deobfuscated
 end
 
--- ========= AUTO-CONVERT OLD JSON FORMAT =========
 local function ConvertOldFormatToNew(oldData)
-    -- Deteksi apakah JSON sudah pakai field mapping atau belum
     local function IsOldFormat(frames)
         if not frames or #frames == 0 then return false end
         local firstFrame = frames[1]
-        -- Old format pakai "Position", bukan "11"
         return firstFrame.Position ~= nil and firstFrame["11"] == nil
     end
     
@@ -2475,7 +2478,6 @@ local function ConvertOldFormatToNew(oldData)
     
     for checkpointName, frames in pairs(oldData) do
         if IsOldFormat(frames) then
-            -- ✅ CONVERT: Old format → Obfuscated format
             local obfuscatedFrames = {}
             for _, frame in ipairs(frames) do
                 local obfuscatedFrame = {}
@@ -2484,7 +2486,6 @@ local function ConvertOldFormatToNew(oldData)
                     if code then
                         obfuscatedFrame[code] = fieldValue
                     else
-                        -- Field yang tidak di-mapping, copy langsung
                         obfuscatedFrame[fieldName] = fieldValue
                     end
                 end
@@ -2492,7 +2493,6 @@ local function ConvertOldFormatToNew(oldData)
             end
             converted[checkpointName] = obfuscatedFrames
         else
-            -- Sudah format baru, skip conversion
             converted[checkpointName] = frames
         end
     end
@@ -2554,7 +2554,7 @@ local function GenerateChecksum(data)
 end
 
 -- ========= 💾 SAVE FUNCTION =========
-local function SaveToEncryptedJSON()
+SaveToEncryptedJSON = function()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
@@ -2617,7 +2617,6 @@ local function SaveToEncryptedJSON()
             recordingsToObfuscate[name] = RecordedMovements[name]
         end
         
-        -- ✅ OBFUSCATE DATA
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
@@ -2635,8 +2634,8 @@ local function SaveToEncryptedJSON()
         
         StarterGui:SetCore("SendNotification", {
             Title = "✅ Sukses Save " .. filename,
-            Text = "Total: " .. #saveData.RecordingOrder .. " recordings",
-            Duration = 4
+            Text = #saveData.RecordingOrder .. " recordings",
+            Duration = 3
         })
     end)
 
@@ -2644,14 +2643,14 @@ local function SaveToEncryptedJSON()
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
             Title = "❌ Gagal Save",
-            Text = "Terjadi kesalahan: " .. tostring(err),
+            Text = tostring(err),
             Duration = 4
         })
     end
 end
 
--- ========= 📂 LOAD OLD JSON FORMAT - NO FREEZE + REPLACE FILE =========
-local function LoadFromOldJSON()
+-- ========= 📂 LOAD OLD JSON FORMAT =========
+LoadFromOldJSON = function()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
@@ -2677,19 +2676,11 @@ local function LoadFromOldJSON()
             return false
         end
         
-        print("[JSON] Loading old format:", jsonFile)
-        
         local fileContent = readfile(jsonFile)
         local saveData = HttpService:JSONDecode(fileContent)
         
-        -- ✅ FLEXIBLE SIGNATURE CHECK
         local signature = saveData.Signature or "Unknown"
         
-        if signature ~= "ByaruLRecorder" and signature ~= "Unknown" then
-            warn("[JSON] Unexpected signature, loading anyway...")
-        end
-        
-        -- ✅ TRY MULTIPLE JSON STRUCTURES
         local checkpointsData = nil
         local recordingOrderData = {}
         local checkpointNamesData = {}
@@ -2724,10 +2715,9 @@ local function LoadFromOldJSON()
         end
         
         if not checkpointsData or #checkpointsData == 0 then
-            error("No valid recordings found")
+            error("No valid recordings")
         end
         
-        -- ✅ LOAD RECORDINGS
         local loadedCount = 0
         
         for _, checkpointData in ipairs(checkpointsData) do
@@ -2741,7 +2731,6 @@ local function LoadFromOldJSON()
                     continue
                 end
                 
-                -- ✅ ENSURE ALL REQUIRED FIELDS EXIST
                 for _, frame in ipairs(frames) do
                     frame.Position = frame.Position or {0, 0, 0}
                     frame.LookVector = frame.LookVector or {0, 0, 1}
@@ -2766,66 +2755,17 @@ local function LoadFromOldJSON()
         end
         
         if loadedCount == 0 then
-            error("No valid recordings loaded")
+            error("No recordings loaded")
         end
-        
-        print("[JSON] ✅ Loaded", loadedCount, "recordings")
         
         UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Loaded JSON",
+            Title = "✅ Load Sukses " .. filename,
             Text = loadedCount .. " recordings",
-            Duration = 4
+            Duration = 3
         })
-        
-        -- ⭐ AUTO-CONVERT + DELETE JSON (SIMPLIFIED)
-        task.spawn(function()
-            task.wait(1.5)
-            
-            print("[CONVERT] Starting auto-convert...")
-            
-            -- ✅ CHECK ALL
-            for _, name in ipairs(RecordingOrder) do
-                CheckedRecordings[name] = true
-            end
-            
-            -- ✅ SET FILENAME
-            local originalFilename = FilenameBox and FilenameBox.Text or ""
-            if FilenameBox then
-                FilenameBox.Text = filename
-            end
-            
-            -- ✅ SAVE
-            local saveSuccess = pcall(SaveToEncryptedJSON)
-            
-            if saveSuccess then
-                print("[CONVERT] ✅ Saved as BRL")
-                
-                -- ✅ DELETE OLD JSON
-                task.wait(0.5)
-                
-                if isfile(jsonFile) then
-                    delfile(jsonFile)
-                    print("[CONVERT] ✅ Deleted JSON")
-                    
-                    StarterGui:SetCore("SendNotification", {
-                        Title = "💾 Converted",
-                        Text = filename .. ".json → .brl",
-                        Duration = 3
-                    })
-                end
-            else
-                warn("[CONVERT] ❌ Failed")
-            end
-            
-            -- ✅ RESTORE FILENAME
-            if FilenameBox and originalFilename ~= "" then
-                task.wait(0.5)
-                FilenameBox.Text = originalFilename
-            end
-        end)
         
         return true
     end)
@@ -2837,8 +2777,8 @@ local function LoadFromOldJSON()
     return result
 end
 
--- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) - NO AUTO-SAVE! =========
-local function LoadFromEncryptedJSON()
+-- ========= 📂 LOAD ENCRYPTED FORMAT (.brl) =========
+LoadFromEncryptedJSON = function()
     if not hasFileSystem then
         PlaySound("Error")
         StarterGui:SetCore("SendNotification", {
@@ -2861,20 +2801,18 @@ local function LoadFromEncryptedJSON()
         if not fileExists then
             PlaySound("Error")
             StarterGui:SetCore("SendNotification", {
-                Title = "⚠️ File Tidak Ditemukan",
-                Text = filename .. ".brl tidak ada",
+                Title = "⚠️ File Tidak Ada",
+                Text = filename .. ".brl tidak ditemukan",
                 Duration = 3
             })
             return
         end
         
-        print("[BRL] Loading encrypted file:", filename .. ".brl")
-        
         local fileContent = readfile(filename .. ".brl")
         
         local header = string.sub(fileContent, 1, 10)
         if not string.match(header, "^BRLREC") then
-            error("Invalid file format")
+            error("Invalid format")
         end
         
         local encoded = string.sub(fileContent, 11)
@@ -2883,7 +2821,7 @@ local function LoadFromEncryptedJSON()
         
         local splitPos = string.find(decrypted, "|", 1, true)
         if not splitPos then
-            error("File corrupt")
+            error("Corrupt")
         end
         
         local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
@@ -2891,38 +2829,30 @@ local function LoadFromEncryptedJSON()
         
         local calculatedChecksum = GenerateChecksum(jsonString)
         if storedChecksum ~= calculatedChecksum then
-            error("File corrupt - checksum mismatch")
+            error("Checksum fail")
         end
         
         local saveData = HttpService:JSONDecode(jsonString)
         
         if saveData.Signature ~= "ByaruLRecorder" then
-            error("Invalid file signature")
+            error("Invalid signature")
         end
-        
-        print("[BRL] Signature valid, loading recordings...")
         
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ AUTO-DETECT FORMAT
         local dataToProcess = saveData.ObfuscatedFrames
         
         if not dataToProcess then
-            -- Fallback: load dari Checkpoints langsung
             dataToProcess = {}
             for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
                 dataToProcess[checkpointData.Name] = checkpointData.Frames
             end
         end
         
-        -- ✅ CONVERT OLD FORMAT IF NEEDED
         local convertedData = ConvertOldFormatToNew(dataToProcess)
-        
-        -- ✅ DEOBFUSCATE
         local deobfuscatedData = DeobfuscateRecordingData(convertedData)
         
-        -- ✅ LOAD TO MEMORY
         local loadedCount = 0
         
         for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
@@ -2941,42 +2871,35 @@ local function LoadFromEncryptedJSON()
             end
         end
         
-        print("[BRL] ✅ Loaded", loadedCount, "recordings")
-        
-        -- ✅ UPDATE UI
         UpdateRecordList()
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Loaded from BRL",
-            Text = loadedCount .. " recordings from " .. filename .. ".brl",
-            Duration = 4
+            Title = "✅ Load Sukses " .. filename,
+            Text = loadedCount .. " recordings",
+            Duration = 3
         })
-        
-        -- ⚠️ NO AUTO-SAVE HERE! (PENTING!)
-        -- File BRL sudah encrypted, tidak perlu convert lagi!
-        
     end)
 
     if not success then
         PlaySound("Error")
         
-        local errorMsg = "Terjadi kesalahan"
-        if string.match(tostring(err), "corrupt") then
-            errorMsg = "File rusak atau salah key"
+        local errorMsg = "Error"
+        if string.match(tostring(err), "corrupt") or string.match(tostring(err), "Corrupt") or string.match(tostring(err), "Checksum") then
+            errorMsg = "File rusak"
         elseif string.match(tostring(err), "Invalid") then
             errorMsg = "File tidak valid"
         end
         
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Gagal Load BRL",
+            Title = "❌ Gagal Load",
             Text = errorMsg,
-            Duration = 4
+            Duration = 3
         })
     end
 end
 
--- ========= 🔄 REPLACE OLD FUNCTIONS =========
+-- ========= 🔄 ALIASES =========
 SaveToObfuscatedJSON = SaveToEncryptedJSON
 LoadFromObfuscatedJSON = LoadFromEncryptedJSON
 
