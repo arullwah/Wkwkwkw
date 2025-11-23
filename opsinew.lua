@@ -2538,7 +2538,7 @@ local function GenerateChecksum(data)
     return tostring(hash)
 end
 
--- ========= 📂 LOAD OLD JSON FORMAT (UNENCRYPTED) - FIXED =========
+-- ========= 📂 LOAD OLD JSON FORMAT - ULTRA COMPATIBLE =========
 local function LoadFromOldJSON()
     if not hasFileSystem then
         PlaySound("Error")
@@ -2554,7 +2554,6 @@ local function LoadFromOldJSON()
     if filename == "" then filename = "MyReplays" end
 
     local success, result = pcall(function()
-        -- ✅ CEK FILE .json (old format)
         local jsonFile = filename .. ".json"
         
         local fileExists = false
@@ -2564,95 +2563,166 @@ local function LoadFromOldJSON()
         
         if not fileExists then
             print("[DEBUG] File not found:", jsonFile)
-            return false -- File .json tidak ada, coba .brl
+            return false
         end
         
         print("[DEBUG] Loading file:", jsonFile)
         
-        -- ✅ BACA FILE JSON LANGSUNG
         local fileContent = readfile(jsonFile)
         print("[DEBUG] File size:", #fileContent, "bytes")
         
         local saveData = HttpService:JSONDecode(fileContent)
         print("[DEBUG] JSON decoded successfully")
         
-        -- ✅ DEBUG: Print struktur data
-        print("[DEBUG] Signature:", saveData.Signature)
-        print("[DEBUG] Version:", saveData.Version)
-        print("[DEBUG] Checkpoints count:", saveData.Checkpoints and #saveData.Checkpoints or 0)
+        -- ✅ DEBUG: Print all top-level keys
+        print("[DEBUG] JSON keys:", table.concat((function()
+            local keys = {}
+            for k,v in pairs(saveData) do table.insert(keys, k) end
+            return keys
+        end)(), ", "))
         
-        if saveData.Signature ~= "ByaruLRecorder" then
-            warn("[ERROR] Invalid signature:", saveData.Signature)
-            error("Invalid file")
+        -- ✅ FLEXIBLE SIGNATURE CHECK (TIDAK WAJIB!)
+        local signature = saveData.Signature or "Unknown"
+        print("[DEBUG] Signature:", signature)
+        
+        -- ⭐ TIDAK ERROR KALAU SIGNATURE NIL! (PENTING!)
+        if signature ~= "ByaruLRecorder" and signature ~= "Unknown" then
+            warn("[WARNING] Unexpected signature:", signature, "- Loading anyway...")
         end
         
-        local newRecordingOrder = saveData.RecordingOrder or {}
-        local newCheckpointNames = saveData.CheckpointNames or {}
+        local version = saveData.Version or "Unknown"
+        print("[DEBUG] Version:", version)
         
-        print("[DEBUG] RecordingOrder count:", #newRecordingOrder)
-        print("[DEBUG] CheckpointNames count:", newCheckpointNames and #newCheckpointNames or 0)
+        -- ✅ TRY MULTIPLE JSON STRUCTURES
+        local checkpointsData = nil
+        local recordingOrderData = {}
+        local checkpointNamesData = {}
         
-        -- ✅ CLEAR EXISTING DATA (PENTING!)
-        -- RecordedMovements = {} -- JANGAN di-clear kalau mau append
-        -- RecordingOrder = {}
+        -- ✅ FORMAT 1: Ada field "Checkpoints" array
+        if saveData.Checkpoints and type(saveData.Checkpoints) == "table" then
+            print("[DEBUG] Format 1: Found Checkpoints array")
+            checkpointsData = saveData.Checkpoints
+            recordingOrderData = saveData.RecordingOrder or {}
+            checkpointNamesData = saveData.CheckpointNames or {}
         
-        -- ✅ LOAD FRAMES
+        -- ✅ FORMAT 2: Direct recording names as keys
+        else
+            print("[DEBUG] Format 2: Direct recording structure")
+            checkpointsData = {}
+            
+            for key, value in pairs(saveData) do
+                -- Skip metadata fields
+                if key ~= "Signature" and key ~= "Version" and key ~= "Timestamp" 
+                   and key ~= "RecordingOrder" and key ~= "CheckpointNames" then
+                    
+                    -- Check if this is a valid recording (has frames array)
+                    if type(value) == "table" and #value > 0 then
+                        local firstItem = value[1]
+                        
+                        -- Validate it's a frame (has Position field)
+                        if type(firstItem) == "table" and firstItem.Position then
+                            print("[DEBUG] Found recording:", key, "Frames:", #value)
+                            
+                            table.insert(checkpointsData, {
+                                Name = key,
+                                DisplayName = key,
+                                Frames = value
+                            })
+                            
+                            table.insert(recordingOrderData, key)
+                            checkpointNamesData[key] = key
+                        end
+                    end
+                end
+            end
+        end
+        
+        -- ✅ VALIDATE WE FOUND RECORDINGS
+        if not checkpointsData or #checkpointsData == 0 then
+            error("No valid recordings found in JSON")
+        end
+        
+        print("[DEBUG] Total checkpoints found:", #checkpointsData)
+        
+        -- ✅ LOAD RECORDINGS
         local loadedCount = 0
         
-        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+        for _, checkpointData in ipairs(checkpointsData) do
             local name = checkpointData.Name
             local frames = checkpointData.Frames
             
-            print("[DEBUG] Processing checkpoint:", name, "Frames:", frames and #frames or 0)
+            print("[DEBUG] Processing:", name, "Frames:", frames and #frames or 0)
             
             if frames and #frames > 0 then
-                -- ✅ VALIDASI FRAME FORMAT
+                -- ✅ VALIDATE FIRST FRAME
                 local firstFrame = frames[1]
-                print("[DEBUG] First frame keys:", table.concat(
-                    (function()
-                        local keys = {}
-                        for k,v in pairs(firstFrame) do table.insert(keys, k) end
-                        return keys
-                    end)(), ", "
-                ))
                 
-                -- ✅ LOAD KE MEMORY
+                if not firstFrame.Position then
+                    warn("[WARNING] Invalid frame format for:", name)
+                    continue
+                end
+                
+                print("[DEBUG] Frame keys:", table.concat((function()
+                    local keys = {}
+                    for k,v in pairs(firstFrame) do table.insert(keys, k) end
+                    return keys
+                end)(), ", "))
+                
+                -- ✅ ENSURE ALL REQUIRED FIELDS EXIST
+                for _, frame in ipairs(frames) do
+                    frame.Position = frame.Position or {0, 0, 0}
+                    frame.LookVector = frame.LookVector or {0, 0, 1}
+                    frame.UpVector = frame.UpVector or {0, 1, 0}
+                    frame.Velocity = frame.Velocity or {0, 0, 0}
+                    frame.MoveState = frame.MoveState or "Grounded"
+                    frame.WalkSpeed = frame.WalkSpeed or 16
+                    frame.Timestamp = frame.Timestamp or 0
+                end
+                
+                -- ✅ LOAD TO MEMORY
                 RecordedMovements[name] = frames
-                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName or "checkpoint_" .. loadedCount
+                
+                local displayName = checkpointNamesData[name] or checkpointData.DisplayName or ("checkpoint_" .. (loadedCount + 1))
+                checkpointNames[name] = displayName
                 
                 if not table.find(RecordingOrder, name) then
                     table.insert(RecordingOrder, name)
                 end
                 
                 loadedCount = loadedCount + 1
-                print("[DEBUG] Loaded:", name, "Total frames:", #frames)
+                print("[DEBUG] ✅ Loaded:", name, "Display:", displayName, "Frames:", #frames)
             else
-                warn("[WARNING] Empty frames for:", name)
+                warn("[WARNING] Empty or invalid frames for:", name)
             end
         end
         
+        print("[DEBUG] === LOAD SUMMARY ===")
         print("[DEBUG] Total loaded:", loadedCount, "recordings")
+        print("[DEBUG] RecordingOrder:", table.concat(RecordingOrder, ", "))
         
         if loadedCount == 0 then
-            warn("[ERROR] No recordings loaded!")
-            error("No valid recordings found")
+            error("No valid recordings loaded!")
         end
         
         -- ✅ UPDATE UI
+        print("[DEBUG] Calling UpdateRecordList...")
         UpdateRecordList()
+        
         PlaySound("Success")
         
         StarterGui:SetCore("SendNotification", {
-            Title = "✅ Load Old Format OK",
-            Text = filename .. ".json (" .. loadedCount .. " recs)",
+            Title = "✅ Loaded Successfully",
+            Text = loadedCount .. " recordings from " .. filename .. ".json",
             Duration = 4
         })
         
         -- ✅ AUTO-SAVE KE FORMAT BARU
         task.spawn(function()
-            task.wait(1)
+            task.wait(1.5)
             
-            -- ✅ SET SEMUA JADI CHECKED SEBELUM SAVE
+            print("[DEBUG] Auto-converting to .brl format...")
+            
+            -- ✅ CHECK ALL RECORDINGS
             for _, name in ipairs(RecordingOrder) do
                 CheckedRecordings[name] = true
             end
@@ -2660,21 +2730,20 @@ local function LoadFromOldJSON()
             SaveToEncryptedJSON()
             
             StarterGui:SetCore("SendNotification", {
-                Title = "💾 Auto-Converted!",
+                Title = "💾 Auto-Converted",
                 Text = "Saved as " .. filename .. ".brl",
                 Duration = 3
             })
         end)
         
-        return true -- Sukses load old format
+        return true
     end)
 
     if not success then
         warn("[ERROR] Load failed:", result)
         
-        -- ✅ SHOW ERROR NOTIFICATION
         StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Error",
+            Title = "❌ Load Failed",
             Text = tostring(result),
             Duration = 5
         })
