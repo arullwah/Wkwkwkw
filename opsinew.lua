@@ -81,7 +81,7 @@ local PlayBtnControl, LoopBtnControl, JumpBtnControl, RespawnBtnControl
 local ShiftLockBtnControl, ResetBtnControl, ShowRuteBtnControl
 local StartBtn, SaveBtn, ResumeBtn, PrevBtn, NextBtn
 local SpeedBox, FilenameBox, WalkSpeedBox, RecordingsList
-local Title, CloseBtn, CheckAllBtn
+local Title, CheckAllBtn
 
 -- ========= VARIABLES =========
 local IsRecording = false
@@ -3491,29 +3491,6 @@ local uiSuccess, uiError = pcall(function()
         end)
     end)
 
-    CloseBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(CloseBtn)
-        task.spawn(function()
-            SafeCall(function()
-                if StudioIsRecording then StopStudioRecording() end
-                if IsPlaying or AutoLoop then StopPlayback() end
-                if ShiftLockEnabled then DisableVisibleShiftLock() end
-                if InfiniteJump then DisableInfiniteJump() end
-                
-                 -- ✅ Cleanup title pulse
-        if titlePulseConnection then
-            titlePulseConnection:Disconnect()
-            titlePulseConnection = nil
-        end
-        
-                CleanupConnections()
-                ClearPathVisualization()
-                RemoveShiftLockIndicator()
-                task.wait(0.2)
-                ScreenGui:Destroy()
-            end)
-        end)
-    end)
 
     -- ========= MINI BUTTON FUNCTIONALITY =========
 
@@ -3528,18 +3505,17 @@ local uiSuccess, uiError = pcall(function()
         end
     end)
 
-    -- ========= TRIPLE TAP CLOSE SYSTEM (FIXED) =========
+-- ========= TRIPLE TAP CLOSE SYSTEM (FIXED WITH COLORS) =========
 local tapCount = 0
 local lastTapTime = 0
 local TAP_WINDOW = 1.0
 local tapResetConnection = nil
 
--- Show tap count indicator
+-- Show tap indicator
 local function ShowTapFeedback(count)
     task.spawn(function()
-        SafeCall(function()
-            if not ScreenGui or not ScreenGui.Parent then return end
-            if not MiniButton or not MiniButton.Parent then return end
+        pcall(function()
+            if not ScreenGui or not MiniButton then return end
             
             local indicator = Instance.new("TextLabel")
             indicator.Size = UDim2.fromOffset(50, 25)
@@ -3564,112 +3540,125 @@ local function ShowTapFeedback(count)
                 TextSize = 16
             }):Play()
             
-            -- Fade out
             task.wait(0.6)
-            local fadeTween = TweenService:Create(indicator, TweenInfo.new(0.3), {
+            TweenService:Create(indicator, TweenInfo.new(0.3), {
                 BackgroundTransparency = 1,
                 TextTransparency = 1,
                 TextStrokeTransparency = 1
-            })
-            fadeTween:Play()
-            fadeTween.Completed:Wait()
+            }):Play()
+            
+            task.wait(0.3)
             indicator:Destroy()
         end)
     end)
 end
 
--- Pulse MiniButton
-local function PulseMiniButton(color, scale)
-    task.spawn(function()
-        SafeCall(function()
-            if not MiniButton or not MiniButton.Parent then return end
-            
-            local originalColor = MiniButton.BackgroundColor3
-            local originalSize = MiniButton.Size
-            local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
-            
-            TweenService:Create(MiniButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                BackgroundColor3 = color,
-                Size = targetSize
-            }):Play()
-            
-            task.wait(0.1)
-            
-            TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                BackgroundColor3 = originalColor,
-                Size = originalSize
-            }):Play()
-        end)
+-- Pulse with color SYNCHRONOUS (blocking)
+local function PulseMiniButtonSync(color, scale)
+    pcall(function()
+        if not MiniButton then return end
+        
+        local originalColor = MiniButton.BackgroundColor3
+        local originalSize = MiniButton.Size
+        local targetSize = UDim2.fromOffset(40 * scale, 40 * scale)
+        
+        -- Pulse OUT
+        local tweenOut = TweenService:Create(MiniButton, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = color,
+            Size = targetSize
+        })
+        tweenOut:Play()
+        tweenOut.Completed:Wait()
+        
+        -- Pulse IN
+        local tweenIn = TweenService:Create(MiniButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = originalColor,
+            Size = originalSize
+        })
+        tweenIn:Play()
+        tweenIn.Completed:Wait()
     end)
 end
 
--- Main click handler (FIXED!)
+-- Main click handler
 MiniButton.MouseButton1Click:Connect(function()
-    task.spawn(function()
-        SafeCall(function()
-            local currentTime = tick()
-            
-            -- Reset jika sudah lewat dari TAP_WINDOW
-            if currentTime - lastTapTime > TAP_WINDOW then
-                tapCount = 0
-            end
-            
-            -- Increment tap count
-            tapCount = tapCount + 1
-            lastTapTime = currentTime
-            
-            -- ========= TAP 1: NORMAL TOGGLE =========
-            if tapCount == 1 then
-                -- Sound effect
-                PlaySound("Click")
-                
-                -- Animate button
-                local originalSize = MiniButton.TextSize
-                TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                    TextSize = originalSize * 1.2
-                }):Play()
-                task.wait(0.1)
-                TweenService:Create(MiniButton, TweenInfo.new(0.1), {
-                    TextSize = originalSize
-                }):Play()
-                
-                -- Toggle MainFrame
-                if MainFrame then
-                    MainFrame.Visible = not MainFrame.Visible
-                end
-                
-                -- Visual feedback
-                ShowTapFeedback(1)
-                PulseMiniButton(Color3.fromRGB(59, 15, 116), 1.1)
-                
-            -- ========= TAP 2: WARNING =========
-            elseif tapCount == 2 then
-                PlaySound("Toggle")
-                ShowTapFeedback(2)
-                PulseMiniButton(Color3.fromRGB(89, 45, 146), 1.15)
-                
-            -- ========= TAP 3: CLOSE! =========
-            elseif tapCount >= 3 then
-                PlaySound("Success")
-                ShowTapFeedback(3)
-                PulseMiniButton(Color3.fromRGB(119, 75, 176), 1.2)
-                
-                -- Delay untuk feedback
-                task.wait(0.3)
-                
-                -- Close sequence
+    local currentTime = tick()
+    
+    -- Reset if timeout
+    if currentTime - lastTapTime > TAP_WINDOW then
+        tapCount = 0
+    end
+    
+    -- Increment
+    tapCount = tapCount + 1
+    lastTapTime = currentTime
+    
+    -- ========= TAP 1 =========
+    if tapCount == 1 then
+        -- Sound
+        pcall(function() PlaySound("Click") end)
+        
+        -- Animate text size
+        pcall(function()
+            local originalSize = MiniButton.TextSize
+            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                TextSize = originalSize * 1.2
+            }):Play()
+            task.wait(0.1)
+            TweenService:Create(MiniButton, TweenInfo.new(0.1), {
+                TextSize = originalSize
+            }):Play()
+        end)
+        
+        -- Toggle MainFrame
+        if MainFrame then
+            MainFrame.Visible = not MainFrame.Visible
+        end
+        
+        -- Visual feedback
+        ShowTapFeedback(1)
+        
+        -- COLOR PULSE - Purple
+        task.spawn(function()
+            PulseMiniButtonSync(Color3.fromRGB(59, 15, 116), 1.1)
+        end)
+        
+    -- ========= TAP 2 =========
+    elseif tapCount == 2 then
+        pcall(function() PlaySound("Toggle") end)
+        ShowTapFeedback(2)
+        
+        -- COLOR PULSE - Lighter Purple
+        task.spawn(function()
+            PulseMiniButtonSync(Color3.fromRGB(89, 45, 146), 1.15)
+        end)
+        
+    -- ========= TAP 3 =========
+    elseif tapCount >= 3 then
+        pcall(function() PlaySound("Success") end)
+        ShowTapFeedback(3)
+        
+        -- COLOR PULSE - Even Lighter Purple
+        task.spawn(function()
+            PulseMiniButtonSync(Color3.fromRGB(119, 75, 176), 1.2)
+        end)
+        
+        -- Wait for pulse to finish
+        task.wait(0.4)
+        
+        -- Close sequence
+        task.spawn(function()
+            pcall(function()
                 if StudioIsRecording then StopStudioRecording() end
                 if IsPlaying or AutoLoop then StopPlayback() end
                 if ShiftLockEnabled then DisableVisibleShiftLock() end
                 if InfiniteJump then DisableInfiniteJump() end
                 
-                -- Cleanup title pulse
                 if titlePulseConnection then
                     titlePulseConnection:Disconnect()
                     titlePulseConnection = nil
                 end
                 
-                -- Cleanup
                 CleanupConnections()
                 ClearPathVisualization()
                 RemoveShiftLockIndicator()
@@ -3691,25 +3680,22 @@ MiniButton.MouseButton1Click:Connect(function()
                 end
                 
                 task.wait(0.1)
-                if ScreenGui then
-                    ScreenGui:Destroy()
-                end
-                
-                -- Reset
-                tapCount = 0
-            end
-            
-            -- Auto-reset
-            if tapResetConnection then
-                task.cancel(tapResetConnection)
-            end
-            
-            tapResetConnection = task.delay(TAP_WINDOW, function()
-                if tapCount < 3 then
-                    tapCount = 0
-                end
+                if ScreenGui then ScreenGui:Destroy() end
             end)
         end)
+        
+        tapCount = 0
+    end
+    
+    -- Auto-reset
+    if tapResetConnection then
+        task.cancel(tapResetConnection)
+    end
+    
+    tapResetConnection = task.delay(TAP_WINDOW, function()
+        if tapCount < 3 then
+            tapCount = 0
+        end
     end)
 end)
 
