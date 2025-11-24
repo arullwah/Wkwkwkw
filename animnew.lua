@@ -541,6 +541,7 @@ local function RestoreFullUserControl()
         if humanoid then
             local currentState = humanoid:GetState()
             
+            -- ✅ FIXED: Proper AutoRotate restoration berdasarkan state
             if ShiftLockEnabled then
                 humanoid.AutoRotate = false
             elseif currentState == Enum.HumanoidStateType.Climbing then
@@ -549,6 +550,7 @@ local function RestoreFullUserControl()
                 humanoid.AutoRotate = true
             end          
             
+            -- ✅ FIXED: Restore WalkSpeed dengan prioritas yang benar
             if LastKnownWalkSpeed > 0 then
                 humanoid.WalkSpeed = LastKnownWalkSpeed  
             elseif WalkSpeedBeforePlayback > 0 then
@@ -561,6 +563,7 @@ local function RestoreFullUserControl()
             humanoid.PlatformStand = false
             humanoid.Sit = false
             
+            -- ✅ FIXED: Hanya change state jika bukan climbing/swimming/jumping/falling
             if currentState ~= Enum.HumanoidStateType.Climbing and 
                currentState ~= Enum.HumanoidStateType.Swimming and
                currentState ~= Enum.HumanoidStateType.Jumping and
@@ -568,6 +571,7 @@ local function RestoreFullUserControl()
                 humanoid:ChangeState(Enum.HumanoidStateType.Running)
             end
             
+            -- ✅ FIXED: Restore camera offset dengan benar
             if ShiftLockEnabled then
                 humanoid.CameraOffset = ShiftLockCameraOffset
             else
@@ -582,12 +586,14 @@ local function RestoreFullUserControl()
         if hrp then
             local currentState = humanoid and humanoid:GetState()
             
+            -- ✅ FIXED: Smart velocity reset berdasarkan state
             if currentState == Enum.HumanoidStateType.Running or
                currentState == Enum.HumanoidStateType.RunningNoPhysics or
                currentState == Enum.HumanoidStateType.Landed then
                 hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             else
+                -- Untuk climbing/swimming/jumping: hanya reset angular velocity
                 hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             end
         end
@@ -613,14 +619,17 @@ local function GetFrameVelocity(frame, moveState)
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SMART: Allow small Y for slopes, zero for flat ground
+    -- ✅ FIXED: SMART Y velocity handling untuk smooth slopes
     if moveState == "Grounded" or moveState == nil then
-        if math.abs(velocityY) < 2 then  -- Threshold untuk flat ground
+        if math.abs(velocityY) < 2 then
+            -- ✅ Flat ground: zero Y untuk stability
             velocityY = 0
         else
-            velocityY = velocityY * 0.3  -- Dampen untuk slopes
+            -- ✅ Slopes/stairs: dampen Y tapi tidak zero
+            velocityY = velocityY * 0.3
         end
     end
+    -- ✅ Untuk Jump/Fall/Climbing/Swimming: gunakan full velocity Y
     
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
@@ -927,8 +936,21 @@ local function SmoothFrames(frames)
     return smoothedFrames
 end
 
+local smoothingCache = {}
+
 local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
+    
+    -- ✅ NEW: Cache key based on recording content
+    local cacheKey = table.concat({
+        recording[1].Position[1],
+        recording[#recording].Position[1],
+        #recording
+    }, "_")
+    
+    if smoothingCache[cacheKey] then
+        return smoothingCache[cacheKey]
+    end
     
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
@@ -965,7 +987,14 @@ local function NormalizeRecordingTimestamps(recording)
         table.insert(normalized, newFrame)
     end
     
+    -- ✅ NEW: Store in cache
+    smoothingCache[cacheKey] = normalized
     return normalized
+end
+
+-- ✅ NEW: Clear cache function (panggil saat delete recording)
+local function ClearRecordingCache()
+    smoothingCache = {}
 end
 
 -- ========= MERGE RECORDINGS =========
@@ -1178,23 +1207,22 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
+        -- ✅ Apply CFrame
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
+        -- ✅ Apply velocity SMART
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-       if hum then
+        if hum then
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             
             LastKnownWalkSpeed = frameWalkSpeed
             
-            if hum then
-        -- ✅ PROPER: Respect actual playback state
-        local shouldAutoRotate = not ShiftLockEnabled and frame.MoveState ~= "Climbing"
-        hum.AutoRotate = shouldAutoRotate
+            -- ✅ FIXED: Proper AutoRotate handling
+            local shouldAutoRotate = not ShiftLockEnabled and frame.MoveState ~= "Climbing"
+            hum.AutoRotate = shouldAutoRotate
             
             -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
             local moveState = frame.MoveState
@@ -2041,17 +2069,20 @@ local function ApplyFrameToCharacter(frame)
         
         -- ✅ SET STATE DULU SEBELUM APPLY CFRAME!
         if hum then
+            -- ✅ FIXED: Respect ShiftLock state
             if ShiftLockEnabled then
                 hum.AutoRotate = false
-            else
+            elseif moveState == "Climbing" then
                 hum.AutoRotate = false
+            else
+                hum.AutoRotate = true
             end
             
             -- ✅ Apply state SEBELUM teleport
             if moveState == "Climbing" then
                 hum:ChangeState(Enum.HumanoidStateType.Climbing)
                 hum.PlatformStand = false
-                hum.WalkSpeed = 0  -- Lock movement saat timeline mode
+                hum.WalkSpeed = 0
             elseif moveState == "Jumping" then
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 hum.WalkSpeed = 0
@@ -2073,9 +2104,8 @@ local function ApplyFrameToCharacter(frame)
         -- ✅ BARU apply CFrame & velocity
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Jangan reset velocity kalau climbing!
+        -- ✅ FIXED: Jangan reset velocity kalau climbing!
         if moveState == "Climbing" then
-            -- Biarkan climbing physics jalan natural
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
         else
             hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
@@ -2353,11 +2383,23 @@ end
 
 -- ========= FILE SAVE/LOAD =========
 
+-- ✅ NEW: Save queue system
+local isSaving = false
+local saveQueue = {}
+
 local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
         return
     end
+    
+    -- ✅ FIXED: Check if already saving
+    if isSaving then
+        table.insert(saveQueue, true)
+        return
+    end
+    
+    isSaving = true
     
     local filename = FilenameBox and FilenameBox.Text or ""
     if filename == "" then filename = "ByaruL" end
@@ -2372,6 +2414,7 @@ local function SaveToObfuscatedJSON()
     end
     
     if not hasCheckedRecordings then
+        isSaving = false
         PlaySound("Error")
         return
     end
@@ -2412,11 +2455,21 @@ local function SaveToObfuscatedJSON()
         local jsonString = HttpService:JSONEncode(saveData)
         
         writefile(filename, jsonString)
-        PlaySound("Success")
     end)
     
-    if not success then
+    isSaving = false
+    
+-- ✅ FIXED: Process queue if there are pending saves
+    if #saveQueue > 0 then
+        table.remove(saveQueue, 1)
+        task.defer(SaveToObfuscatedJSON)
+    end
+    
+    if success then
+        PlaySound("Success")
+    else
         PlaySound("Error")
+        warn("⚠️ Save failed:", err)
     end
 end
 
@@ -2496,368 +2549,359 @@ local function FormatDuration(seconds)
 end
 
 function UpdateRecordList()
-    SafeCall(function()
-        for _, child in pairs(RecordingsList:GetChildren()) do 
-            if child:IsA("Frame") then child:Destroy() end
-        end
-        
-        local yPos = 3
-        for index, name in ipairs(RecordingOrder) do
-            local rec = RecordedMovements[name]
-            if not rec then continue end
-            
-            -- ✨ MAIN CONTAINER
-            local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 58)
-            item.Position = UDim2.new(0, 3, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-            item.BorderSizePixel = 0
-            item.Parent = RecordingsList
-        
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 6)
-            corner.Parent = item
-            
-            -- Outer stroke
-            local outerStroke = Instance.new("UIStroke")
-            outerStroke.Color = Color3.fromRGB(40, 40, 50)
-            outerStroke.Thickness = 1
-            outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            outerStroke.Parent = item
-            
-            -- ═══════════════════════════════════════════
-            -- ROW 1: CHECKBOX + TEXTBOX (NAME + INFO!)
-            -- ═══════════════════════════════════════════
-            
-            local topRow = Instance.new("Frame")
-            topRow.Size = UDim2.new(1, -10, 0, 22)
-            topRow.Position = UDim2.fromOffset(5, 5)
-            topRow.BackgroundTransparency = 1
-            topRow.Parent = item
-            
-            -- ✅ CHECKBOX
-            local checkBox = Instance.new("TextButton")
-            checkBox.Size = UDim2.fromOffset(18, 18)
-            checkBox.Position = UDim2.fromOffset(0, 2)
-            checkBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-            checkBox.Text = CheckedRecordings[name] and "✓" or ""
-            checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
-            checkBox.Font = Enum.Font.GothamBold
-            checkBox.TextSize = 12
-            checkBox.BorderSizePixel = 0
-            checkBox.Parent = topRow
-            
-            local checkCorner = Instance.new("UICorner")
-            checkCorner.CornerRadius = UDim.new(0, 3)
-            checkCorner.Parent = checkBox
-            
-            local checkStroke = Instance.new("UIStroke")
-            checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
-            checkStroke.Thickness = 1.5
-            checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            checkStroke.Parent = checkBox
-            
-            -- ✨ TEXTBOX CONTAINER (WITH INFO INSIDE!)
-            local textboxContainer = Instance.new("Frame")
-            textboxContainer.Size = UDim2.new(1, -25, 1, 0)
-            textboxContainer.Position = UDim2.fromOffset(23, 0)
-            textboxContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            textboxContainer.BorderSizePixel = 0
-            textboxContainer.Parent = topRow
-            
-            local containerCorner = Instance.new("UICorner")
-            containerCorner.CornerRadius = UDim.new(0, 3)
-            containerCorner.Parent = textboxContainer
-            
-            -- ✅ RGB RAINBOW BORDER
-            local rgbStroke = Instance.new("UIStroke")
-            rgbStroke.Thickness = 0.8
-            rgbStroke.Color = Color3.fromRGB(255, 0, 0)
-            rgbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            rgbStroke.Parent = textboxContainer
-            
-            -- ✅ ANIMATE RAINBOW
-            task.spawn(function()
-                local hue = (index - 1) / math.max(#RecordingOrder, 1)
-                while rgbStroke and rgbStroke.Parent do
-                    hue = (hue + 0.005) % 1
-                    rgbStroke.Color = Color3.fromHSV(hue, 1, 1)
-                    task.wait(0.03)
+    task.spawn(function()  -- ✅ FIXED: Offload to separate thread
+        SafeCall(function()
+            -- ✅ FIXED: Batch destroy untuk performa
+            local toDestroy = {}
+            for _, child in pairs(RecordingsList:GetChildren()) do 
+                if child:IsA("Frame") then
+                    table.insert(toDestroy, child)
                 end
-            end)
-            
-            -- 📝 NAME TEXTBOX (LEFT SIDE)
-            local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(0.55, 0, 1, 0)  -- 55% width
-            nameBox.Position = UDim2.fromOffset(5, 0)
-            nameBox.BackgroundTransparency = 1
-            nameBox.Text = checkpointNames[name] or "Checkpoint"
-            nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-            nameBox.TextStrokeTransparency = 0.6
-            nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-            nameBox.Font = Enum.Font.GothamBold
-            nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Left
-            nameBox.PlaceholderText = "Name"
-            nameBox.ClearTextOnFocus = false
-            nameBox.Parent = textboxContainer
-            
-            -- ℹ️ INFO LABEL (RIGHT SIDE - READ ONLY!)
-            local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(0.45, -5, 1, 0)  -- 45% width
-            infoLabel.Position = UDim2.new(0.55, 0, 0, 0)
-            infoLabel.BackgroundTransparency = 1
-            if #rec > 0 then
-                local totalSeconds = rec[#rec].Timestamp
-                local minutes = math.floor(totalSeconds / 60)
-                local seconds = math.floor(totalSeconds % 60)
-                infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)
-            else
-                infoLabel.Text = "⏱0:00│📊0"
             end
-            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            infoLabel.Font = Enum.Font.GothamBold
-            infoLabel.TextSize = 8
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Right
-            infoLabel.Parent = textboxContainer
             
-            -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
-            -- ═══════════════════════════════════════════
-            
-            local segmentedBar = Instance.new("Frame")
-            segmentedBar.Size = UDim2.new(1, -10, 0, 26)
-            segmentedBar.Position = UDim2.fromOffset(5, 29)
-            segmentedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-            segmentedBar.BorderSizePixel = 0
-            segmentedBar.Parent = item
-            
-            local barCorner = Instance.new("UICorner")
-            barCorner.CornerRadius = UDim.new(0, 4)
-            barCorner.Parent = segmentedBar
-            
-            local barStroke = Instance.new("UIStroke")
-            barStroke.Color = Color3.fromRGB(50, 50, 60)
-            barStroke.Thickness = 1
-            barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            barStroke.Parent = segmentedBar
-            
-            -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
-            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
-            local buttonSpacing = 3   -- Space between buttons
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 1: PLAY (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            playBtn.Position = UDim2.fromOffset(2, 2)
-            playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            playBtn.Text = "Main"
-            playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            playBtn.Font = Enum.Font.GothamBold
-            playBtn.TextSize = 9
-            playBtn.BorderSizePixel = 0
-            playBtn.Parent = segmentedBar
-            
-            local playCorner = Instance.new("UICorner")
-            playCorner.CornerRadius = UDim.new(0, 3)
-            playCorner.Parent = playBtn
-            
-            -- Divider 1
-            local divider1 = Instance.new("Frame")
-            divider1.Size = UDim2.new(0, 1, 1, -8)
-            divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
-            divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider1.BorderSizePixel = 0
-            divider1.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 2: DELETE (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
-            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Hapus"
-            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 9
-            delBtn.BorderSizePixel = 0
-            delBtn.Parent = segmentedBar
-            
-            local delCorner = Instance.new("UICorner")
-            delCorner.CornerRadius = UDim.new(0, 3)
-            delCorner.Parent = delBtn
-            
-            -- Divider 2
-            local divider2 = Instance.new("Frame")
-            divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
-            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider2.BorderSizePixel = 0
-            divider2.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 3: NAIK (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
-            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            upBtn.Text = "Naik"
-            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 9
-            upBtn.BorderSizePixel = 0
-            upBtn.Parent = segmentedBar
-            
-            local upCorner = Instance.new("UICorner")
-            upCorner.CornerRadius = UDim.new(0, 3)
-            upCorner.Parent = upBtn
-            
-            -- Divider 3
-            local divider3 = Instance.new("Frame")
-            divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
-            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider3.BorderSizePixel = 0
-            divider3.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 4: TURUN (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
-            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
-            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            downBtn.Text = "Turun"
-            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 9
-            downBtn.BorderSizePixel = 0
-            downBtn.Parent = segmentedBar
-            
-            local downCorner = Instance.new("UICorner")
-            downCorner.CornerRadius = UDim.new(0, 3)
-            downCorner.Parent = downBtn
-            
-            -- ═══════════════════════════════════════════
-            -- EVENT HANDLERS
-            -- ═══════════════════════════════════════════
-            
-            nameBox.FocusLost:Connect(function()
-                local newName = nameBox.Text
-                if newName and newName ~= "" then
-                    checkpointNames[name] = newName
-                    PlaySound("Success")
+            -- Destroy in chunks
+            for i, child in ipairs(toDestroy) do
+                child:Destroy()
+                if i % 5 == 0 then
+                    task.wait()  -- ✅ FIXED: Yield every 5 items untuk smooth UI
                 end
-            end)
+            end
             
-            checkBox.MouseButton1Click:Connect(function()
-                CheckedRecordings[name] = not CheckedRecordings[name]
+            local yPos = 3
+            for index, name in ipairs(RecordingOrder) do
+                local rec = RecordedMovements[name]
+                if not rec then continue end
+                
+                -- ✨ MAIN CONTAINER
+                local item = Instance.new("Frame")
+                item.Size = UDim2.new(1, -6, 0, 58)
+                item.Position = UDim2.new(0, 3, 0, yPos)
+                item.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+                item.BorderSizePixel = 0
+                item.Parent = RecordingsList
+            
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 6)
+                corner.Parent = item
+                
+                local outerStroke = Instance.new("UIStroke")
+                outerStroke.Color = Color3.fromRGB(40, 40, 50)
+                outerStroke.Thickness = 1
+                outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                outerStroke.Parent = item
+                
+                -- ROW 1: CHECKBOX + TEXTBOX
+                local topRow = Instance.new("Frame")
+                topRow.Size = UDim2.new(1, -10, 0, 22)
+                topRow.Position = UDim2.fromOffset(5, 5)
+                topRow.BackgroundTransparency = 1
+                topRow.Parent = item
+                
+                -- ✅ CHECKBOX
+                local checkBox = Instance.new("TextButton")
+                checkBox.Size = UDim2.fromOffset(18, 18)
+                checkBox.Position = UDim2.fromOffset(0, 2)
+                checkBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
                 checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
+                checkBox.Font = Enum.Font.GothamBold
+                checkBox.TextSize = 12
+                checkBox.BorderSizePixel = 0
+                checkBox.Parent = topRow
+                
+                local checkCorner = Instance.new("UICorner")
+                checkCorner.CornerRadius = UDim.new(0, 3)
+                checkCorner.Parent = checkBox
+                
+                local checkStroke = Instance.new("UIStroke")
                 checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
-                AnimateButtonClick(checkBox)
-            end)
-            
-            local currentRecordingName = name
-            playBtn.MouseButton1Click:Connect(function()
-                if not IsPlaying and not IsAutoLoopPlaying then 
-                    AnimateButtonClick(playBtn)
-                    PlayRecording(currentRecordingName) 
+                checkStroke.Thickness = 1.5
+                checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                checkStroke.Parent = checkBox
+                
+                -- ✨ TEXTBOX CONTAINER
+                local textboxContainer = Instance.new("Frame")
+                textboxContainer.Size = UDim2.new(1, -25, 1, 0)
+                textboxContainer.Position = UDim2.fromOffset(23, 0)
+                textboxContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+                textboxContainer.BorderSizePixel = 0
+                textboxContainer.Parent = topRow
+                
+                local containerCorner = Instance.new("UICorner")
+                containerCorner.CornerRadius = UDim.new(0, 3)
+                containerCorner.Parent = textboxContainer
+                
+                -- ✅ RGB RAINBOW BORDER
+                local rgbStroke = Instance.new("UIStroke")
+                rgbStroke.Thickness = 0.8
+                rgbStroke.Color = Color3.fromRGB(255, 0, 0)
+                rgbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                rgbStroke.Parent = textboxContainer
+                
+                -- ✅ ANIMATE RAINBOW
+                task.spawn(function()
+                    local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                    while rgbStroke and rgbStroke.Parent do
+                        hue = (hue + 0.005) % 1
+                        rgbStroke.Color = Color3.fromHSV(hue, 1, 1)
+                        task.wait(0.03)
+                    end
+                end)
+                
+                -- 📝 NAME TEXTBOX
+                local nameBox = Instance.new("TextBox")
+                nameBox.Size = UDim2.new(0.55, 0, 1, 0)
+                nameBox.Position = UDim2.fromOffset(5, 0)
+                nameBox.BackgroundTransparency = 1
+                nameBox.Text = checkpointNames[name] or "Checkpoint"
+                nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+                nameBox.TextStrokeTransparency = 0.6
+                nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                nameBox.Font = Enum.Font.GothamBold
+                nameBox.TextSize = 9
+                nameBox.TextXAlignment = Enum.TextXAlignment.Left
+                nameBox.PlaceholderText = "Name"
+                nameBox.ClearTextOnFocus = false
+                nameBox.Parent = textboxContainer
+                
+                -- ℹ️ INFO LABEL
+                local infoLabel = Instance.new("TextLabel")
+                infoLabel.Size = UDim2.new(0.45, -5, 1, 0)
+                infoLabel.Position = UDim2.new(0.55, 0, 0, 0)
+                infoLabel.BackgroundTransparency = 1
+                if #rec > 0 then
+                    local totalSeconds = rec[#rec].Timestamp
+                    local minutes = math.floor(totalSeconds / 60)
+                    local seconds = math.floor(totalSeconds % 60)
+                    infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)
+                else
+                    infoLabel.Text = "⏱0:00│📊0"
                 end
-            end)
-            
-            delBtn.MouseButton1Click:Connect(function()
-                AnimateButtonClick(delBtn)
-                RecordedMovements[name] = nil
-                checkpointNames[name] = nil
-                CheckedRecordings[name] = nil
-                PathHasBeenUsed[name] = nil
-                local idx = table.find(RecordingOrder, name)
-                if idx then table.remove(RecordingOrder, idx) end
-                UpdateRecordList()
-            end)
-            
-            upBtn.MouseButton1Click:Connect(function()
-                if index > 1 then 
-                    AnimateButtonClick(upBtn)
-                    MoveRecordingUp(name) 
-                end
-            end)
-            
-            downBtn.MouseButton1Click:Connect(function()
-                if index < #RecordingOrder then 
-                    AnimateButtonClick(downBtn)
-                    MoveRecordingDown(name) 
-                end
-            end)
-            
-            -- ═══════════════════════════════════════════
-            -- HOVER EFFECTS FOR ALL BUTTONS
-            -- ═══════════════════════════════════════════
-            
-            playBtn.MouseEnter:Connect(function()
-                TweenService:Create(playBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(80, 25, 150)
-                }):Play()
-            end)
-            
-            playBtn.MouseLeave:Connect(function()
-                TweenService:Create(playBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                }):Play()
-            end)
-            
-            delBtn.MouseEnter:Connect(function()
-                TweenService:Create(delBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(230, 70, 80)
-                }):Play()
-            end)
-            
-            delBtn.MouseLeave:Connect(function()
-                TweenService:Create(delBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-                }):Play()
-            end)
-            
-            upBtn.MouseEnter:Connect(function()
-                if index > 1 then
+                infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                infoLabel.Font = Enum.Font.GothamBold
+                infoLabel.TextSize = 8
+                infoLabel.TextXAlignment = Enum.TextXAlignment.Right
+                infoLabel.Parent = textboxContainer
+                
+                -- ROW 2: SEGMENTED CONTROL BAR
+                local segmentedBar = Instance.new("Frame")
+                segmentedBar.Size = UDim2.new(1, -10, 0, 26)
+                segmentedBar.Position = UDim2.fromOffset(5, 29)
+                segmentedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+                segmentedBar.BorderSizePixel = 0
+                segmentedBar.Parent = item
+                
+                local barCorner = Instance.new("UICorner")
+                barCorner.CornerRadius = UDim.new(0, 4)
+                barCorner.Parent = segmentedBar
+                
+                local barStroke = Instance.new("UIStroke")
+                barStroke.Color = Color3.fromRGB(50, 50, 60)
+                barStroke.Thickness = 1
+                barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                barStroke.Parent = segmentedBar
+                
+                local buttonWidth = 0.25
+                local buttonSpacing = 3
+                
+                -- BUTTON 1: PLAY
+                local playBtn = Instance.new("TextButton")
+                playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+                playBtn.Position = UDim2.fromOffset(2, 2)
+                playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                playBtn.Text = "Main"
+                playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                playBtn.Font = Enum.Font.GothamBold
+                playBtn.TextSize = 9
+                playBtn.BorderSizePixel = 0
+                playBtn.Parent = segmentedBar
+                
+                local playCorner = Instance.new("UICorner")
+                playCorner.CornerRadius = UDim.new(0, 3)
+                playCorner.Parent = playBtn
+                
+                local divider1 = Instance.new("Frame")
+                divider1.Size = UDim2.new(0, 1, 1, -8)
+                divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
+                divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+                divider1.BorderSizePixel = 0
+                divider1.Parent = segmentedBar
+                
+                -- BUTTON 2: DELETE
+                local delBtn = Instance.new("TextButton")
+                delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+                delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
+                delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                delBtn.Text = "Hapus"
+                delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                delBtn.Font = Enum.Font.GothamBold
+                delBtn.TextSize = 9
+                delBtn.BorderSizePixel = 0
+                delBtn.Parent = segmentedBar
+                
+                local delCorner = Instance.new("UICorner")
+                delCorner.CornerRadius = UDim.new(0, 3)
+                delCorner.Parent = delBtn
+                
+                local divider2 = Instance.new("Frame")
+                divider2.Size = UDim2.new(0, 1, 1, -8)
+                divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+                divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+                divider2.BorderSizePixel = 0
+                divider2.Parent = segmentedBar
+                
+                -- BUTTON 3: NAIK
+                local upBtn = Instance.new("TextButton")
+                upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+                upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+                upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                upBtn.Text = "Naik"
+                upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                upBtn.Font = Enum.Font.GothamBold
+                upBtn.TextSize = 9
+                upBtn.BorderSizePixel = 0
+                upBtn.Parent = segmentedBar
+                
+                local upCorner = Instance.new("UICorner")
+                upCorner.CornerRadius = UDim.new(0, 3)
+                upCorner.Parent = upBtn
+                
+                local divider3 = Instance.new("Frame")
+                divider3.Size = UDim2.new(0, 1, 1, -8)
+                divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+                divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+                divider3.BorderSizePixel = 0
+                divider3.Parent = segmentedBar
+                
+                -- BUTTON 4: TURUN
+                local downBtn = Instance.new("TextButton")
+                downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
+                downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+                downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                downBtn.Text = "Turun"
+                downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                downBtn.Font = Enum.Font.GothamBold
+                downBtn.TextSize = 9
+                downBtn.BorderSizePixel = 0
+                downBtn.Parent = segmentedBar
+                
+                local downCorner = Instance.new("UICorner")
+                downCorner.CornerRadius = UDim.new(0, 3)
+                downCorner.Parent = downBtn
+                
+                -- EVENT HANDLERS
+                nameBox.FocusLost:Connect(function()
+                    local newName = nameBox.Text
+                    if newName and newName ~= "" then
+                        checkpointNames[name] = newName
+                        PlaySound("Success")
+                    end
+                end)
+                
+                checkBox.MouseButton1Click:Connect(function()
+                    CheckedRecordings[name] = not CheckedRecordings[name]
+                    checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                    checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
+                    AnimateButtonClick(checkBox)
+                end)
+                
+                local currentRecordingName = name
+                playBtn.MouseButton1Click:Connect(function()
+                    if not IsPlaying and not IsAutoLoopPlaying then 
+                        AnimateButtonClick(playBtn)
+                        PlayRecording(currentRecordingName) 
+                    end
+                end)
+                
+                delBtn.MouseButton1Click:Connect(function()
+                    AnimateButtonClick(delBtn)
+                    RecordedMovements[name] = nil
+                    checkpointNames[name] = nil
+                    CheckedRecordings[name] = nil
+                    PathHasBeenUsed[name] = nil
+                    local idx = table.find(RecordingOrder, name)
+                    if idx then table.remove(RecordingOrder, idx) end
+                    ClearRecordingCache()  -- ✅ FIXED: Clear cache
+                    UpdateRecordList()
+                end)
+                
+                upBtn.MouseButton1Click:Connect(function()
+                    if index > 1 then 
+                        AnimateButtonClick(upBtn)
+                        MoveRecordingUp(name) 
+                    end
+                end)
+                
+                downBtn.MouseButton1Click:Connect(function()
+                    if index < #RecordingOrder then 
+                        AnimateButtonClick(downBtn)
+                        MoveRecordingDown(name) 
+                    end
+                end)
+                
+                -- HOVER EFFECTS
+                playBtn.MouseEnter:Connect(function()
+                    TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(80, 25, 150)
+                    }):Play()
+                end)
+                
+                playBtn.MouseLeave:Connect(function()
+                    TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    }):Play()
+                end)
+                
+                delBtn.MouseEnter:Connect(function()
+                    TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(230, 70, 80)
+                    }):Play()
+                end)
+                
+                delBtn.MouseLeave:Connect(function()
+                    TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                    }):Play()
+                end)
+                
+                upBtn.MouseEnter:Connect(function()
+                    if index > 1 then
+                        TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                            BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                        }):Play()
+                    end
+                end)
+                
+                upBtn.MouseLeave:Connect(function()
                     TweenService:Create(upBtn, TweenInfo.new(0.2), {
-                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                        BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
                     }):Play()
-                end
-            end)
-            
-            upBtn.MouseLeave:Connect(function()
-                TweenService:Create(upBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-                }):Play()
-            end)
-            
-            downBtn.MouseEnter:Connect(function()
-                if index < #RecordingOrder then
+                end)
+                
+                downBtn.MouseEnter:Connect(function()
+                    if index < #RecordingOrder then
+                        TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                            BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                        }):Play()
+                    end
+                end)
+                
+                downBtn.MouseLeave:Connect(function()
                     TweenService:Create(downBtn, TweenInfo.new(0.2), {
-                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                        BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
                     }):Play()
+                end)
+                
+                yPos = yPos + 63
+                
+                -- ✅ FIXED: Yield setiap 3 items untuk smooth rendering
+                if index % 3 == 0 then
+                    task.wait()
                 end
-            end)
+            end
             
-            downBtn.MouseLeave:Connect(function()
-                TweenService:Create(downBtn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-                }):Play()
-            end)
-            
-            yPos = yPos + 63
-        end
-        
-        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
+            RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
+        end)
     end)
 end
 
