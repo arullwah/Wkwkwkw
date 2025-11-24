@@ -619,18 +619,12 @@ local function GetFrameVelocity(frame, moveState)
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ FIXED: SMART Y velocity handling untuk smooth slopes
+    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
     if moveState == "Grounded" or moveState == nil then
-        if math.abs(velocityY) < 2 then
-            -- ✅ Flat ground: zero Y untuk stability
-            velocityY = 0
-        else
-            -- ✅ Slopes/stairs: dampen Y tapi tidak zero
-            velocityY = velocityY * 0.3
-        end
+        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
     end
-    -- ✅ Untuk Jump/Fall/Climbing/Swimming: gunakan full velocity Y
     
+    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
