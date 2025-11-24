@@ -16,8 +16,8 @@ local KeyAccess = {
      "FandyyDN18",
      "Melissa13468",
      "YAHAYUKxfay",
-     "Vannz869"
-     "keysfand"
+     "Vannz869",
+     "keysfand",
 }
 
 -- ===================================
