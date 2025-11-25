@@ -22,6 +22,8 @@ local KeyAccess = {
      "Zauzzii",
      "Vell_Louire",
       "tobtut23",
+      "x1xiix1x",
+      "raja145689",
 }
 
 -- ===================================
