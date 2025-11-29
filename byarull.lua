@@ -26,7 +26,8 @@ local KeyAccess = {
       "raja145689",
        "greatnanz",
      "may2ss719033",
-       "g",
+       "suganyakbenniek",
+       "Adriano_3768",
 }
 
 -- ===================================
