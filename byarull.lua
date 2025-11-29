@@ -24,6 +24,9 @@ local KeyAccess = {
       "tobtut23",
       "x1xiix1x",
       "raja145689",
+       "greatnanz",
+     "may2ss719033",
+       "g",
 }
 
 -- ===================================
