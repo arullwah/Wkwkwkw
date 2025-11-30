@@ -1594,8 +1594,9 @@ playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
     end)
 end)
 
-AddConnection(playbackConnection)
-UpdatePlayButtonStatus()
+     AddConnection(playbackConnection)
+    UpdatePlayButtonStatus()
+end
 
 local function SmartPlayRecording(maxDistance)
     if IsPlaying or IsAutoLoopPlaying then return end
