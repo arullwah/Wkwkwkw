@@ -29,40 +29,28 @@ if not hasFileSystem then
 end
 
 -- ========= OPTIMIZED CONFIGURATION =========
--- 🎬 RECORDING
-local RECORDING_FPS = 120
-local MAX_FRAMES = 60000
-local MIN_DISTANCE_THRESHOLD = 0.003
-
--- ⚡ VELOCITY (JANGAN UBAH!)
+local RECORDING_FPS = 60
+local MAX_FRAMES = 30000
+local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
-
--- 🕹️ CONTROLS
-local TIMELINE_STEP_SECONDS = 0.025
+local TIMELINE_STEP_SECONDS = 0.04
 local JUMP_VELOCITY_THRESHOLD = 10
-local STATE_CHANGE_COOLDOWN = 0.06
-
--- 🔄 TRANSITIONS
-local TRANSITION_FRAMES = 8
+local STATE_CHANGE_COOLDOWN = 0.08
+local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
-local PLAYBACK_FIXED_TIMESTEP = 1 / 120 -- ✅ Playback locked at 60 FPS
+local PLAYBACK_FIXED_TIMESTEP = 1 / 60
 local LOOP_TRANSITION_DELAY = 0.08
 local AUTO_LOOP_RETRY_DELAY = 0.3
-
--- ⏱️ LAG HANDLING
 local TIME_BYPASS_THRESHOLD = 0.05
-local LAG_DETECTION_THRESHOLD = 0.1
-local MAX_LAG_FRAMES_TO_SKIP = 5
+local LAG_DETECTION_THRESHOLD = 0.15
+local MAX_LAG_FRAMES_TO_SKIP = 3
 local INTERPOLATE_AFTER_LAG = true
-
--- 🎨 SMOOTHING (DISABLED)
 local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
-
--- 🚀 PLAYBACK
 local USE_VELOCITY_PLAYBACK = false
-local INTERPOLATION_LOOKAHEAD = 3
+local INTERPOLATION_LOOKAHEAD = 2
+local VELOCITY_LERP_ALPHA = 0.3  -- Semakin kecil = semakin smooth
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -106,6 +94,7 @@ local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoRespawn = false
+local previousVelocity = Vector3.zero
 local InfiniteJump = false
 local AutoLoop = false
 local recordConnection = nil
@@ -170,21 +159,6 @@ local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
-
--- ========= FORWARD DECLARATIONS (TAMBAHKAN INI!) =========
-local UpdateRecordList
-local SaveToEncryptedJSON
-local LoadFromEncryptedJSON
-local LoadFromOldJSON
-local PlaySound
-local AnimateButtonClick
-local ObfuscateRecordingData
-local DeobfuscateRecordingData
-local ConvertOldFormatToNew
-local XORCipher
-local Base64Encode
-local Base64Decode
-local GenerateChecksum
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -633,23 +607,41 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
+-- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
 local function GetFrameVelocity(frame, moveState)
-    if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
+    if not frame or not frame.Velocity then 
+        return previousVelocity  -- ✅ Return last known velocity jika error
+    end
     
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SMART Y HANDLING berdasarkan state DAN magnitude
-    if moveState == "Grounded" or moveState == "Running" then
-        -- ✅ Check kalau REALLY grounded (Y velocity kecil)
-        if math.abs(velocityY) < 2 then
-            velocityY = 0  -- ✅ Zero Y untuk grounded = smooth!
-        end
-        -- Else: Keep Y (karena mungkin transitioning to jump)
+    local targetVelocity
+    
+    -- ✅ CRITICAL: SET Y=0 untuk Grounded → Roblox physics handle terrain!
+    if moveState == "Grounded" or moveState == nil then
+        -- ✅ Y=0 → Character jatuh natural sesuai gravity Roblox
+        -- ✅ Roblox physics akan:
+        --    - Detect terrain/parts dibawah character
+        --    - Apply gravity secara natural
+        --    - Handle slopes/stairs dengan physics engine
+        --    - Collision response otomatis
+        targetVelocity = Vector3.new(velocityX, 0, velocityZ)
+    else
+        -- ✅ FULL velocity untuk Jump/Fall/Climbing/Swimming
+        -- ✅ Ini kita kontrol manual karena state khusus
+        targetVelocity = Vector3.new(velocityX, velocityY, velocityZ)
     end
     
-    return Vector3.new(velocityX, velocityY, velocityZ)
+    -- ✅ SMOOTH LERP dari velocity sebelumnya!
+    -- Ini yang bikin transisi smooth, tidak ada "hard snap"
+    local smoothedVelocity = previousVelocity:Lerp(targetVelocity, VELOCITY_LERP_ALPHA)
+    
+    -- ✅ Save untuk frame berikutnya
+    previousVelocity = smoothedVelocity
+    
+    return smoothedVelocity
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -738,43 +730,25 @@ local function ObfuscateRecordingData(recordingData)
     return obfuscated
 end
 
--- ========= AUTO-CONVERT OLD JSON FORMAT =========
-local function ConvertOldFormatToNew(oldData)
-    -- Deteksi apakah JSON sudah pakai field mapping atau belum
-    local function IsOldFormat(frames)
-        if not frames or #frames == 0 then return false end
-        local firstFrame = frames[1]
-        -- Old format pakai "Position", bukan "11"
-        return firstFrame.Position ~= nil and firstFrame["11"] == nil
-    end
-    
-    local converted = {}
-    
-    for checkpointName, frames in pairs(oldData) do
-        if IsOldFormat(frames) then
-            -- ✅ CONVERT: Old format → Obfuscated format
-            local obfuscatedFrames = {}
-            for _, frame in ipairs(frames) do
-                local obfuscatedFrame = {}
-                for fieldName, fieldValue in pairs(frame) do
-                    local code = FIELD_MAPPING[fieldName]
-                    if code then
-                        obfuscatedFrame[code] = fieldValue
-                    else
-                        -- Field yang tidak di-mapping, copy langsung
-                        obfuscatedFrame[fieldName] = fieldValue
-                    end
+local function DeobfuscateRecordingData(obfuscatedData)
+    local deobfuscated = {}
+    for checkpointName, frames in pairs(obfuscatedData) do
+        local deobfuscatedFrames = {}
+        for _, frame in ipairs(frames) do
+            local deobfuscatedFrame = {}
+            for code, fieldValue in pairs(frame) do
+                local fieldName = REVERSE_MAPPING[code]
+                if fieldName then
+                    deobfuscatedFrame[fieldName] = fieldValue
+                else
+                    deobfuscatedFrame[code] = fieldValue
                 end
-                table.insert(obfuscatedFrames, obfuscatedFrame)
             end
-            converted[checkpointName] = obfuscatedFrames
-        else
-            -- Sudah format baru, skip conversion
-            converted[checkpointName] = frames
+            table.insert(deobfuscatedFrames, deobfuscatedFrame)
         end
+        deobfuscated[checkpointName] = deobfuscatedFrames
     end
-    
-    return converted
+    return deobfuscated
 end
 
 -- ========= FRAME MANIPULATION =========
@@ -1150,11 +1124,23 @@ local function UpdatePlayButtonStatus()
     
     SafeCall(function()
         if nearestRecording and distance <= 50 then
-            PlayBtnControl.Text = "PLAY (" .. math.floor(distance) .. "m)"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+            local distanceInt = math.floor(distance)
+            
+            -- ✅ Color code berdasarkan jarak
+            local buttonColor
+            if distanceInt <= 10 then
+                buttonColor = Color3.fromRGB(40, 180, 80)  -- 🟢 Hijau (very close)
+            elseif distanceInt <= 30 then
+                buttonColor = Color3.fromRGB(200, 180, 50)  -- 🟡 Kuning (close)
+            else
+                buttonColor = Color3.fromRGB(255, 140, 50)  -- 🟠 Orange (far)
+            end
+            
+            PlayBtnControl.Text = string.format("PLAY (%dm)", distanceInt)
+            PlayBtnControl.BackgroundColor3 = buttonColor
         else
-            PlayBtnControl.Text = "PLAY"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+            PlayBtnControl.Text = "PLAY 0"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)  -- 🟣 Purple (no checkpoint)
         end
     end)
 end
@@ -1201,7 +1187,9 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- ✅ OPTIMIZED: Rotation sync TANPA merusak akurasi jump/fall/climb
+-- ✅ ═══════════════════════════════════════════════════════════════
+-- ✅ APPLY FRAME DENGAN SMOOTH CFRAME LERP & SMART STATE
+-- ✅ ═══════════════════════════════════════════════════════════════
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1212,139 +1200,61 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
+        -- ✅ SMOOTH CFRAME APPLICATION (80% blend)
+        -- Ini bikin movement tidak "teleport" tapi smooth follow
         local targetCFrame = GetFrameCFrame(frame)
-        local targetPos = targetCFrame.Position
-        local targetLook = targetCFrame.LookVector
-        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
+        
+        -- ✅ GET SMART VELOCITY (Y=0 untuk Grounded!)
         local moveState = frame.MoveState
-        
-        -- ═══════════════════════════════════════════
-        -- STRATEGY: Beda approach untuk beda state!
-        -- ═══════════════════════════════════════════
-        
-        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-        local isFallingByVelocity = frameVelocity.Y < -5
-        
-        -- Override moveState kalau velocity detect jump/fall
-        if isJumpingByVelocity and moveState ~= "Jumping" then
-            moveState = "Jumping"
-        elseif isFallingByVelocity and moveState ~= "Falling" then
-            moveState = "Falling"
-        end
-        
-        -- ═══════════════════════════════════════════
-        -- APPROACH BERDASARKAN STATE
-        -- ═══════════════════════════════════════════
-        
-        if moveState == "Grounded" or moveState == "Running" then
-            -- ✅ GROUNDED: Prioritas SYNC ROTATION via smart method
-            
-            local horizontalVelocity = Vector3.new(frameVelocity.X, 0, frameVelocity.Z)
-            local isMoving = horizontalVelocity.Magnitude > 0.5
-            
-            if isMoving then
-                -- ✅ METHOD: Align CFrame rotation dengan RECORDED velocity direction
-                -- (Bukan look vector, tapi velocity direction - lebih natural!)
-                
-                local velocityDirection = horizontalVelocity.Unit
-                
-                -- Set position + rotation dari velocity direction
-                local rotatedCFrame = CFrame.new(targetPos, targetPos + velocityDirection)
-                hrp.CFrame = rotatedCFrame
-                
-                -- ✅ CRITICAL: Velocity tetap PERSIS dari recording!
-                hrp.AssemblyLinearVelocity = Vector3.new(
-                    frameVelocity.X,  -- ✅ Exact dari recording
-                    0,                -- ✅ Y = 0 untuk grounded (smooth!)
-                    frameVelocity.Z   -- ✅ Exact dari recording
-                )
-            else
-                -- Standing still - direct CFrame
-                hrp.CFrame = targetCFrame
-                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            end
-            
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            
-        elseif moveState == "Jumping" or moveState == "Falling" then
-            -- ✅ JUMP/FALL: Prioritas AKURASI - no rotation tricks!
-            
-            -- Direct apply CFrame (position + rotation)
-            hrp.CFrame = targetCFrame
-            
-            -- ✅ EXACT velocity dari recording
-            hrp.AssemblyLinearVelocity = frameVelocity
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            
-            -- Note: Jump/fall rotation sync memang limitasi Roblox
-            -- Tapi akurasi landing > rotation sync untuk ini
-            
-        elseif moveState == "Climbing" then
-            -- ✅ CLIMBING: Hybrid approach
-            
-            -- Position exact
-            local currentCFrame = hrp.CFrame
-            hrp.CFrame = CFrame.new(targetPos) * (currentCFrame - currentCFrame.Position)
-            
-            -- Velocity dengan rotation hint
-            local lookDirection = targetLook
-            if frameVelocity.Magnitude > 0.1 then
-                -- Align velocity ke look direction untuk sync
-                local velocityMagnitude = frameVelocity.Magnitude
-                hrp.AssemblyLinearVelocity = lookDirection * velocityMagnitude
-            else
-                hrp.AssemblyLinearVelocity = frameVelocity
-            end
-            
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            
-        elseif moveState == "Swimming" then
-            -- ✅ SWIMMING: Similar to climbing
-            
-            hrp.CFrame = CFrame.new(targetPos, targetPos + targetLook)
-            
-            if frameVelocity.Magnitude > 0.1 then
-                local velocityMagnitude = frameVelocity.Magnitude
-                hrp.AssemblyLinearVelocity = targetLook * velocityMagnitude
-            else
-                hrp.AssemblyLinearVelocity = frameVelocity
-            end
-            
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            
-        else
-            -- ✅ FALLBACK: Default behavior
-            hrp.CFrame = targetCFrame
-            hrp.AssemblyLinearVelocity = frameVelocity
-            hrp.AssemblyAngularVelocity = Vector3.zero
-        end
-        
-        -- ═══════════════════════════════════════════
-        -- HUMANOID SETTINGS
-        -- ═══════════════════════════════════════════
+        local frameVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyLinearVelocity = frameVelocity
+        hrp.AssemblyAngularVelocity = Vector3.zero
         
         if hum then
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
             
-            -- ✅ AutoRotate strategy: Dynamic berdasarkan state!
             if ShiftLockEnabled then
-                hum.AutoRotate = false  -- User forced ShiftLock
-            elseif moveState == "Climbing" then
-                hum.AutoRotate = false  -- Climbing butuh manual control
-            elseif moveState == "Jumping" or moveState == "Falling" then
-                hum.AutoRotate = false  -- Mid-air butuh preserve rotation
+                hum.AutoRotate = false
             else
-                -- ✅ Grounded/Swimming: Biarkan AutoRotate untuk natural sync!
-                hum.AutoRotate = true
+                hum.AutoRotate = false
             end
             
-            -- ═══════════════════════════════════════════
-            -- STATE CHANGES dengan COOLDOWN
-            -- ═══════════════════════════════════════════
-            
             local currentTime = tick()
+            
+            -- ✅ ═══════════════════════════════════════════════════
+            -- ✅ DYNAMIC STATE DETECTION dengan HYSTERESIS
+            -- ✅ ═══════════════════════════════════════════════════
+            
+            -- ✅ Lower thresholds untuk lebih sensitive
+            local JUMP_VELOCITY_THRESHOLD = 5  -- Dari 10 → 5
+            local FALL_VELOCITY_THRESHOLD = -3  -- Dari -5 → -3
+            local STATE_HYSTERESIS = 2  -- Dead zone untuk prevent flickering
+            
+            local isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS)
+            local isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS)
+            
+            -- ✅ PREVENT STATE FLICKERING dengan conditional hysteresis
+            if lastPlaybackState == "Jumping" then
+                -- Jika lagi jump, perlu velocity turun LEBIH jauh untuk jadi fall
+                isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS * 2)
+            elseif lastPlaybackState == "Falling" then
+                -- Jika lagi fall, perlu velocity naik LEBIH tinggi untuk jadi jump
+                isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS * 2)
+            end
+            
+            -- ✅ Override state HANYA untuk Jump/Fall
+            if isJumpingByVelocity and moveState ~= "Jumping" then
+                moveState = "Jumping"
+            elseif isFallingByVelocity and moveState ~= "Falling" then
+                moveState = "Falling"
+            end
+            
+            -- ✅ ═══════════════════════════════════════════════════
+            -- ✅ APPLY STATE CHANGES
+            -- ✅ ═══════════════════════════════════════════════════
             
             if moveState == "Jumping" then
                 if lastPlaybackState ~= "Jumping" then
@@ -1352,23 +1262,31 @@ local function ApplyFrameDirect(frame)
                     lastPlaybackState = "Jumping"
                     lastStateChangeTime = currentTime
                 end
+                
             elseif moveState == "Falling" then
                 if lastPlaybackState ~= "Falling" then
                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                     lastPlaybackState = "Falling"
                     lastStateChangeTime = currentTime
                 end
+                
             else
-                -- Grounded/Climbing/Swimming: Pakai cooldown
+                -- ✅ SMOOTH STATE CHANGES dengan cooldown (prevent spam)
                 if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    
                     if moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
+                        
                     elseif moveState == "Swimming" then
                         hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        
                     else
+                        -- ✅ DEFAULT: Running/Grounded
+                        -- ✅ DI SINI ROBLOX PHYSICS AMBIL ALIH!
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
+                    
                     lastPlaybackState = moveState
                     lastStateChangeTime = currentTime
                 end
@@ -1376,7 +1294,6 @@ local function ApplyFrameDirect(frame)
         end
     end)
 end
-
 
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
@@ -1398,6 +1315,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
+    previousVelocity = Vector3.zero  -- ✅ TAMBAHKAN INI
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1650,6 +1568,7 @@ end
 local function StopPlayback()
     lastStateChangeTime = 0
     lastPlaybackState = nil
+    previousVelocity = Vector3.zero  -- ✅ TAMBAHKAN INI
 
     if AutoLoop then
         StopAutoLoopAll()
@@ -2061,7 +1980,7 @@ local function StartTitlePulse(titleLabel)
     letterContainer.BackgroundTransparency = 1
     letterContainer.Parent = titleLabel
 
-    local fullText = "ByaruL Recorder"
+    local fullText = "ByaruL RecordeR"
     local letters = {}
     local letterWidth = 15  -- Width per character
 
@@ -2485,168 +2404,18 @@ local function SaveStudioRecording()
     end)
 end
 
+-- ========= FILE SAVE/LOAD =========
 
--- ========= DETECT EXECUTOR CAPABILITIES =========
-local hasFileSystem = (writefile ~= nil and readfile ~= nil and isfile ~= nil)
-local hasBit32 = (bit32 ~= nil)
-
--- ========= FALLBACK BIT32 =========
-if not hasBit32 then
-    bit32 = {}
-    function bit32.bxor(a, b)
-        local result = 0
-        local bitval = 1
-        while a > 0 or b > 0 do
-            local abit = a % 2
-            local bbit = b % 2
-            if abit ~= bbit then
-                result = result + bitval
-            end
-            bitval = bitval * 2
-            a = math.floor(a / 2)
-            b = math.floor(b / 2)
-        end
-        return result
-    end
-end
-
--- ========= ENCRYPTION SYSTEM =========
-
--- Encryption Key
-local ENCRYPTION_KEY = "ByaruLRecorder2024!Secret#Key@"
-
--- Field Mapping for Obfuscation
-local FIELD_MAPPING = {
-    Position = "11",
-    LookVector = "88",
-    UpVector = "55",
-    Velocity = "22",
-    MoveState = "33",
-    WalkSpeed = "44",
-    Timestamp = "66"
-}
-
-local REVERSE_MAPPING = {
-    ["11"] = "Position",
-    ["88"] = "LookVector",
-    ["55"] = "UpVector",
-    ["22"] = "Velocity",
-    ["33"] = "MoveState",
-    ["44"] = "WalkSpeed",
-    ["66"] = "Timestamp"
-}
-
--- ========= HELPER FUNCTIONS =========
-
-local function ObfuscateRecordingData(recordingData)
-    local obfuscated = {}
-    for checkpointName, frames in pairs(recordingData) do
-        local obfuscatedFrames = {}
-        for _, frame in ipairs(frames) do
-            local obfuscatedFrame = {}
-            for fieldName, fieldValue in pairs(frame) do
-                local code = FIELD_MAPPING[fieldName]
-                if code then
-                    obfuscatedFrame[code] = fieldValue
-                else
-                    obfuscatedFrame[fieldName] = fieldValue
-                end
-            end
-            table.insert(obfuscatedFrames, obfuscatedFrame)
-        end
-        obfuscated[checkpointName] = obfuscatedFrames
-    end
-    return obfuscated
-end
-
-local function DeobfuscateRecordingData(obfuscatedData)
-    local deobfuscated = {}
-    for checkpointName, frames in pairs(obfuscatedData) do
-        local deobfuscatedFrames = {}
-        for _, frame in ipairs(frames) do
-            local deobfuscatedFrame = {}
-            for code, fieldValue in pairs(frame) do
-                local fieldName = REVERSE_MAPPING[code]
-                if fieldName then
-                    deobfuscatedFrame[fieldName] = fieldValue
-                else
-                    deobfuscatedFrame[code] = fieldValue
-                end
-            end
-            table.insert(deobfuscatedFrames, deobfuscatedFrame)
-        end
-        deobfuscated[checkpointName] = deobfuscatedFrames
-    end
-    return deobfuscated
-end
-
--- XOR Cipher
-local function XORCipher(data, key)
-    local result = {}
-    local keyLen = #key
-    for i = 1, #data do
-        local dataByte = string.byte(data, i)
-        local keyByte = string.byte(key, ((i - 1) % keyLen) + 1)
-        local xorResult = bit32.bxor(dataByte, keyByte)
-        table.insert(result, string.char(xorResult))
-    end
-    return table.concat(result)
-end
-
--- Base64 Encoding
-local base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-
-local function Base64Encode(data)
-    return ((data:gsub('.', function(x)
-        local r,b='',x:byte()
-        for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
-        return r;
-    end)..'0000'):gsub('%d%d%d?%d?%d?%d?', function(x)
-        if (#x < 6) then return '' end
-        local c=0
-        for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
-        return base64chars:sub(c+1,c+1)
-    end)..({ '', '==', '=' })[#data%3+1])
-end
-
-local function Base64Decode(data)
-    data = string.gsub(data, '[^'..base64chars..'=]', '')
-    return (data:gsub('.', function(x)
-        if (x == '=') then return '' end
-        local r,f='',(base64chars:find(x)-1)
-        for i=6,1,-1 do r=r..(f%2^i-f%2^(i-1)>0 and '1' or '0') end
-        return r;
-    end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
-        if (#x ~= 8) then return '' end
-        local c=0
-        for i=1,8 do c=c+(x:sub(i,i)=='1' and 2^(8-i) or 0) end
-        return string.char(c)
-    end))
-end
-
--- Checksum Generation
-local function GenerateChecksum(data)
-    local hash = 5381
-    for i = 1, #data do
-        hash = ((hash * 33) + string.byte(data, i)) % 2147483647
-    end
-    return tostring(hash)
-end
-
--- ========= SAVE FUNCTION =========
-
-local function SaveToEncryptedJSON()
+local function SaveToObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Save Failed",
-            Text = "Executor does not support file system!",
-            Duration = 5
-        })
         return
     end
     
-    -- Check if any recordings are checked
+    local filename = FilenameBox and FilenameBox.Text or ""
+    if filename == "" then filename = "ByaruL" end
+    filename = filename .. ".json"
+    
     local hasCheckedRecordings = false
     for name, checked in pairs(CheckedRecordings) do
         if checked then
@@ -2654,32 +2423,21 @@ local function SaveToEncryptedJSON()
             break
         end
     end
-
+    
     if not hasCheckedRecordings then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "⚠️ No Data Selected",
-            Text = "Please check recordings first!",
-            Duration = 3
-        })
         return
     end
-
-    local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
-
+    
     local success, err = pcall(function()
-        -- Prepare save data structure
         local saveData = {
-            Version = "4.0_Encrypted",
-            Signature = "ByaruLRecorder",
-            Timestamp = os.time(),
+            Version = "3.3",
+            Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
             CheckpointNames = {}
         }
         
-        -- Collect checked recordings
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
                 local frames = RecordedMovements[name]
@@ -2696,7 +2454,6 @@ local function SaveToEncryptedJSON()
             end
         end
         
-        -- Obfuscate frame data
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
             recordingsToObfuscate[name] = RecordedMovements[name]
@@ -2705,206 +2462,63 @@ local function SaveToEncryptedJSON()
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
-        -- Encode to JSON
         local jsonString = HttpService:JSONEncode(saveData)
         
-        -- Generate checksum
-        local checksum = GenerateChecksum(jsonString)
-        
-        -- Combine checksum with data
-        local finalData = checksum .. "|" .. jsonString
-        
-        -- Encrypt with XOR
-        local encrypted = XORCipher(finalData, ENCRYPTION_KEY)
-        
-        -- Encode to Base64
-        local encoded = Base64Encode(encrypted)
-        
-        -- Add file header
-        local header = "BRLREC" .. string.char(0x01, 0x00, 0x04, 0x00) -- Version 4.0
-        local finalFile = header .. encoded
-        
-        -- Write to file
-        writefile(filename .. ".brl", finalFile)
-        
+        writefile(filename, jsonString)
         PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Save Success: " .. filename,
-            Text = #saveData.RecordingOrder .. " recordings saved",
-            Duration = 3
-        })
     end)
-
+    
     if not success then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Save Failed",
-            Text = tostring(err),
-            Duration = 4
-        })
     end
 end
 
--- ========= LOAD FUNCTION =========
-
-local function LoadFromEncryptedJSON()
+local function LoadFromObfuscatedJSON()
     if not hasFileSystem then
         PlaySound("Error")
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Failed",
-            Text = "Executor does not support file system!",
-            Duration = 5
-        })
         return
     end
     
     local filename = FilenameBox and FilenameBox.Text or ""
-    if filename == "" then filename = "MyReplays" end
-
+    if filename == "" then filename = "ByaruL" end
+    filename = filename .. ".json"
+    
     local success, err = pcall(function()
-        -- Check if file exists
-        local fileExists = false
-        pcall(function()
-            fileExists = isfile(filename .. ".brl")
-        end)
-        
-        if not fileExists then
+        if not isfile(filename) then
             PlaySound("Error")
-            StarterGui:SetCore("SendNotification", {
-                Title = "⚠️ File Not Found",
-                Text = filename .. ".brl does not exist",
-                Duration = 3
-            })
             return
         end
         
-        -- Read file
-        local fileContent = readfile(filename .. ".brl")
-        
-        -- Validate header
-        local header = string.sub(fileContent, 1, 10)
-        if not string.match(header, "^BRLREC") then
-            error("Invalid file format - not a .brl file")
-        end
-        
-        -- Extract version from header
-        local versionBytes = {string.byte(header, 7, 10)}
-        local majorVersion = versionBytes[1]
-        local minorVersion = versionBytes[3]
-        
-        -- Only accept version 4.0+
-        if majorVersion < 4 then
-            error("Unsupported file version - please use version 4.0 or newer")
-        end
-        
-        -- Extract encoded data
-        local encoded = string.sub(fileContent, 11)
-        
-        -- Decode Base64
-        local encrypted = Base64Decode(encoded)
-        
-        -- Decrypt XOR
-        local decrypted = XORCipher(encrypted, ENCRYPTION_KEY)
-        
-        -- Split checksum and JSON
-        local splitPos = string.find(decrypted, "|", 1, true)
-        if not splitPos then
-            error("File is corrupted - invalid data structure")
-        end
-        
-        local storedChecksum = string.sub(decrypted, 1, splitPos - 1)
-        local jsonString = string.sub(decrypted, splitPos + 1)
-        
-        -- Verify checksum
-        local calculatedChecksum = GenerateChecksum(jsonString)
-        if storedChecksum ~= calculatedChecksum then
-            error("File is corrupted - checksum verification failed")
-        end
-        
-        -- Parse JSON
+        local jsonString = readfile(filename)
         local saveData = HttpService:JSONDecode(jsonString)
         
-        -- Validate signature
-        if saveData.Signature ~= "ByaruLRecorder" then
-            error("Invalid file signature - file may be tampered")
-        end
-        
-        -- Extract data
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
-        local obfuscatedFrames = saveData.ObfuscatedFrames or {}
         
-        -- Deobfuscate frame data
-        local deobfuscatedData = DeobfuscateRecordingData(obfuscatedFrames)
-        
-        -- Load recordings
-        local loadedCount = 0
-        
-        for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
-            local name = checkpointData.Name
-            local frames = deobfuscatedData[name]
+        if saveData.Obfuscated and saveData.ObfuscatedFrames then
+            local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
-            if frames and #frames > 0 then
-                -- Validate frame structure
-                local firstFrame = frames[1]
-                if not firstFrame.Position or not firstFrame.LookVector then
-                    warn("⚠️ Skipping invalid recording:", name)
-                    continue
+            for _, checkpointData in ipairs(saveData.Checkpoints or {}) do
+                local name = checkpointData.Name
+                local frames = deobfuscatedData[name]
+                
+                if frames then
+                    RecordedMovements[name] = frames
+                    checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
+                    
+                    if not table.find(RecordingOrder, name) then
+                        table.insert(RecordingOrder, name)
+                    end
                 end
-                
-                -- Store recording
-                RecordedMovements[name] = frames
-                checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                
-                -- Add to order if not exists
-                if not table.find(RecordingOrder, name) then
-                    table.insert(RecordingOrder, name)
-                end
-                
-                loadedCount = loadedCount + 1
             end
         end
         
-        if loadedCount == 0 then
-            error("No valid recordings found in file")
-        end
-        
-        -- Update UI
         UpdateRecordList()
         PlaySound("Success")
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "✅ Load Success: " .. filename,
-            Text = loadedCount .. " recordings loaded",
-            Duration = 3
-        })
     end)
-
+    
     if not success then
         PlaySound("Error")
-        
-        -- Parse error type
-        local errorMsg = tostring(err)
-        local displayMsg = "Unknown error"
-        
-        if string.match(errorMsg, "corrupted") or string.match(errorMsg, "Corrupted") then
-            displayMsg = "File is corrupted or damaged"
-        elseif string.match(errorMsg, "checksum") or string.match(errorMsg, "Checksum") then
-            displayMsg = "File verification failed"
-        elseif string.match(errorMsg, "Invalid") or string.match(errorMsg, "invalid") then
-            displayMsg = "Invalid file format"
-        elseif string.match(errorMsg, "Unsupported") or string.match(errorMsg, "version") then
-            displayMsg = "Unsupported file version"
-        elseif string.match(errorMsg, "tampered") then
-            displayMsg = "File may be tampered"
-        end
-        
-        StarterGui:SetCore("SendNotification", {
-            Title = "❌ Load Failed",
-            Text = displayMsg,
-            Duration = 4
-        })
     end
 end
 
@@ -2945,148 +2559,250 @@ function UpdateRecordList()
             local rec = RecordedMovements[name]
             if not rec then continue end
             
-            -- ✅ ITEM FRAME
+            -- ✨ MAIN CONTAINER
             local item = Instance.new("Frame")
-            item.Size = UDim2.new(1, -6, 0, 60)
+            item.Size = UDim2.new(1, -6, 0, 58)
             item.Position = UDim2.new(0, 3, 0, yPos)
-            item.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            item.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+            item.BorderSizePixel = 0
             item.Parent = RecordingsList
         
             local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 4)
+            corner.CornerRadius = UDim.new(0, 6)
             corner.Parent = item
+            
+            -- Outer stroke
+            local outerStroke = Instance.new("UIStroke")
+            outerStroke.Color = Color3.fromRGB(40, 40, 50)
+            outerStroke.Thickness = 1
+            outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            outerStroke.Parent = item
+            
+            -- ═══════════════════════════════════════════
+            -- ROW 1: CHECKBOX + TEXTBOX (NAME + INFO!)
+            -- ═══════════════════════════════════════════
+            
+            local topRow = Instance.new("Frame")
+            topRow.Size = UDim2.new(1, -10, 0, 22)
+            topRow.Position = UDim2.fromOffset(5, 5)
+            topRow.BackgroundTransparency = 1
+            topRow.Parent = item
             
             -- ✅ CHECKBOX
             local checkBox = Instance.new("TextButton")
             checkBox.Size = UDim2.fromOffset(18, 18)
-            checkBox.Position = UDim2.fromOffset(5, 5)
-            checkBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            checkBox.Position = UDim2.fromOffset(0, 2)
+            checkBox.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
             checkBox.Text = CheckedRecordings[name] and "✓" or ""
             checkBox.TextColor3 = Color3.fromRGB(100, 255, 150)
             checkBox.Font = Enum.Font.GothamBold
             checkBox.TextSize = 12
-            checkBox.Parent = item
+            checkBox.BorderSizePixel = 0
+            checkBox.Parent = topRow
             
             local checkCorner = Instance.new("UICorner")
             checkCorner.CornerRadius = UDim.new(0, 3)
             checkCorner.Parent = checkBox
             
-            -- ✅ TEXTBOX DENGAN RAINBOW BORDER (FIXED SIZE & POSITION!)
+            local checkStroke = Instance.new("UIStroke")
+            checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
+            checkStroke.Thickness = 1.5
+            checkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            checkStroke.Parent = checkBox
+            
+            -- ✨ TEXTBOX CONTAINER (WITH INFO INSIDE!)
+            local textboxContainer = Instance.new("Frame")
+            textboxContainer.Size = UDim2.new(1, -25, 1, 0)
+            textboxContainer.Position = UDim2.fromOffset(23, 0)
+            textboxContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            textboxContainer.BorderSizePixel = 0
+            textboxContainer.Parent = topRow
+            
+            local containerCorner = Instance.new("UICorner")
+            containerCorner.CornerRadius = UDim.new(0, 3)
+            containerCorner.Parent = textboxContainer
+            
+            -- ✅ RGB RAINBOW BORDER
+            local rgbStroke = Instance.new("UIStroke")
+            rgbStroke.Thickness = 0.8
+            rgbStroke.Color = Color3.fromRGB(255, 0, 0)
+            rgbStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            rgbStroke.Parent = textboxContainer
+            
+            -- ✅ ANIMATE RAINBOW
+            task.spawn(function()
+                local hue = (index - 1) / math.max(#RecordingOrder, 1)
+                while rgbStroke and rgbStroke.Parent do
+                    hue = (hue + 0.005) % 1
+                    rgbStroke.Color = Color3.fromHSV(hue, 1, 1)
+                    task.wait(0.03)
+                end
+            end)
+            
+            -- 📝 NAME TEXTBOX (LEFT SIDE)
             local nameBox = Instance.new("TextBox")
-            nameBox.Size = UDim2.new(1, -108, 0, 18)  -- ✅ FIXED: -95 instead of -90
-            nameBox.Position = UDim2.fromOffset(28, 5)
-            nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-            nameBox.BorderSizePixel = 0
-            nameBox.Text = checkpointNames[name] or "Checkpoint1"
+            nameBox.Size = UDim2.new(0.55, 0, 1, 0)  -- 55% width
+            nameBox.Position = UDim2.fromOffset(5, 0)
+            nameBox.BackgroundTransparency = 1
+            nameBox.Text = checkpointNames[name] or "Checkpoint"
             nameBox.TextColor3 = Color3.fromRGB(255, 255, 255)
             nameBox.TextStrokeTransparency = 0.6
             nameBox.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
             nameBox.Font = Enum.Font.GothamBold
             nameBox.TextSize = 9
-            nameBox.TextXAlignment = Enum.TextXAlignment.Center  -- ✅ FIXED: CENTER!
+            nameBox.TextXAlignment = Enum.TextXAlignment.Left
             nameBox.PlaceholderText = "Name"
             nameBox.ClearTextOnFocus = false
-            nameBox.Parent = item
+            nameBox.Parent = textboxContainer
             
-            local nameBoxCorner = Instance.new("UICorner")
-            nameBoxCorner.CornerRadius = UDim.new(0, 3)
-            nameBoxCorner.Parent = nameBox
-            
-            -- ✅ RAINBOW BORDER (THICKNESS = 1)
-            local nameBoxStroke = Instance.new("UIStroke")
-            nameBoxStroke.Thickness = 0.8 -- ✅ FIXED
-            nameBoxStroke.Color = Color3.fromRGB(255, 0, 0)
-            nameBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            nameBoxStroke.Parent = nameBox
-            
-            -- ✅ ANIMATED RAINBOW
-            task.spawn(function()
-                local hue = (index - 1) / math.max(#RecordingOrder, 1)
-                while nameBoxStroke and nameBoxStroke.Parent do
-                    hue = (hue + 0.05) % 1
-                    nameBoxStroke.Color = Color3.fromHSV(hue, 1, 1)
-                    task.wait(0.03)
-                end
-            end)
-            
-            -- ✅ INFO LABEL (FIXED POSITION!)
+            -- ℹ️ INFO LABEL (RIGHT SIDE - READ ONLY!)
             local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -95, 0, 14)  -- ✅ FIXED: -95 instead of -90
-            infoLabel.Position = UDim2.fromOffset(28, 35)
+            infoLabel.Size = UDim2.new(0.45, -5, 1, 0)  -- 45% width
+            infoLabel.Position = UDim2.new(0.55, 0, 0, 0)
             infoLabel.BackgroundTransparency = 1
             if #rec > 0 then
                 local totalSeconds = rec[#rec].Timestamp
-                infoLabel.Text = "🕐 " .. FormatDuration(totalSeconds) .. " 📊 " .. #rec .. " frames"
+                local minutes = math.floor(totalSeconds / 60)
+                local seconds = math.floor(totalSeconds % 60)
+                infoLabel.Text = string.format("⏱%d:%02d│📊%d", minutes, seconds, #rec)
             else
-                infoLabel.Text = "🕐 0:00 📊 0 frames"
+                infoLabel.Text = "⏱0:00│📊0"
             end
-            infoLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
             infoLabel.Font = Enum.Font.GothamBold
             infoLabel.TextSize = 8
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-            infoLabel.Parent = item
+            infoLabel.TextXAlignment = Enum.TextXAlignment.Right
+            infoLabel.Parent = textboxContainer
             
-            -- ✅ PLAY BUTTON
+            -- ═══════════════════════════════════════════
+            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
+            -- ═══════════════════════════════════════════
+            
+            local segmentedBar = Instance.new("Frame")
+            segmentedBar.Size = UDim2.new(1, -10, 0, 26)
+            segmentedBar.Position = UDim2.fromOffset(5, 29)
+            segmentedBar.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+            segmentedBar.BorderSizePixel = 0
+            segmentedBar.Parent = item
+            
+            local barCorner = Instance.new("UICorner")
+            barCorner.CornerRadius = UDim.new(0, 4)
+            barCorner.Parent = segmentedBar
+            
+            local barStroke = Instance.new("UIStroke")
+            barStroke.Color = Color3.fromRGB(50, 50, 60)
+            barStroke.Thickness = 1
+            barStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            barStroke.Parent = segmentedBar
+            
+            -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
+            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
+            local buttonSpacing = 3   -- Space between buttons
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 1: PLAY (25% width)
+            -- ═══════════════════════════════════════════
+            
             local playBtn = Instance.new("TextButton")
-            playBtn.Size = UDim2.fromOffset(38, 20)
-            playBtn.Position = UDim2.new(1, -79, 0, 5)
+            playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            playBtn.Position = UDim2.fromOffset(2, 2)
             playBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-            playBtn.Text = "Play"
-            playBtn.TextColor3 = Color3.new(1, 1, 1)
+            playBtn.Text = "Main"
+            playBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             playBtn.Font = Enum.Font.GothamBold
             playBtn.TextSize = 9
-            playBtn.Parent = item
+            playBtn.BorderSizePixel = 0
+            playBtn.Parent = segmentedBar
             
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
             
-            -- ✅ DELETE BUTTON
+            -- Divider 1
+            local divider1 = Instance.new("Frame")
+            divider1.Size = UDim2.new(0, 1, 1, -8)
+            divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
+            divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider1.BorderSizePixel = 0
+            divider1.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 2: DELETE (25% width)
+            -- ═══════════════════════════════════════════
+            
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(38, 20)
-            delBtn.Position = UDim2.new(1, -38, 0, 5)
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Delete"
-            delBtn.TextColor3 = Color3.new(1, 1, 1)
+            delBtn.Text = "Hapus"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 8
-            delBtn.Parent = item
+            delBtn.TextSize = 9
+            delBtn.BorderSizePixel = 0
+            delBtn.Parent = segmentedBar
             
             local delCorner = Instance.new("UICorner")
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
             
-            -- ✅ NAIK BUTTON
+            -- Divider 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 3: NAIK (25% width)
+            -- ═══════════════════════════════════════════
+            
             local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.fromOffset(38, 20)
-            upBtn.Position = UDim2.new(1, -79, 0, 30)
-            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
+            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             upBtn.Text = "Naik"
-            upBtn.TextColor3 = Color3.new(1, 1, 1)
+            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             upBtn.Font = Enum.Font.GothamBold
             upBtn.TextSize = 9
-            upBtn.Parent = item
+            upBtn.BorderSizePixel = 0
+            upBtn.Parent = segmentedBar
             
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
             
-            -- ✅ TURUN BUTTON
+            -- Divider 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 4: TURUN (25% width)
+            -- ═══════════════════════════════════════════
+            
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.fromOffset(38, 20)
-            downBtn.Position = UDim2.new(1, -38, 0, 30)
-            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(60, 60, 70)
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             downBtn.Text = "Turun"
-            downBtn.TextColor3 = Color3.new(1, 1, 1)
+            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
             downBtn.Font = Enum.Font.GothamBold
             downBtn.TextSize = 9
-            downBtn.Parent = item
+            downBtn.BorderSizePixel = 0
+            downBtn.Parent = segmentedBar
             
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
             
-            -- ✅ EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            -- EVENT HANDLERS
+            -- ═══════════════════════════════════════════
+            
             nameBox.FocusLost:Connect(function()
                 local newName = nameBox.Text
                 if newName and newName ~= "" then
@@ -3098,6 +2814,7 @@ function UpdateRecordList()
             checkBox.MouseButton1Click:Connect(function()
                 CheckedRecordings[name] = not CheckedRecordings[name]
                 checkBox.Text = CheckedRecordings[name] and "✓" or ""
+                checkStroke.Color = CheckedRecordings[name] and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(60, 60, 70)
                 AnimateButtonClick(checkBox)
             end)
             
@@ -3134,10 +2851,66 @@ function UpdateRecordList()
                 end
             end)
             
-            yPos = yPos + 65
+            -- ═══════════════════════════════════════════
+            -- HOVER EFFECTS FOR ALL BUTTONS
+            -- ═══════════════════════════════════════════
+            
+            playBtn.MouseEnter:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(80, 25, 150)
+                }):Play()
+            end)
+            
+            playBtn.MouseLeave:Connect(function()
+                TweenService:Create(playBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                }):Play()
+            end)
+            
+            delBtn.MouseEnter:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(230, 70, 80)
+                }):Play()
+            end)
+            
+            delBtn.MouseLeave:Connect(function()
+                TweenService:Create(delBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+                }):Play()
+            end)
+            
+            upBtn.MouseEnter:Connect(function()
+                if index > 1 then
+                    TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            upBtn.MouseLeave:Connect(function()
+                TweenService:Create(upBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                }):Play()
+            end)
+            
+            downBtn.MouseEnter:Connect(function()
+                if index < #RecordingOrder then
+                    TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                        BackgroundColor3 = Color3.fromRGB(90, 220, 170)
+                    }):Play()
+                end
+            end)
+            
+            downBtn.MouseLeave:Connect(function()
+                TweenService:Create(downBtn, TweenInfo.new(0.2), {
+                    BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+                }):Play()
+            end)
+            
+            yPos = yPos + 63
         end
         
-        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, math.max(yPos, RecordingsList.AbsoluteSize.Y))
+        RecordingsList.CanvasSize = UDim2.new(0, 0, 0, yPos + 5)
     end)
 end
 
@@ -3180,7 +2953,7 @@ local uiSuccess, uiError = pcall(function()
     Title = Instance.new("TextLabel")
     Title.Size = UDim2.new(1, 0, 1, 0)
     Title.BackgroundTransparency = 1
-    Title.Text = "ByaruL Recorder"
+    Title.Text = "ByaruL RecordeR"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
     Title.Font = Enum.Font.GothamBold
     Title.TextSize = 14
@@ -3402,13 +3175,13 @@ local uiSuccess, uiError = pcall(function()
 
 -- ========= MINI BUTTON WITH ULTIMATE ANIMATION =========
 MiniButton = Instance.new("TextButton")
-MiniButton.Size = UDim2.fromOffset(30, 30)
+MiniButton.Size = UDim2.fromOffset(40, 40)
 MiniButton.Position = UDim2.new(0, 10, 0, 10)
 MiniButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Text = "A"
 MiniButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MiniButton.Font = Enum.Font.FredokaOne  -- ✅ CHANGED!
-MiniButton.TextSize = 35 -- ✅ BIGGER for FredokaOne!
+MiniButton.TextSize = 30 -- ✅ BIGGER for FredokaOne!
 MiniButton.TextStrokeTransparency = 0.5
 MiniButton.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
 MiniButton.Visible = true
@@ -3478,19 +3251,21 @@ do
     table.insert(activeConnections, ultimateAnimConn)
 end
 
-    PlaybackControl = Instance.new("Frame")
-    PlaybackControl.Size = UDim2.fromOffset(156, 120)
-    PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
-    PlaybackControl.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    PlaybackControl.BorderSizePixel = 0
-    PlaybackControl.Active = true
-    PlaybackControl.Draggable = true
-    PlaybackControl.Visible = false
-    PlaybackControl.Parent = ScreenGui
+    -- ========= PLAYBACK CONTROL GUI =========
+PlaybackControl = Instance.new("Frame")
+PlaybackControl.Size = UDim2.fromOffset(156, 120)
+PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlaybackControl.BackgroundTransparency = 0.4 -- ✅ Sedikit transparan
+PlaybackControl.BorderSizePixel = 0
+PlaybackControl.Active = true
+PlaybackControl.Draggable = true
+PlaybackControl.Visible = false
+PlaybackControl.Parent = ScreenGui
 
-    local PlaybackCorner = Instance.new("UICorner")
-    PlaybackCorner.CornerRadius = UDim.new(0, 8)
-    PlaybackCorner.Parent = PlaybackControl
+local PlaybackCorner = Instance.new("UICorner")
+PlaybackCorner.CornerRadius = UDim.new(0, 8)
+PlaybackCorner.Parent = PlaybackControl
 
     local PlaybackContent = Instance.new("Frame")
     PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3541,21 +3316,23 @@ end
     RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
     ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
     ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShowRuteBtnControl = CreatePlaybackBtn("Path OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
-    RecordingStudio = Instance.new("Frame")
-    RecordingStudio.Size = UDim2.fromOffset(156, 120)
-    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-    RecordingStudio.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    RecordingStudio.BorderSizePixel = 0
-    RecordingStudio.Active = true
-    RecordingStudio.Draggable = true
-    RecordingStudio.Visible = false
-    RecordingStudio.Parent = ScreenGui
+    -- ========= RECORDING STUDIO GUI =========
+RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(156, 120)
+RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-    local StudioCorner = Instance.new("UICorner")
-    StudioCorner.CornerRadius = UDim.new(0, 8)
-    StudioCorner.Parent = RecordingStudio
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 8)
+StudioCorner.Parent = RecordingStudio
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3602,9 +3379,90 @@ end
 
     SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
     StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-    ResumeBtn = CreateStudioBtn("RESUME", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-    PrevBtn = CreateStudioBtn("◀ PREV", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
-    NextBtn = CreateStudioBtn("NEXT ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+    ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+    PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
+
+-- ✅ ADD: Hold detection
+local prevHoldConnection = nil
+local prevHoldActive = false
+
+PrevBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        prevHoldActive = true
+        
+        -- Single tap
+        task.spawn(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
+        
+        -- Wait 0.3s, then start rapid fire
+        task.wait(0.3)
+        
+        if prevHoldActive then
+            prevHoldConnection = RunService.Heartbeat:Connect(function()
+                if prevHoldActive then
+                    GoBackTimeline()
+                    task.wait(0.05)  -- 20 frames/second
+                end
+            end)
+        end
+    end
+end)
+
+PrevBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        prevHoldActive = false
+        if prevHoldConnection then
+            prevHoldConnection:Disconnect()
+            prevHoldConnection = nil
+        end
+    end
+end)
+
+-- ✅ SAME for NextBtn:
+NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
+
+local nextHoldConnection = nil
+local nextHoldActive = false
+
+NextBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        nextHoldActive = true
+        
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
+        
+        task.wait(0.3)
+        
+        if nextHoldActive then
+            nextHoldConnection = RunService.Heartbeat:Connect(function()
+                if nextHoldActive then
+                    GoNextTimeline()
+                    task.wait(0.05)
+                end
+            end)
+        end
+    end
+end)
+
+NextBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        nextHoldActive = false
+        if nextHoldConnection then
+            nextHoldConnection:Disconnect()
+            nextHoldConnection = nil
+        end
+    end
+end)
 
     -- ========= INPUT VALIDATION =========
 
@@ -3631,7 +3489,7 @@ end
     local function ValidateWalkSpeed(walkSpeedText)
         local walkSpeed = tonumber(walkSpeedText)
         if not walkSpeed then return false, "Invalid number" end
-        if walkSpeed < 8 or walkSpeed > 1000 then return false, "WalkSpeed must be between 8 and 1000" end
+        if walkSpeed < 8 or walkSpeed > 5000 then return false, "WalkSpeed must be between 8 and 5000" end
         return true, walkSpeed
     end
 
@@ -3656,17 +3514,23 @@ end
     -- ========= BUTTON CONNECTIONS =========
 
     PlayBtnControl.MouseButton1Click:Connect(function()
-        AnimateButtonClick(PlayBtnControl)
-        if IsPlaying or IsAutoLoopPlaying then
-            StopPlayback()
+    AnimateButtonClick(PlayBtnControl)
+    if IsPlaying or IsAutoLoopPlaying then
+        -- ✅ STOP → PAUSE
+        StopPlayback()
+        PlayBtnControl.Text = "RESUME"  -- ✅ Ubah jadi RESUME
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)  -- ✅ Hijau untuk resume
+    else
+        -- ✅ PLAY/RESUME → STOP
+        if AutoLoop then
+            StartAutoLoopAll()
         else
-            if AutoLoop then
-                StartAutoLoopAll()
-            else
-                SmartPlayRecording(50)
-            end
+            SmartPlayRecording(50)
         end
-    end)
+        PlayBtnControl.Text = "PAUSE"  -- ✅ Ubah jadi STOP
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)  -- ✅ Merah untuk stop
+    end
+end)
 
     LoopBtnControl.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoopBtnControl)
@@ -3771,17 +3635,15 @@ end
         end)
     end)
 
-    -- ========= BUTTON CONNECTIONS =========
+    SaveFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(SaveFileBtn)
+        SaveToObfuscatedJSON()
+    end)
 
-SaveFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(SaveFileBtn)
-    SaveToEncryptedJSON()
-end)
-
-LoadFileBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(LoadFileBtn)
-    LoadFromEncryptedJSON()
-end)
+    LoadFileBtn.MouseButton1Click:Connect(function()
+        AnimateButtonClick(LoadFileBtn)
+        LoadFromObfuscatedJSON()
+    end)
 
     MergeBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MergeBtn)
@@ -4227,7 +4089,7 @@ if hasFileSystem then
     task.spawn(function()
         task.wait(2)
         SafeCall(function()
-            local filename = "MyReplays.json"
+            local filename = "ByaruL.json"
             if isfile(filename) then
                 FilenameBox.Text = "MyReplays"
                 LoadFromObfuscatedJSON()
@@ -4240,4 +4102,3 @@ task.spawn(function()
     task.wait(1)
     PlaySound("Success")
 end)
-
