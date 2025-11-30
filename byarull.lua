@@ -29,6 +29,8 @@ local KeyAccess = {
        "suganyakbenniek",
        "Adriano_3768",
        "Erosaints",
+       "AGExNayy",
+        "Elannndd",
 }
 
 -- ===================================
