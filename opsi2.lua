@@ -801,6 +801,69 @@ local function FindNearestFrame(recording, position)
     return nearestFrame, nearestDistance
 end
 
+-- ========= ANTI-FALL SYSTEM (COMPLETE) =========
+
+local function UpdateSafePosition(position, frameIndex)
+    if not AntiFallEnabled then return end
+    
+    local currentTime = tick()
+    if currentTime - lastSafePositionUpdateTime < SAFE_POSITION_UPDATE_INTERVAL then
+        return
+    end
+    
+    -- ✅ Update posisi aman terakhir
+    LastSafePosition = position
+    LastSafeFrame = frameIndex
+    lastSafePositionUpdateTime = currentTime
+end
+
+local function CheckAndPreventFall(currentPos, previousPos)
+    if not AntiFallEnabled then return false end
+    if not LastSafePosition then return false end
+    if not previousPos then return false end
+    
+    -- ✅ Detect jatuh drastis (Y drop > FALL_THRESHOLD)
+    local yDrop = previousPos.Y - currentPos.Y
+    
+    if yDrop > FALL_THRESHOLD then
+        -- ✅ JATUH DETECTED! Teleport ke posisi aman
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local hrp = char.HumanoidRootPart
+            
+            -- ✅ Teleport ke posisi aman terakhir
+            hrp.CFrame = CFrame.new(LastSafePosition)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            
+            -- ✅ Sound feedback
+            PlaySound("Success")
+            
+            -- ✅ Visual feedback
+            task.spawn(function()
+                pcall(function()
+                    if AntiFallBtnControl then
+                        local originalColor = AntiFallBtnControl.BackgroundColor3
+                        AntiFallBtnControl.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
+                        task.wait(0.2)
+                        AntiFallBtnControl.BackgroundColor3 = originalColor
+                    end
+                end)
+            end)
+            
+            return true  -- Fall prevented!
+        end
+    end
+    
+    return false
+end
+
+local function ResetAntiFallData()
+    LastSafePosition = nil
+    LastSafeFrame = 0
+    lastSafePositionUpdateTime = 0
+end
+
 -- ========= LAG COMPENSATION =========
 
 local function DetectAndCompensateLag(frames)
@@ -1097,7 +1160,7 @@ end
 local function UpdatePlayButtonStatus()
     if not PlayBtnControl then return end
     
-    local nearestRecording, distance = FindNearestRecording(50)
+    lolocp nearestRecording, distance = FindNearestRecording(50)
     NearestRecordingDistance = distance or math.huge
     
     SafeCall(function()
@@ -1165,6 +1228,8 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
+-- ========= APPLY FRAME DIRECT (WITH ANTI-FALL) =========
+
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1175,65 +1240,93 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
-        hrp.CFrame = GetFrameCFrame(frame)
+        -- ✅ GET CURRENT & TARGET POSITION
+        local currentPos = hrp.Position
+        local targetCFrame = GetFrameCFrame(frame)
+        local targetPos = GetFramePosition(frame)
         
-        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
-        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
+        -- ✅ CHECK ANTI-FALL SEBELUM APPLY!
+        local fallPrevented = CheckAndPreventFall(targetPos, currentPos)
+        
+        if fallPrevented then
+            -- ✅ Jatuh dicegah! Skip apply frame ini, gunakan safe position
+            return
+        end
+        
+        -- ✅ UPDATE SAFE POSITION (jika tidak jatuh)
+        if frame.MoveState == "Grounded" or frame.MoveState == "Running" then
+            UpdateSafePosition(targetPos, currentPlaybackFrame)
+        end
+        
+        -- ✅ SMOOTH CFRAME APPLICATION
+        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
+        
+        -- ✅ GET SMART VELOCITY
+        local moveState = frame.MoveState
+        local frameVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-       if hum then
+        if hum then
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
-            
             LastKnownWalkSpeed = frameWalkSpeed
             
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
-                hum.AutoRotate = false
+                hum.AutoRotate = true
             end
             
-            -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
-            local moveState = frame.MoveState
-            local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
             local currentTime = tick()
             
-            -- ✅ DETEKSI JUMP/FALL berdasarkan VELOCITY (PRESISI!)
-            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-            local isFallingByVelocity = frameVelocity.Y < -5
+            local JUMP_VELOCITY_THRESHOLD = 5
+            local FALL_VELOCITY_THRESHOLD = -3
+            local STATE_HYSTERESIS = 2
             
-            -- ✅ Override HANYA untuk Jump/Fall
+            local isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS)
+            local isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS)
+            
+            if lastPlaybackState == "Jumping" then
+                isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS * 2)
+            elseif lastPlaybackState == "Falling" then
+                isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS * 2)
+            end
+            
             if isJumpingByVelocity and moveState ~= "Jumping" then
                 moveState = "Jumping"
             elseif isFallingByVelocity and moveState ~= "Falling" then
                 moveState = "Falling"
             end
             
-            -- ✅ Apply state: Jump/Fall LANGSUNG, sisanya pakai cooldown
             if moveState == "Jumping" then
                 if lastPlaybackState ~= "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                     lastPlaybackState = "Jumping"
                     lastStateChangeTime = currentTime
                 end
+                
             elseif moveState == "Falling" then
                 if lastPlaybackState ~= "Falling" then
                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                     lastPlaybackState = "Falling"
                     lastStateChangeTime = currentTime
                 end
+                
             else
-                -- ✅ Untuk Climbing/Swimming/Running: TETAP SMOOTH dengan cooldown!
                 if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    
                     if moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
+                        
                     elseif moveState == "Swimming" then
                         hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                        
                     else
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
+                    
                     lastPlaybackState = moveState
                     lastStateChangeTime = currentTime
                 end
@@ -1262,6 +1355,19 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
+    
+      -- ✅ RESET ANTI-FALL DATA
+    ResetAntiFallData()
+    
+    -- ✅ SET INITIAL SAFE POSITION
+    if AntiFallEnabled then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            LastSafePosition = hrp.Position
+            LastSafeFrame = startFrame
+            lastSafePositionUpdateTime = tick()
+        end
+    end
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1514,6 +1620,9 @@ end
 local function StopPlayback()
     lastStateChangeTime = 0
     lastPlaybackState = nil
+
+ -- ✅ RESET ANTI-FALL DATA
+    ResetAntiFallData()
 
     if AutoLoop then
         StopAutoLoopAll()
@@ -3196,12 +3305,13 @@ do
     table.insert(activeConnections, ultimateAnimConn)
 end
 
-    -- ========= PLAYBACK CONTROL GUI =========
+-- ========= PLAYBACK CONTROL GUI (WITH ANTI-FALL) =========
+
 PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(156, 120)
-PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
+PlaybackControl.Size = UDim2.fromOffset(156, 145)  -- ✅ Tinggi +25px
+PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -72.5)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-PlaybackControl.BackgroundTransparency = 0.1
+PlaybackControl.BackgroundTransparency = 0.4
 PlaybackControl.BorderSizePixel = 0
 PlaybackControl.Active = true
 PlaybackControl.Draggable = true
@@ -3212,63 +3322,73 @@ local PlaybackCorner = Instance.new("UICorner")
 PlaybackCorner.CornerRadius = UDim.new(0, 8)
 PlaybackCorner.Parent = PlaybackControl
 
-    local PlaybackContent = Instance.new("Frame")
-    PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
-    PlaybackContent.Position = UDim2.new(0, 3, 0, 3)
-    PlaybackContent.BackgroundTransparency = 1
-    PlaybackContent.Parent = PlaybackControl
+local PlaybackContent = Instance.new("Frame")
+PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
+PlaybackContent.Position = UDim2.new(0, 3, 0, 3)
+PlaybackContent.BackgroundTransparency = 1
+PlaybackContent.Parent = PlaybackControl
 
-    local function CreatePlaybackBtn(text, x, y, w, h, color)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.fromOffset(w, h)
-        btn.Position = UDim2.fromOffset(x, y)
-        btn.BackgroundColor3 = color
-        btn.Text = text
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.AutoButtonColor = false
-        btn.Parent = PlaybackContent
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 4)
-        corner.Parent = btn
-        
-        btn.MouseEnter:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(
-                        math.min(color.R * 255 * 1.2, 255) / 255,
-                        math.min(color.G * 255 * 1.2, 255) / 255,
-                        math.min(color.B * 255 * 1.2, 255) / 255
-                    )
-                }):Play()
-            end)
+local function CreatePlaybackBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.AutoButtonColor = false
+    btn.Parent = PlaybackContent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
+    
+    btn.MouseEnter:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(
+                    math.min(color.R * 255 * 1.2, 255) / 255,
+                    math.min(color.G * 255 * 1.2, 255) / 255,
+                    math.min(color.B * 255 * 1.2, 255) / 255
+                )
+            }):Play()
         end)
-        
-        btn.MouseLeave:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-            end)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
         end)
-        
-        return btn
-    end
+    end)
+    
+    return btn
+end
 
-    PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 144, 25, Color3.fromRGB(59, 15, 116))
-    LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 71, 20, Color3.fromRGB(80, 80, 80))
-    JumpBtnControl = CreatePlaybackBtn("Jump OFF", 77, 31, 70, 20, Color3.fromRGB(80, 80, 80))
-    RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
-    ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+-- ✅ ROW 1: PLAY
+PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 144, 25, Color3.fromRGB(59, 15, 116))
+
+-- ✅ ROW 2: LOOP & JUMP
+LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 71, 20, Color3.fromRGB(80, 80, 80))
+JumpBtnControl = CreatePlaybackBtn("Jump OFF", 77, 31, 70, 20, Color3.fromRGB(80, 80, 80))
+
+-- ✅ ROW 3: RESPAWN & SHIFT
+RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
+ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
+
+-- ✅ ROW 4: RESET & RUTE
+ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
+ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+
+-- ✅ ROW 5: ANTI-FALL (NEW!)
+AntiFallBtnControl = CreatePlaybackBtn("Fall OFF", 3, 100, 144, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
 RecordingStudio = Instance.new("Frame")
 RecordingStudio.Size = UDim2.fromOffset(156, 120)
 RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
 PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BackgroundTransparency = 0.1-- ✅ Sedikit transparan
+RecordingStudio.BackgroundTransparency = 0.5-- ✅ Sedikit transparan
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
@@ -3553,6 +3673,33 @@ end)
             ClearPathVisualization()
         end
     end)
+    
+    AntiFallBtnControl.MouseButton1Click:Connect(function()
+    AnimateButtonClick(AntiFallBtnControl)
+    AntiFallEnabled = not AntiFallEnabled
+    
+    if AntiFallEnabled then
+        AntiFallBtnControl.Text = "Fall ON"
+        AntiFallBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        
+        -- ✅ Set initial safe position jika playback aktif
+        if IsPlaying then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                LastSafePosition = char.HumanoidRootPart.Position
+                LastSafeFrame = currentPlaybackFrame
+                lastSafePositionUpdateTime = tick()
+            end
+        end
+        
+        PlaySound("Success")
+    else
+        AntiFallBtnControl.Text = "Fall OFF"
+        AntiFallBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        ResetAntiFallData()
+        PlaySound("Toggle")
+    end
+end)
 
     PlayBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(PlayBtn)
