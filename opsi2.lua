@@ -50,7 +50,6 @@ local ENABLE_FRAME_SMOOTHING = false
 local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
-local VELOCITY_LERP_ALPHA = 0.3  -- Semakin kecil = semakin smooth
 
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
@@ -94,7 +93,6 @@ local RecordedMovements = {}
 local RecordingOrder = {}
 local CurrentRecording = {Frames = {}, StartTime = 0, Name = ""}
 local AutoRespawn = false
-local previousVelocity = Vector3.zero
 local InfiniteJump = false
 local AutoLoop = false
 local recordConnection = nil
@@ -609,39 +607,19 @@ end
 
 -- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
 local function GetFrameVelocity(frame, moveState)
-    if not frame or not frame.Velocity then 
-        return previousVelocity  -- ✅ Return last known velocity jika error
-    end
+    if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    local targetVelocity
-    
-    -- ✅ CRITICAL: SET Y=0 untuk Grounded → Roblox physics handle terrain!
+    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
     if moveState == "Grounded" or moveState == nil then
-        -- ✅ Y=0 → Character jatuh natural sesuai gravity Roblox
-        -- ✅ Roblox physics akan:
-        --    - Detect terrain/parts dibawah character
-        --    - Apply gravity secara natural
-        --    - Handle slopes/stairs dengan physics engine
-        --    - Collision response otomatis
-        targetVelocity = Vector3.new(velocityX, 0, velocityZ)
-    else
-        -- ✅ FULL velocity untuk Jump/Fall/Climbing/Swimming
-        -- ✅ Ini kita kontrol manual karena state khusus
-        targetVelocity = Vector3.new(velocityX, velocityY, velocityZ)
+        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
     end
     
-    -- ✅ SMOOTH LERP dari velocity sebelumnya!
-    -- Ini yang bikin transisi smooth, tidak ada "hard snap"
-    local smoothedVelocity = previousVelocity:Lerp(targetVelocity, VELOCITY_LERP_ALPHA)
-    
-    -- ✅ Save untuk frame berikutnya
-    previousVelocity = smoothedVelocity
-    
-    return smoothedVelocity
+    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
+    return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -1187,9 +1165,6 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- ✅ ═══════════════════════════════════════════════════════════════
--- ✅ APPLY FRAME DENGAN SMOOTH CFRAME LERP & SMART STATE
--- ✅ ═══════════════════════════════════════════════════════════════
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1200,93 +1175,65 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ SMOOTH CFRAME APPLICATION (80% blend)
-        -- Ini bikin movement tidak "teleport" tapi smooth follow
-        local targetCFrame = GetFrameCFrame(frame)
-        hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
+        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
+        hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ GET SMART VELOCITY (Y=0 untuk Grounded!)
-        local moveState = frame.MoveState
-        local frameVelocity = GetFrameVelocity(frame, moveState)
-        hrp.AssemblyLinearVelocity = frameVelocity
+        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
         
-        if hum then
+       if hum then
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
+            
             LastKnownWalkSpeed = frameWalkSpeed
             
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
-                hum.AutoRotate = false
+                hum.AutoRotate = true
             end
             
+            -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
+            local moveState = frame.MoveState
+            local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
             local currentTime = tick()
             
-            -- ✅ ═══════════════════════════════════════════════════
-            -- ✅ DYNAMIC STATE DETECTION dengan HYSTERESIS
-            -- ✅ ═══════════════════════════════════════════════════
+            -- ✅ DETEKSI JUMP/FALL berdasarkan VELOCITY (PRESISI!)
+            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+            local isFallingByVelocity = frameVelocity.Y < -5
             
-            -- ✅ Lower thresholds untuk lebih sensitive
-            local JUMP_VELOCITY_THRESHOLD = 5  -- Dari 10 → 5
-            local FALL_VELOCITY_THRESHOLD = -3  -- Dari -5 → -3
-            local STATE_HYSTERESIS = 2  -- Dead zone untuk prevent flickering
-            
-            local isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS)
-            local isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS)
-            
-            -- ✅ PREVENT STATE FLICKERING dengan conditional hysteresis
-            if lastPlaybackState == "Jumping" then
-                -- Jika lagi jump, perlu velocity turun LEBIH jauh untuk jadi fall
-                isFallingByVelocity = frameVelocity.Y < (FALL_VELOCITY_THRESHOLD - STATE_HYSTERESIS * 2)
-            elseif lastPlaybackState == "Falling" then
-                -- Jika lagi fall, perlu velocity naik LEBIH tinggi untuk jadi jump
-                isJumpingByVelocity = frameVelocity.Y > (JUMP_VELOCITY_THRESHOLD + STATE_HYSTERESIS * 2)
-            end
-            
-            -- ✅ Override state HANYA untuk Jump/Fall
+            -- ✅ Override HANYA untuk Jump/Fall
             if isJumpingByVelocity and moveState ~= "Jumping" then
                 moveState = "Jumping"
             elseif isFallingByVelocity and moveState ~= "Falling" then
                 moveState = "Falling"
             end
             
-            -- ✅ ═══════════════════════════════════════════════════
-            -- ✅ APPLY STATE CHANGES
-            -- ✅ ═══════════════════════════════════════════════════
-            
+            -- ✅ Apply state: Jump/Fall LANGSUNG, sisanya pakai cooldown
             if moveState == "Jumping" then
                 if lastPlaybackState ~= "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
                     lastPlaybackState = "Jumping"
                     lastStateChangeTime = currentTime
                 end
-                
             elseif moveState == "Falling" then
                 if lastPlaybackState ~= "Falling" then
                     hum:ChangeState(Enum.HumanoidStateType.Freefall)
                     lastPlaybackState = "Falling"
                     lastStateChangeTime = currentTime
                 end
-                
             else
-                -- ✅ SMOOTH STATE CHANGES dengan cooldown (prevent spam)
+                -- ✅ Untuk Climbing/Swimming/Running: TETAP SMOOTH dengan cooldown!
                 if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    
                     if moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
-                        
                     elseif moveState == "Swimming" then
                         hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                        
                     else
-                        -- ✅ DEFAULT: Running/Grounded
-                        -- ✅ DI SINI ROBLOX PHYSICS AMBIL ALIH!
                         hum:ChangeState(Enum.HumanoidStateType.Running)
                     end
-                    
                     lastPlaybackState = moveState
                     lastStateChangeTime = currentTime
                 end
@@ -1315,7 +1262,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PausedAtFrame = 0
     playbackAccumulator = 0
     previousFrameData = nil
-    previousVelocity = Vector3.zero  -- ✅ TAMBAHKAN INI
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1594,8 +1540,8 @@ playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
     end)
 end)
 
-     AddConnection(playbackConnection)
-    UpdatePlayButtonStatus()
+   AddConnection(playbackConnection)
+  UpdatePlayButtonStatus()
 end
 
 local function SmartPlayRecording(maxDistance)
@@ -1704,7 +1650,6 @@ end
 local function StopPlayback()
     lastStateChangeTime = 0
     lastPlaybackState = nil
-    previousVelocity = Vector3.zero  -- ✅ TAMBAHKAN INI
 
     if AutoLoop then
         StopAutoLoopAll()
