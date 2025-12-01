@@ -35,7 +35,7 @@ local MIN_DISTANCE_THRESHOLD = 0.008
 local VELOCITY_SCALE = 1
 local VELOCITY_Y_SCALE = 1
 local TIMELINE_STEP_SECONDS = 0.04
-local JUMP_VELOCITY_THRESHOLD = 5
+local JUMP_VELOCITY_THRESHOLD = 10
 local STATE_CHANGE_COOLDOWN = 0.08
 local TRANSITION_FRAMES = 6
 local RESUME_DISTANCE_THRESHOLD = 40
@@ -3399,12 +3399,11 @@ PlaybackCorner.Parent = PlaybackControl
     ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
     ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
-    -- ========= RECORDING STUDIO GUI =========
 RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 120)
-RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
+RecordingStudio.Size = UDim2.fromOffset(160, 132)  -- ✅ Adjusted height untuk spacing
+RecordingStudio.Position = UDim2.new(0.5, -80, 0.5, -66)
+RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25)  -- ✅ SAMA dengan Playback
+RecordingStudio.BackgroundTransparency = 0.1  -- ✅ SAMA dengan Playback
 RecordingStudio.BorderSizePixel = 0
 RecordingStudio.Active = true
 RecordingStudio.Draggable = true
@@ -3415,55 +3414,144 @@ local StudioCorner = Instance.new("UICorner")
 StudioCorner.CornerRadius = UDim.new(0, 8)
 StudioCorner.Parent = RecordingStudio
 
-    local StudioContent = Instance.new("Frame")
-    StudioContent.Size = UDim2.new(1, -6, 1, -6)
-    StudioContent.Position = UDim2.new(0, 3, 0, 3)
-    StudioContent.BackgroundTransparency = 1
-    StudioContent.Parent = RecordingStudio
+-- ✅ TAMBAHKAN border untuk depth
+local StudioStroke = Instance.new("UIStroke")
+StudioStroke.Color = Color3.fromRGB(100, 100, 120)
+StudioStroke.Thickness = 2
+StudioStroke.Transparency = 0.5
+StudioStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+StudioStroke.Parent = RecordingStudio
 
-    local function CreateStudioBtn(text, x, y, w, h, color)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.fromOffset(w, h)
-        btn.Position = UDim2.fromOffset(x, y)
-        btn.BackgroundColor3 = color
-        btn.Text = text
-        btn.TextColor3 = Color3.new(1, 1, 1)
-        btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
-        btn.AutoButtonColor = false
-        btn.Parent = StudioContent
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 4)
-        corner.Parent = btn
-        
-        btn.MouseEnter:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(
-                        math.min(color.R * 255 * 1.2, 255) / 255,
-                        math.min(color.G * 255 * 1.2, 255) / 255,
-                        math.min(color.B * 255 * 1.2, 255) / 255
-                    )
-                }):Play()
-            end)
+-- ═══════════════════════════════════════════════════════════
+-- CONTENT CONTAINER
+-- ═══════════════════════════════════════════════════════════
+local StudioContent = Instance.new("Frame")
+StudioContent.Size = UDim2.new(1, -10, 1, -10)  -- 5px margin all sides
+StudioContent.Position = UDim2.fromOffset(5, 5)
+StudioContent.BackgroundTransparency = 1
+StudioContent.Parent = RecordingStudio
+
+-- ═══════════════════════════════════════════════════════════
+-- ✅ HELPER FUNCTION: Create Studio Button
+-- ═══════════════════════════════════════════════════════════
+local function CreateStudioBtn(text, x, y, w, h, color)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(w, h)
+    btn.Position = UDim2.fromOffset(x, y)
+    btn.BackgroundColor3 = color
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.AutoButtonColor = false
+    btn.Parent = StudioContent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = btn
+    
+    -- ✅ Hover effect
+    btn.MouseEnter:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(
+                    math.min(color.R * 255 * 1.2, 255) / 255,
+                    math.min(color.G * 255 * 1.2, 255) / 255,
+                    math.min(color.B * 255 * 1.2, 255) / 255
+                )
+            }):Play()
         end)
-        
-        btn.MouseLeave:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-            end)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        task.spawn(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = color
+            }):Play()
         end)
-        
-        return btn
-    end
+    end)
+    
+    return btn
+end
 
-    SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
-    StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
-    ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-    PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
+-- ═══════════════════════════════════════════════════════════
+-- ✅ ROW 1: SAVE & START (2 buttons side by side)
+-- ═══════════════════════════════════════════════════════════
+-- Width calculation: (150 total - 3 gap) / 2 = 73.5px each
 
--- ✅ ADD: Hold detection
+SaveBtn = CreateStudioBtn(
+    "SAVE", 
+    0,      -- X position
+    0,      -- Y position
+    73,     -- Width (half - 1.5px)
+    24,     -- Height
+    Color3.fromRGB(59, 15, 116)
+)
+
+StartBtn = CreateStudioBtn(
+    "START", 
+    76,     -- X position (73 + 3px gap)
+    0,      -- Y position
+    74,     -- Width (half + 1.5px to fill)
+    24,     -- Height
+    Color3.fromRGB(59, 15, 116)
+)
+
+-- ═══════════════════════════════════════════════════════════
+-- ✅ ROW 2: LANJUTKAN (full width)
+-- ═══════════════════════════════════════════════════════════
+ResumeBtn = CreateStudioBtn(
+    "LANJUTKAN", 
+    0,      -- X position
+    27,     -- Y position (24 + 3px gap)
+    150,    -- Full width
+    24,     -- Height
+    Color3.fromRGB(59, 15, 116)
+)
+
+-- ═══════════════════════════════════════════════════════════
+-- ✅ ROW 3: TIMELINE LABEL
+-- ═══════════════════════════════════════════════════════════
+local TimelineLabel = Instance.new("TextLabel")
+TimelineLabel.Size = UDim2.fromOffset(150, 16)
+TimelineLabel.Position = UDim2.fromOffset(0, 54)  -- 27 + 24 + 3px gap
+TimelineLabel.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+TimelineLabel.BackgroundTransparency = 0
+TimelineLabel.BorderSizePixel = 0
+TimelineLabel.Text = "⏱ TIMELINE CONTROL"
+TimelineLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
+TimelineLabel.Font = Enum.Font.GothamBold
+TimelineLabel.TextSize = 9
+TimelineLabel.Parent = StudioContent
+
+local TimelineLabelCorner = Instance.new("UICorner")
+TimelineLabelCorner.CornerRadius = UDim.new(0, 3)
+TimelineLabelCorner.Parent = TimelineLabel
+
+-- ═══════════════════════════════════════════════════════════
+-- ✅ ROW 4: PREV & NEXT (2 buttons side by side)
+-- ═══════════════════════════════════════════════════════════
+PrevBtn = CreateStudioBtn(
+    "◀ MUNDUR", 
+    0,      -- X position
+    73,     -- Y position (54 + 16 + 3px gap)
+    73,     -- Width (half - 1.5px)
+    34,     -- Height (taller untuk touch-friendly)
+    Color3.fromRGB(59, 15, 116)
+)
+
+NextBtn = CreateStudioBtn(
+    "MAJU ▶", 
+    76,     -- X position (73 + 3px gap)
+    73,     -- Y position
+    74,     -- Width (half + 1.5px)
+    34,     -- Height
+    Color3.fromRGB(59, 15, 116)
+)
+
+-- ═══════════════════════════════════════════════════════════
+-- ✅ PREV BUTTON: Hold Detection (Rapid Fire)
+-- ═══════════════════════════════════════════════════════════
 local prevHoldConnection = nil
 local prevHoldActive = false
 
@@ -3489,6 +3577,7 @@ PrevBtn.InputBegan:Connect(function(input)
                     task.wait(0.05)  -- 20 frames/second
                 end
             end)
+            AddConnection(prevHoldConnection)
         end
     end
 end)
@@ -3504,9 +3593,9 @@ PrevBtn.InputEnded:Connect(function(input)
     end
 end)
 
--- ✅ SAME for NextBtn:
-NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
-
+-- ═══════════════════════════════════════════════════════════
+-- ✅ NEXT BUTTON: Hold Detection (Rapid Fire)
+-- ═══════════════════════════════════════════════════════════
 local nextHoldConnection = nil
 local nextHoldActive = false
 
@@ -3516,20 +3605,23 @@ NextBtn.InputBegan:Connect(function(input)
         
         nextHoldActive = true
         
+        -- Single tap
         task.spawn(function()
             AnimateButtonClick(NextBtn)
             GoNextTimeline()
         end)
         
+        -- Wait 0.3s, then start rapid fire
         task.wait(0.3)
         
         if nextHoldActive then
             nextHoldConnection = RunService.Heartbeat:Connect(function()
                 if nextHoldActive then
                     GoNextTimeline()
-                    task.wait(0.05)
+                    task.wait(0.05)  -- 20 frames/second
                 end
             end)
+            AddConnection(nextHoldConnection)
         end
     end
 end)
