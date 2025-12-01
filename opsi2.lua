@@ -51,6 +51,15 @@ local SMOOTHING_WINDOW = 3
 local USE_VELOCITY_PLAYBACK = false
 local INTERPOLATION_LOOKAHEAD = 2
 
+-- ========= ANTI-FALL SYSTEM VARIABLES =========
+local AntiFallEnabled = false
+local LastSafePosition = nil
+local LastSafeFrame = 0
+local FALL_THRESHOLD = 15  -- Jatuh 15 studs = trigger anti-fall
+local SAFE_POSITION_UPDATE_INTERVAL = 0.5  -- Update posisi aman tiap 0.5s
+local lastSafePositionUpdateTime = 0
+local AntiFallBtnControl = nil
+
 -- ========= FIELD MAPPING FOR OBFUSCATION =========
 local FIELD_MAPPING = {
     Position = "11",
