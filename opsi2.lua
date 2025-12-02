@@ -2194,6 +2194,12 @@ end
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
+    -- ✅ RESET DATA ANTI-FALL SAAT MULAI RECORD
+    if AntiFallEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        LastSafePosition = player.Character.HumanoidRootPart.Position
+        lastSafePositionUpdateTime = tick()
+    end
+    
     task.spawn(function()
         SafeCall(function()
             local char = player.Character
@@ -2211,7 +2217,6 @@ local function StartStudioRecording()
             TimelinePosition = 0
             
             UpdateStudioUI()
-            
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
@@ -2225,9 +2230,28 @@ local function StartStudioRecording()
                         local hrp = char.HumanoidRootPart
                         local hum = char:FindFirstChildOfClass("Humanoid")
                         
-                        if IsTimelineMode then
-                            return
+                        if IsTimelineMode then return end
+
+                        -- =========================================
+                        -- ✨ LOGIKA BARU: ANTI-FALL SAAT RECORDING ✨
+                        -- =========================================
+                        if AntiFallEnabled then
+                            local currentPos = hrp.Position
+                            
+                            -- Cek apakah jatuh?
+                            if CheckAndPreventFall(currentPos, lastStudioRecordPos or currentPos) then
+                                -- Jika jatuh dan diteleport, reset lastPos agar tidak dianggap gerak cepat
+                                lastStudioRecordPos = hrp.Position 
+                                return -- Skip frame ini agar animasi jatuh tidak terekam jelek
+                            end
+                            
+                            -- Update posisi aman jika di tanah
+                            local state = GetCurrentMoveState(hum)
+                            if state == "Grounded" or state == "Running" then
+                                UpdateSafePosition(currentPos, #StudioCurrentRecording.Frames)
+                            end
                         end
+                        -- =========================================
                         
                         local now = tick()
                         if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
