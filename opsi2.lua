@@ -3264,20 +3264,26 @@ PlaybackCorner.Parent = PlaybackControl
     ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
-RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 120)
-RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-RecordingStudioBackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
-RecordingStudio.BorderSizePixel = 0
-RecordingStudio.Active = true
-RecordingStudio.Draggable = true
-RecordingStudio.Visible = false
-RecordingStudio.Parent = ScreenGui
+    RecordingStudio = Instance.new("Frame")
+    RecordingStudio.Size = UDim2.fromOffset(156, 120)
+    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+    
+    -- ✅ BAGIAN PENTING: Mengatur warna jadi Hitam (bukan Putih default)
+    RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
+    
+    -- Transparansi disamakan 0.4
+    RecordingStudio.BackgroundTransparency = 0.4
+    
+    RecordingStudio.BorderSizePixel = 0
+    RecordingStudio.Active = true
+    RecordingStudio.Draggable = true
+    RecordingStudio.Visible = false
+    RecordingStudio.Parent = ScreenGui
 
-local StudioCorner = Instance.new("UICorner")
-StudioCorner.CornerRadius = UDim.new(0, 8)
-StudioCorner.Parent = RecordingStudio
+    local StudioCorner = Instance.new("UICorner")
+    StudioCorner.CornerRadius = UDim.new(0, 8)
+    StudioCorner.Parent = RecordingStudio
+
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3560,10 +3566,13 @@ end)
     end)
 
     RecordBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(RecordBtn)
-        RecordingStudio.Visible = true
-        MainFrame.Visible = false
-    end)
+    AnimateButtonClick(RecordBtn)
+    -- Sistem Toggle (Show/Hide)
+    RecordingStudio.Visible = not RecordingStudio.Visible
+    
+    -- Opsional: Jika kamu ingin MainFrame TETAP MUNCUL agar bisa klik tombolnya lagi
+    -- Hapus baris 'MainFrame.Visible = false'
+end)
 
     MenuBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MenuBtn)
