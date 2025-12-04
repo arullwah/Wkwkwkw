@@ -33,6 +33,7 @@ local KeyAccess = {
         "Elannndd",
         "egaa_431",
         "JEJEALXXX",
+        "Wheskeryo",
 }
 
 -- ===================================
