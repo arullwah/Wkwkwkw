@@ -618,18 +618,12 @@ local function GetFrameVelocity(frame, moveState)
         velocityY = 0
     end
     
-    -- ⭐ FIX: CLAMP velocity saat Jump/Fall (ANTI SPEED BURST!)
+    -- ⭐ GENTLE FIX: Hanya scale down sedikit (bukan clamp keras!)
     if moveState == "Jumping" or moveState == "Falling" then
-        -- Limit maksimal velocity
-        if moveState == "Jumping" then
-            velocityY = math.clamp(velocityY, 0, 50)  -- Max jump velocity
-        else
-            velocityY = math.clamp(velocityY, -80, 0)  -- Max fall velocity
-        end
-        
-        -- Kurangi horizontal velocity (karena CFrame sudah handle posisi)
-        velocityX = velocityX * 0.3
-        velocityZ = velocityZ * 0.3
+        -- Scale down velocity sedikit aja (80% dari asli)
+        velocityY = velocityY * 0.8
+        velocityX = velocityX * 0.9
+        velocityZ = velocityZ * 0.9
     end
     
     return Vector3.new(velocityX, velocityY, velocityZ)
