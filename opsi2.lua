@@ -605,6 +605,42 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
+-- ========= HEIGHT DETECTION =========
+local function GetAvatarHeight(character)
+    if not character then return 2.0 end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoid or not hrp then return 2.0 end
+    
+    -- Metode 1: Dari HipHeight (paling akurat)
+    if humanoid.HipHeight then
+        return humanoid.HipHeight + 2.0  -- HipHeight + HRP size
+    end
+    
+    -- Metode 2: Raycast ke bawah
+    local rayOrigin = hrp.Position
+    local rayDirection = Vector3.new(0, -10, 0)
+    
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    
+    if result then
+        return hrp.Position.Y - result.Position.Y
+    end
+    
+    -- Fallback: Average height
+    return 2.0
+end
+
+-- Store heights for recording/playback
+local RecordingAvatarHeight = 0
+local CurrentAvatarHeight = 0
+
 -- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
@@ -1172,7 +1208,7 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
-local function ApplyFrameDirect(frame)
+local function ApplyFrameDirect(frame, recordingData)
     SafeCall(function()
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -1182,10 +1218,12 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame (posisi presisi)
-        hrp.CFrame = GetFrameCFrame(frame)
+        -- ✅ CALCULATE HEIGHT OFFSET
+        CurrentAvatarHeight = GetAvatarHeight(char)
+        local recordedHeight = recordingData.AvatarHeight or RecordingAvatarHeight or 2.0
+        local heightOffset = CurrentAvatarHeight - recordedHeight
         
-        -- ⭐ PENTING: Velocity AFTER state change!
+        -- ✅ APPLY STATE FIRST
         local moveState = frame.MoveState
         local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
         local currentTime = tick()
@@ -1200,14 +1238,13 @@ local function ApplyFrameDirect(frame)
             moveState = "Falling"
         end
         
-        -- ⭐ APPLY STATE DULU
+        -- Apply state
         if hum then
-if ShiftLockEnabled then
-    hum.AutoRotate = false
-    humanoid.CameraOffset = ShiftLockCameraOffset
-else
-    hum.AutoRotate = false  -- Tetap false saat playback
-end
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false
+            end
             
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
@@ -1243,7 +1280,36 @@ end
             end
         end
         
-        -- ⭐ APPLY VELOCITY TERAKHIR (setelah state fix)
+        -- ✅ APPLY POSITION WITH HEIGHT COMPENSATION
+        local frameCF = GetFrameCFrame(frame)
+        local adjustedPosition = frameCF.Position + Vector3.new(0, heightOffset, 0)
+        
+        -- ✅ RAYCAST VALIDATION (prevent underground)
+        local rayOrigin = adjustedPosition + Vector3.new(0, 1, 0)
+        local rayDirection = Vector3.new(0, -5, 0)
+        
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {char}
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        
+        local groundCheck = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        if groundCheck and moveState == "Grounded" then
+            -- Snap to ground jika terlalu dekat
+            local distanceToGround = adjustedPosition.Y - groundCheck.Position.Y
+            if distanceToGround < CurrentAvatarHeight - 0.5 then
+                adjustedPosition = Vector3.new(
+                    adjustedPosition.X,
+                    groundCheck.Position.Y + CurrentAvatarHeight,
+                    adjustedPosition.Z
+                )
+            end
+        end
+        
+        -- Apply final position
+        hrp.CFrame = CFrame.new(adjustedPosition) * (frameCF - frameCF.Position)
+        
+        -- ✅ APPLY VELOCITY (AFTER state fix)
         hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyAngularVelocity = Vector3.zero
     end)
@@ -1404,7 +1470,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 end
 
                 -- ⭐ HYBRID: Apply frame directly
-                ApplyFrameDirect(frame)
+                ApplyFrameDirect(frame, recording)
                 
                 currentPlaybackFrame = nextFrame
             end
@@ -1838,7 +1904,7 @@ local function StartAutoLoopAll()
                             local frame = recordingToPlay[currentFrame]
                             if frame then
                                 -- ⭐ HYBRID: Apply frame directly
-                                ApplyFrameDirect(frame)
+                                ApplyFrameDirect(frame, recordingToPlay)
                             end
                         end
                     end
@@ -2113,6 +2179,9 @@ local function StartStudioRecording()
                 return
             end
             
+             -- ✅ DETEKSI HEIGHT AVATAR SAAT RECORD
+            RecordingAvatarHeight = GetAvatarHeight(char)
+            
             StudioIsRecording = true
             IsTimelineMode = false
             StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
@@ -2345,14 +2414,26 @@ local function SaveStudioRecording()
             
             local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
             
-            RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
+            -- ✅ SIMPAN HEIGHT INFO
+            local recordingData = {
+                Frames = normalizedFrames,
+                AvatarHeight = StudioCurrentRecording.AvatarHeight or 2.0,
+                RecordedAt = os.time()
+            }
+            
+            RecordedMovements[StudioCurrentRecording.Name] = recordingData
             table.insert(RecordingOrder, StudioCurrentRecording.Name)
             checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
             UpdateRecordList()
             
             PlaySound("Success")
             
-            StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
+            StudioCurrentRecording = {
+                Frames = {}, 
+                StartTime = 0, 
+                Name = "recording_" .. os.date("%H%M%S"),
+                AvatarHeight = 0
+            }
             IsTimelineMode = false
             CurrentTimelineFrame = 0
             TimelinePosition = 0
@@ -2396,7 +2477,7 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "3.3",
+            Version = "3.4",  -- ✅ UPDATE VERSION
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
@@ -2405,12 +2486,14 @@ local function SaveToObfuscatedJSON()
         
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
-                local frames = RecordedMovements[name]
-                if frames then
+                local recordingData = RecordedMovements[name]
+                if recordingData then
                     local checkpointData = {
                         Name = name,
                         DisplayName = checkpointNames[name] or "checkpoint",
-                        Frames = frames
+                        Frames = recordingData.Frames or recordingData,  -- ✅ BACKWARD COMPAT
+                        AvatarHeight = recordingData.AvatarHeight or 2.0,  -- ✅ NEW!
+                        RecordedAt = recordingData.RecordedAt or os.time()
                     }
                     table.insert(saveData.Checkpoints, checkpointData)
                     table.insert(saveData.RecordingOrder, name)
@@ -2419,16 +2502,17 @@ local function SaveToObfuscatedJSON()
             end
         end
         
+        -- Obfuscate frames only
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
-            recordingsToObfuscate[name] = RecordedMovements[name]
+            local data = RecordedMovements[name]
+            recordingsToObfuscate[name] = data.Frames or data
         end
         
         local obfuscatedData = ObfuscateRecordingData(recordingsToObfuscate)
         saveData.ObfuscatedFrames = obfuscatedData
         
         local jsonString = HttpService:JSONEncode(saveData)
-        
         writefile(filename, jsonString)
         PlaySound("Success")
     end)
@@ -2468,7 +2552,12 @@ local function LoadFromObfuscatedJSON()
                 local frames = deobfuscatedData[name]
                 
                 if frames then
-                    RecordedMovements[name] = frames
+                    -- ✅ LOAD WITH HEIGHT INFO
+                    RecordedMovements[name] = {
+                        Frames = frames,
+                        AvatarHeight = checkpointData.AvatarHeight or 2.0,
+                        RecordedAt = checkpointData.RecordedAt or 0
+                    }
                     checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
                     
                     if not table.find(RecordingOrder, name) then
