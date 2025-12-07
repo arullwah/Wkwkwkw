@@ -1104,28 +1104,25 @@ end
 local function UpdatePlayButtonStatus()
     if not PlayBtnControl then return end
     
-    local nearestRecording, distance = FindNearestRecording(50)
-    NearestRecordingDistance = distance or math.huge
-    
     SafeCall(function()
+        -- [PRIORITAS 1] Jika Sedang Main -> Warna MERAH (PAUSE)
+        if IsPlaying or IsAutoLoopPlaying then
+            PlayBtnControl.Text = "PAUSE"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60) -- Merah
+            return
+        end
+
+        -- [PRIORITAS 2] Jika Sedang Diam -> Warna HIJAU (PLAY/RESUME)
+        local nearestRecording, distance = FindNearestRecording(50)
+        
         if nearestRecording and distance <= 50 then
             local distanceInt = math.floor(distance)
-            
-            -- ✅ Color code berdasarkan jarak
-            local buttonColor
-            if distanceInt <= 10 then
-                buttonColor = Color3.fromRGB(40, 180, 80)  -- 🟢 Hijau (very close)
-            elseif distanceInt <= 30 then
-                buttonColor = Color3.fromRGB(200, 180, 50)  -- 🟡 Kuning (close)
-            else
-                buttonColor = Color3.fromRGB(255, 140, 50)  -- 🟠 Orange (far)
-            end
-            
-            PlayBtnControl.Text = string.format("PLAY (%dm)", distanceInt)
-            PlayBtnControl.BackgroundColor3 = buttonColor
+            -- Tampilkan jarak tapi warna tetap HIJAU
+            PlayBtnControl.Text = "RESUME (" .. distanceInt .. "m)" 
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80) -- Hijau
         else
-            PlayBtnControl.Text = "PLAY 0"
-            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)  -- 🟣 Purple (no checkpoint)
+            PlayBtnControl.Text = "PLAY"
+            PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80) -- Hijau Default
         end
     end)
 end
@@ -2019,15 +2016,28 @@ end
 
 local function UpdateStudioUI()
     SafeCall(function()
+        -- 1. Logika Tombol START/STOP (Seperti biasa)
         if StartBtn and StartBtn.Parent then
             if StudioIsRecording then
                 StartBtn.Text = "STOP"
-                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Merah saat rekam
             else
                 StartBtn.Text = "START"
-                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116) -- Ungu saat diam
             end
         end
+
+        -- 2. [FIX] PAKSA RESET TOMBOL LAIN KE UNGU
+        -- Ini mencegah tombol tersangkut di warna hitam/gelap setelah diklik
+        local defaultPurple = Color3.fromRGB(59, 15, 116)
+
+        if SaveBtn then SaveBtn.BackgroundColor3 = defaultPurple end
+        if ResumeBtn then ResumeBtn.BackgroundColor3 = defaultPurple end
+        if PrevBtn then PrevBtn.BackgroundColor3 = defaultPurple end
+        if NextBtn then NextBtn.BackgroundColor3 = defaultPurple end
+        
+        -- (Opsional) Update Timeline Info jika perlu
+        -- ... logika update timeline bar dll ...
     end)
 end
 
@@ -3461,23 +3471,25 @@ end)
     -- ========= BUTTON CONNECTIONS =========
 
     PlayBtnControl.MouseButton1Click:Connect(function()
-    AnimateButtonClick(PlayBtnControl)
+    PlaySound("Click") -- HANYA SOUND, Hapus AnimateButtonClick!
+    
     if IsPlaying or IsAutoLoopPlaying then
-        -- ✅ STOP → PAUSE
-        StopPlayback()
-        PlayBtnControl.Text = "RESUME"  -- ✅ Ubah jadi RESUME
-        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)  -- ✅ Hijau untuk resume
+        -- MAU PAUSE
+        StopPlayback() 
+        -- Paksa update visual langsung
+        UpdatePlayButtonStatus()
     else
-        -- ✅ PLAY/RESUME → STOP
+        -- MAU PLAY
         if AutoLoop then
             StartAutoLoopAll()
         else
             SmartPlayRecording(50)
         end
-        PlayBtnControl.Text = "PAUSE"  -- ✅ Ubah jadi STOP
-        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)  -- ✅ Merah untuk stop
+        -- Paksa update visual langsung
+        UpdatePlayButtonStatus()
     end
 end)
+
 
     LoopBtnControl.MouseButton1Click:Connect(function()
         AnimateButtonClick(LoopBtnControl)
