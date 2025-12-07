@@ -613,12 +613,19 @@ local function GetFrameVelocity(frame, moveState)
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
+    -- ✅ SET Velocity Y = 0 untuk Grounded
     if moveState == "Grounded" or moveState == nil then
-        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
+        velocityY = 0
     end
     
-    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
+    -- ⭐ GENTLE FIX: Hanya scale down sedikit (bukan clamp keras!)
+    if moveState == "Jumping" or moveState == "Falling" then
+        -- Scale down velocity sedikit aja (80% dari asli)
+        velocityY = velocityY * 0.8
+        velocityX = velocityX * 0.9
+        velocityZ = velocityZ * 0.9
+    end
+    
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
@@ -1175,42 +1182,37 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ Apply CFrame (ini yang kasih posisi Y presisi!)
+        -- ✅ Apply CFrame (posisi presisi)
         hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ Apply velocity SMART (Y = 0 untuk Grounded, full untuk Jump/Fall)
-        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, frame.MoveState)
-        hrp.AssemblyAngularVelocity = Vector3.zero
+        -- ⭐ PENTING: Velocity AFTER state change!
+        local moveState = frame.MoveState
+        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+        local currentTime = tick()
         
-       if hum then
-            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            hum.WalkSpeed = frameWalkSpeed
-            
-            LastKnownWalkSpeed = frameWalkSpeed
-            
+        -- Deteksi Jump/Fall
+        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+        local isFallingByVelocity = frameVelocity.Y < -5
+        
+        if isJumpingByVelocity and moveState ~= "Jumping" then
+            moveState = "Jumping"
+        elseif isFallingByVelocity and moveState ~= "Falling" then
+            moveState = "Falling"
+        end
+        
+        -- ⭐ APPLY STATE DULU
+        if hum then
             if ShiftLockEnabled then
                 hum.AutoRotate = false
             else
                 hum.AutoRotate = false
             end
             
-            -- ✅ HYBRID: Velocity detection untuk Jump/Fall ONLY!
-            local moveState = frame.MoveState
-            local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
-            local currentTime = tick()
+            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.WalkSpeed = frameWalkSpeed
+            LastKnownWalkSpeed = frameWalkSpeed
             
-            -- ✅ DETEKSI JUMP/FALL berdasarkan VELOCITY (PRESISI!)
-            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-            local isFallingByVelocity = frameVelocity.Y < -5
-            
-            -- ✅ Override HANYA untuk Jump/Fall
-            if isJumpingByVelocity and moveState ~= "Jumping" then
-                moveState = "Jumping"
-            elseif isFallingByVelocity and moveState ~= "Falling" then
-                moveState = "Falling"
-            end
-            
-            -- ✅ Apply state: Jump/Fall LANGSUNG, sisanya pakai cooldown
+            -- Apply state change
             if moveState == "Jumping" then
                 if lastPlaybackState ~= "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -1224,8 +1226,8 @@ local function ApplyFrameDirect(frame)
                     lastStateChangeTime = currentTime
                 end
             else
-                -- ✅ Untuk Climbing/Swimming/Running: TETAP SMOOTH dengan cooldown!
-                if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                if moveState ~= lastPlaybackState and 
+                   (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                     if moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
@@ -1239,6 +1241,10 @@ local function ApplyFrameDirect(frame)
                 end
             end
         end
+        
+        -- ⭐ APPLY VELOCITY TERAKHIR (setelah state fix)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
@@ -2495,6 +2501,7 @@ end
 
 function UpdateRecordList()
     SafeCall(function()
+        -- Bersihkan list lama
         for _, child in pairs(RecordingsList:GetChildren()) do 
             if child:IsA("Frame") then child:Destroy() end
         end
@@ -2620,7 +2627,8 @@ function UpdateRecordList()
             infoLabel.Parent = textboxContainer
             
             -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
+            -- ROW 2: SEGMENTED CONTROL BAR (POSISI TOMBOL DIUBAH DISINI)
+            -- Urutan: [PLAY] [NAIK] [TURUN] [HAPUS]
             -- ═══════════════════════════════════════════
             
             local segmentedBar = Instance.new("Frame")
@@ -2641,13 +2649,10 @@ function UpdateRecordList()
             barStroke.Parent = segmentedBar
             
             -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
-            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
+            local buttonWidth = 0.25  -- 25% each
             local buttonSpacing = 3   -- Space between buttons
             
-            -- ═══════════════════════════════════════════
-            -- BUTTON 1: PLAY (25% width)
-            -- ═══════════════════════════════════════════
-            
+            -- 1. [PLAY] (Kiri Paling Ujung - 0%)
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             playBtn.Position = UDim2.fromOffset(2, 2)
@@ -2662,49 +2667,19 @@ function UpdateRecordList()
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
-            
-            -- Divider 1
+
+            -- DIVIDER 1
             local divider1 = Instance.new("Frame")
             divider1.Size = UDim2.new(0, 1, 1, -8)
             divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
             divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider1.BorderSizePixel = 0
             divider1.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 2: DELETE (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
-            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Hapus"
-            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 9
-            delBtn.BorderSizePixel = 0
-            delBtn.Parent = segmentedBar
-            
-            local delCorner = Instance.new("UICorner")
-            delCorner.CornerRadius = UDim.new(0, 3)
-            delCorner.Parent = delBtn
-            
-            -- Divider 2
-            local divider2 = Instance.new("Frame")
-            divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
-            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider2.BorderSizePixel = 0
-            divider2.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 3: NAIK (25% width)
-            -- ═══════════════════════════════════════════
-            
+
+            -- 2. [NAIK] (Posisi Kedua - 25%)
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+            upBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             upBtn.Text = "Naik"
             upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2716,22 +2691,19 @@ function UpdateRecordList()
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
-            
-            -- Divider 3
-            local divider3 = Instance.new("Frame")
-            divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
-            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider3.BorderSizePixel = 0
-            divider3.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 4: TURUN (25% width)
-            -- ═══════════════════════════════════════════
-            
+
+            -- DIVIDER 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+
+            -- 3. [TURUN] (Posisi Ketiga - 50%)
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
-            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             downBtn.Text = "Turun"
             downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2743,6 +2715,30 @@ function UpdateRecordList()
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
+
+            -- DIVIDER 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+
+            -- 4. [HAPUS] (Kanan Paling Ujung - 75%)
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4) -- Kurangi width dikit biar pas margin kanan
+            delBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            delBtn.Text = "Hapus"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 9
+            delBtn.BorderSizePixel = 0
+            delBtn.Parent = segmentedBar
+            
+            local delCorner = Instance.new("UICorner")
+            delCorner.CornerRadius = UDim.new(0, 3)
+            delCorner.Parent = delBtn
             
             -- ═══════════════════════════════════════════
             -- EVENT HANDLERS
