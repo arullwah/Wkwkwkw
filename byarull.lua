@@ -42,6 +42,7 @@ local KeyAccess = {
         "Ucinghideun00",
         "xWendoyy",
         "PppAdumullett",
+        "di00xp",
 }
 
 -- ===================================
