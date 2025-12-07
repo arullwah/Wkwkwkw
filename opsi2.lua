@@ -82,8 +82,6 @@ local Title, CheckAllBtn
 
 -- ========= VARIABLES =========
 local IsRecording = false
-local RecordingHipHeights = {} -- Database tinggi badan per rekaman
-local PlaybackHeightOffset = Vector3.new(0, 0, 0) -- Nilai koreksi saat main
 local IsPlaying = false
 local IsPaused = false
 local IsReversing = false
@@ -159,7 +157,6 @@ local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
-
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -1185,43 +1182,38 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ [AUTO-HEIGHT] Ambil posisi asli + Offset Tinggi Badan
-        local targetCFrame = GetFrameCFrame(frame)
+        -- ✅ Apply CFrame (posisi presisi)
+        hrp.CFrame = GetFrameCFrame(frame)
         
-        -- ✅ TERAPKAN OFFSET DI SINI
-        hrp.CFrame = targetCFrame + PlaybackHeightOffset
-        
-        -- Velocity Logic
+        -- ⭐ PENTING: Velocity AFTER state change!
         local moveState = frame.MoveState
-        local frameVelocity = GetFrameVelocity(frame, moveState)
-        hrp.AssemblyLinearVelocity = frameVelocity
-        hrp.AssemblyAngularVelocity = Vector3.zero
+        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+        local currentTime = tick()
         
+        -- Deteksi Jump/Fall
+        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+        local isFallingByVelocity = frameVelocity.Y < -5
+        
+        if isJumpingByVelocity and moveState ~= "Jumping" then
+            moveState = "Jumping"
+        elseif isFallingByVelocity and moveState ~= "Falling" then
+            moveState = "Falling"
+        end
+        
+        -- ⭐ APPLY STATE DULU
         if hum then
+if ShiftLockEnabled then
+    hum.AutoRotate = false
+    humanoid.CameraOffset = ShiftLockCameraOffset
+else
+    hum.AutoRotate = false  -- Tetap false saat playback
+end
+            
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
             
-            if ShiftLockEnabled then
-                hum.AutoRotate = false
-            else
-                hum.AutoRotate = true
-            end
-            
-            -- State Management (Versi Simple Script Kamu)
-            local currentTime = tick()
-            local JUMP_VELOCITY_THRESHOLD = 5
-            local FALL_VELOCITY_THRESHOLD = -3
-            
-            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-            local isFallingByVelocity = frameVelocity.Y < -3
-            
-            if isJumpingByVelocity and moveState ~= "Jumping" then
-                moveState = "Jumping"
-            elseif isFallingByVelocity and moveState ~= "Falling" then
-                moveState = "Falling"
-            end
-            
+            -- Apply state change
             if moveState == "Jumping" then
                 if lastPlaybackState ~= "Jumping" then
                     hum:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -1235,7 +1227,8 @@ local function ApplyFrameDirect(frame)
                     lastStateChangeTime = currentTime
                 end
             else
-                if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                if moveState ~= lastPlaybackState and 
+                   (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
                     if moveState == "Climbing" then
                         hum:ChangeState(Enum.HumanoidStateType.Climbing)
                         hum.PlatformStand = false
@@ -1249,6 +1242,10 @@ local function ApplyFrameDirect(frame)
                 end
             end
         end
+        
+        -- ⭐ APPLY VELOCITY TERAKHIR (setelah state fix)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
@@ -1266,15 +1263,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
 
-    -- ✨ [AUTO-HEIGHT CALCULATION] ✨
-    local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
-    local currentHipHeight = 2
-    if hum then currentHipHeight = hum.HipHeight end
-    
-    local heightDifference = currentHipHeight - recordedHipHeight
-    PlaybackHeightOffset = Vector3.new(0, heightDifference, 0)
-    -- ✨ [END CALCULATION] ✨
-
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
@@ -1283,16 +1271,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     previousFrameData = nil
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
     local currentPos = hrp.Position
     local targetFrame = recording[startFrame]
-    
-    -- Hitung target posisi dengan offset
-    local targetPos = GetFramePosition(targetFrame) + PlaybackHeightOffset
+    local targetPos = GetFramePosition(targetFrame)
     
     local distance = (currentPos - targetPos).Magnitude
     
     if distance > 3 then
-        hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+        hrp.CFrame = GetFrameCFrame(targetFrame)
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         task.wait(0.03)
@@ -1306,11 +1293,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     lastStateChangeTime = 0
 
     SaveHumanoidState()
+    
+    -- ✅ ShiftLock TIDAK dimatikan saat playback!
+    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
+    
     PlaySound("Toggle")
     
     if PlayBtnControl then
-        -- Gunakan fungsi update button yang baru
-        UpdatePlayButtonStatus()
+        PlayBtnControl.Text = "STOP"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
     end
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
@@ -1319,10 +1310,17 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 playbackConnection:Disconnect()
                 RestoreFullUserControl()
                 
+                -- ✅ ShiftLock tetap sesuai state user
+                -- TIDAK restore, karena sudah persistent
+                
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1335,6 +1333,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1348,6 +1350,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
                 previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
                 UpdatePlayButtonStatus()
                 return
             end
@@ -1373,6 +1379,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
@@ -1385,11 +1395,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     lastPlaybackState = nil
                     lastStateChangeTime = 0
                     previousFrameData = nil
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
                     UpdatePlayButtonStatus()
                     return
                 end
 
-                -- ⭐ Apply frame (Offset sudah dihandle di dalam fungsi ini)
+                -- ⭐ HYBRID: Apply frame directly
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
@@ -2091,12 +2105,6 @@ end
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
-    -- [AUTO-HEIGHT] Simpan HipHeight Perekam
-    local currentHipHeight = 2 -- Default aman
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        currentHipHeight = player.Character.Humanoid.HipHeight
-    end
-    
     task.spawn(function()
         SafeCall(function()
             local char = player.Character
@@ -2107,20 +2115,14 @@ local function StartStudioRecording()
             
             StudioIsRecording = true
             IsTimelineMode = false
-            
-            StudioCurrentRecording = {
-                Frames = {}, 
-                StartTime = tick(), 
-                Name = "recording_" .. os.date("%H%M%S"),
-                OriginalHipHeight = currentHipHeight -- ✅ SIMPAN TINGGI BADAN
-            }
-            
+            StudioCurrentRecording = {Frames = {}, StartTime = tick(), Name = "recording_" .. os.date("%H%M%S")}
             lastStudioRecordTime = 0
             lastStudioRecordPos = nil
             CurrentTimelineFrame = 0
             TimelinePosition = 0
             
             UpdateStudioUI()
+            
             PlaySound("Toggle")
             
             recordConnection = RunService.Heartbeat:Connect(function()
@@ -2134,7 +2136,9 @@ local function StartStudioRecording()
                         local hrp = char.HumanoidRootPart
                         local hum = char:FindFirstChildOfClass("Humanoid")
                         
-                        if IsTimelineMode then return end
+                        if IsTimelineMode then
+                            return
+                        end
                         
                         local now = tick()
                         if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
@@ -2340,20 +2344,14 @@ local function SaveStudioRecording()
             end
             
             local normalizedFrames = NormalizeRecordingTimestamps(StudioCurrentRecording.Frames)
-            local recName = StudioCurrentRecording.Name
             
-            RecordedMovements[recName] = normalizedFrames
-            
-            -- ✅ SIMPAN HIP HEIGHT KE DATABASE LOKAL
-            RecordingHipHeights[recName] = StudioCurrentRecording.OriginalHipHeight or 2
-            
-            table.insert(RecordingOrder, recName)
-            checkpointNames[recName] = "checkpoint_" .. #RecordingOrder
+            RecordedMovements[StudioCurrentRecording.Name] = normalizedFrames
+            table.insert(RecordingOrder, StudioCurrentRecording.Name)
+            checkpointNames[StudioCurrentRecording.Name] = "checkpoint_" .. #RecordingOrder
             UpdateRecordList()
             
             PlaySound("Success")
             
-            -- Reset
             StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
             IsTimelineMode = false
             CurrentTimelineFrame = 0
@@ -2398,17 +2396,15 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "3.4", -- Naikkan versi
+            Version = "3.3",
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
-            CheckpointNames = {},
-            HipHeights = {} -- ✅ DATABASE BARU DI FILE
+            CheckpointNames = {}
         }
         
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
-                -- ... (logika simpan frame seperti biasa) ...
                 local frames = RecordedMovements[name]
                 if frames then
                     local checkpointData = {
@@ -2419,13 +2415,9 @@ local function SaveToObfuscatedJSON()
                     table.insert(saveData.Checkpoints, checkpointData)
                     table.insert(saveData.RecordingOrder, name)
                     saveData.CheckpointNames[name] = checkpointNames[name]
-                    
-                    -- ✅ SIMPAN TINGGI KE FILE
-                    saveData.HipHeights[name] = RecordingHipHeights[name] or 2
                 end
             end
         end
-
         
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
@@ -2468,9 +2460,6 @@ local function LoadFromObfuscatedJSON()
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ [BARU] Ambil tabel HipHeights dari file JSON
-        local loadedHipHeights = saveData.HipHeights or {} 
-        
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
@@ -2481,10 +2470,6 @@ local function LoadFromObfuscatedJSON()
                 if frames then
                     RecordedMovements[name] = frames
                     checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                    
-                    -- ✅ [BARU] Simpan HipHeight ke memori script
-                    -- Jika file lama tidak punya data ini, nilainya akan nil (dan dianggap 2 saat play)
-                    RecordingHipHeights[name] = loadedHipHeights[name]
                     
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
@@ -2498,11 +2483,9 @@ local function LoadFromObfuscatedJSON()
     end)
     
     if not success then
-        warn("Load Error:", err) -- Tambahan print error di console (F9) biar tau kenapa gagal
         PlaySound("Error")
     end
 end
-
 
 -- ========= RECORDING LIST UI =========
 
