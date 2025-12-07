@@ -3803,45 +3803,6 @@ end)
         PlaySound("Toggle")
     end)
 
-    StartBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(StartBtn)
-            if StudioIsRecording then
-                StopStudioRecording()
-            else
-                StartStudioRecording()
-            end
-        end)
-    end)
-
-    PrevBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(PrevBtn)
-            GoBackTimeline()
-        end)
-    end)
-
-    NextBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(NextBtn)
-            GoNextTimeline()
-        end)
-    end)
-
-    ResumeBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(ResumeBtn)
-            ResumeStudioRecording()
-        end)
-    end)
-
-    SaveBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(SaveBtn)
-            SaveStudioRecording()
-        end)
-    end)
-
 -- ========= MINI BUTTON: MOBILE-SAFE DRAG + FIVE TAP (INSTANT) =========
 
 -- Five tap variables
