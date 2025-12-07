@@ -2142,35 +2142,36 @@ local function StartStudioRecording()
                         if IsTimelineMode then return end
                         
                         -- =============================================
-                        -- 🛡️ SISTEM ANTI-FALL v2 (Game Checkpoint Detection) 🛡️
+                        -- 🛡️ SISTEM ANTI-FALL v3 (Smart Buffer & Height Limit) 🛡️
                         -- =============================================
                         if StudioAntiFallEnabled and hum then
                             local currentPos = hrp.Position
+                            local velocityY = math.abs(hrp.AssemblyLinearVelocity.Y)
                             
-                            -- 1. CATAT FRAME AMAN (Hanya saat kaki nempel tanah)
-                            -- Kita simpan index frame terakhir dimana karakter TIDAK di udara
-                            if hum.FloorMaterial ~= Enum.Material.Air then
+                            -- 1. UPDATE POSISI AMAN (LEBIH KETAT)
+                            -- Syarat: Nempel Tanah DAN Kecepatan Vertikal Rendah (Tidak sedang sliding/jatuh)
+                            if hum.FloorMaterial ~= Enum.Material.Air and velocityY < 2 then
                                 LastSafeRecordingFrameIndex = #StudioCurrentRecording.Frames
                                 LastSafeRecordingPos = currentPos
                             end
 
-                            -- 2. DETEKSI RESET GAME (Teleportasi Checkpoint)
-                            -- Jika jarak posisi sekarang dengan posisi record terakhir > 20 stud dalam 1 frame
-                            -- Artinya game memindahkanmu paksa (mati/reset ke checkpoint)
-                            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude > 20 then
-                                
-                                -- STOP! Jangan rekam frame teleportasi ini.
-                                -- KITA MUNDUR (ROLLBACK) KE POSISI AMAN TERAKHIR
-                                
-                                local targetFrameIndex = LastSafeRecordingFrameIndex
-                                
-                                -- Safety: Pastikan kita mundur minimal beberapa frame agar tidak pas di pinggir jurang
-                                if targetFrameIndex > 10 then
-                                    targetFrameIndex = targetFrameIndex - 5 
-                                end
+                            -- 2. DETEKSI BAHAYA
+                            -- A. Teleport Game (Jarak > 20 studs instan) -> Berarti kena checkpoint/reset
+                            -- B. Jatuh Manual (Beda Tinggi > 40 studs dari posisi aman) -> Berarti jatuh dari gunung tapi ga mati
+                            local isTeleported = lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude > 20
+                            local isFallenDeep = LastSafeRecordingPos and (LastSafeRecordingPos.Y - currentPos.Y) > 40 
 
-                                -- Validasi index
-                                if targetFrameIndex > 0 and targetFrameIndex < #StudioCurrentRecording.Frames then
+                            if isTeleported or isFallenDeep then
+                                
+                                -- ROLLBACK LEBIH DALAM (Mencegah Loop Jatuh)
+                                -- Kita mundur 30 frame (sekitar 0.5 detik) dari posisi aman terakhir
+                                -- Supaya karakter balik ke TENGAH pijakan, bukan di UJUNG tebing
+                                local targetFrameIndex = LastSafeRecordingFrameIndex - 30 
+                                
+                                -- Validasi agar tidak error jika rekaman masih baru
+                                if targetFrameIndex < 1 then targetFrameIndex = 1 end
+
+                                if targetFrameIndex < #StudioCurrentRecording.Frames then
                                     
                                     -- A. Potong Array Frame (Hapus kejadian jatuh)
                                     local newFrames = {}
@@ -2179,30 +2180,35 @@ local function StartStudioRecording()
                                     end
                                     StudioCurrentRecording.Frames = newFrames
                                     
-                                    -- B. Ambil Data Frame Aman
+                                    -- B. Ambil Data Frame Aman (yang sudah dimundurkan)
                                     local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
                                     
-                                    -- C. Teleport Karakter ke Posisi Aman
-                                    local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
-                                    local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
-                                    
-                                    hrp.CFrame = CFrame.lookAt(safePos, safePos + safeLook)
-                                    hrp.AssemblyLinearVelocity = Vector3.zero
-                                    hrp.AssemblyAngularVelocity = Vector3.zero
-                                    
-                                    -- D. Reset Waktu Rekaman agar sinkron
-                                    StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
-                                    
-                                    -- E. Update UI Timeline
-                                    CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                                    TimelinePosition = CurrentTimelineFrame
-                                    
-                                    PlaySound("Error") -- Sound feedback bahwa Anti-Fall bekerja
-                                    UpdateStudioUI()
-                                    
-                                    -- Update posisi terakhir script agar tidak loop
-                                    lastStudioRecordPos = safePos 
-                                    return -- Keluar, jangan rekam frame reset ini
+                                    if safeFrame then
+                                        -- C. Teleport Karakter
+                                        local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
+                                        local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
+                                        
+                                        -- Tambah tinggi dikit (+3 studs) biar ga nyangkut tanah
+                                        hrp.CFrame = CFrame.lookAt(safePos + Vector3.new(0, 1, 0), safePos + safeLook)
+                                        hrp.AssemblyLinearVelocity = Vector3.zero
+                                        hrp.AssemblyAngularVelocity = Vector3.zero
+                                        
+                                        -- D. Reset Waktu & Sinkronisasi
+                                        StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
+                                        
+                                        -- Update Posisi Terakhir Script (PENTING BIAR GA LOOP DETEKSI)
+                                        lastStudioRecordPos = safePos 
+                                        LastSafeRecordingPos = safePos
+                                        LastSafeRecordingFrameIndex = targetFrameIndex -- Mundurkan index aman juga
+                                        
+                                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                                        TimelinePosition = CurrentTimelineFrame
+                                        
+                                        PlaySound("Error") 
+                                        UpdateStudioUI()
+                                        
+                                        return -- Stop, jangan rekam frame ini
+                                    end
                                 end
                             end
                         end
@@ -4109,9 +4115,9 @@ end
 
 player.CharacterRemoving:Connect(function()
     SafeCall(function()
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
+   --   if StudioIsRecording then
+          --  StopStudioRecording()
+    --   end
         
         if IsPlaying and not AutoLoop then
             StopPlayback()
