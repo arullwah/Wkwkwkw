@@ -2138,78 +2138,91 @@ local function StartStudioRecording()
                         
                         if IsTimelineMode then return end
                         
-                                                -- =============================================
-                        -- 🛡️ SISTEM ANTI-FALL FINAL (Respawn & Teleport Only) 🛡️
+                         -- =============================================
+                        -- 🛡️ SISTEM ANTI-FALL V4 (Smart Search & Smooth Connect) 🛡️
                         -- =============================================
                         if StudioAntiFallEnabled then
-                            -- Pastikan humanoid ada
                             if not hum then hum = char:FindFirstChildOfClass("Humanoid") end
                             
                             local currentPos = hrp.Position
                             
-                            -- 1. UPDATE POSISI AMAN (Hanya saat nempel tanah)
-                            -- Kita simpan index ini terus menerus selama kamu aman
-                            if hum and hum.FloorMaterial ~= Enum.Material.Air then
+                            -- 1. UPDATE POSISI AMAN (Hanya saat status Grounded)
+                            local currentState = GetCurrentMoveState(hum)
+                            if currentState == "Grounded" then
+                                -- Update terus posisi aman selagi kita napak tanah
                                 LastSafeRecordingFrameIndex = #StudioCurrentRecording.Frames
                                 LastSafeRecordingPos = currentPos
                             end
 
-                            -- 2. DETEKSI RESET / RESPAWN / CHECKPOINT
-                            -- Hanya bereaksi jika posisi berpindah drastis (> 25 studs) dalam sekejap
-                            -- Ini terjadi saat: Kamu mati & respawn, atau kena killbrick & teleport
+                            -- 2. DETEKSI RESET/TELEPORT (Jarak > 25 studs instan)
                             local dist = lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude or 0
-                            local isTeleported = dist > 25
-
-                            if isTeleported then
-                                -- ROLLBACK YANG LEBIH DALAM (Mundur ~1 detik ke belakang)
-                                -- Agar tidak respawn persis di bibir jurang tempat kamu terpeleset
-                                local rollbackAmount = 50 
-                                local targetFrameIndex = LastSafeRecordingFrameIndex - rollbackAmount
+                            
+                            if dist > 25 then
+                                -- OK, kita terdeteksi mati/reset.
+                                -- Sekarang kita cari frame aman dengan cerdas.
                                 
-                                -- Safety check index
-                                if targetFrameIndex < 1 then targetFrameIndex = 1 end
-
-                                if targetFrameIndex < #StudioCurrentRecording.Frames then
+                                local searchIndex = LastSafeRecordingFrameIndex
+                                local safeFrameFound = nil
+                                
+                                -- 🔍 LOOP PENCARI PIJAKAN (Mundur ke belakang)
+                                -- Kita cek frame satu per satu ke belakang sampai ketemu yang statusnya "Grounded"
+                                local maxSearch = 300 -- Batas mundur (biar ga hang kalau error)
+                                local searchCount = 0
+                                
+                                while searchIndex > 1 and searchCount < maxSearch do
+                                    local frame = StudioCurrentRecording.Frames[searchIndex]
                                     
-                                    -- A. Potong Frame (Hapus momen jatuh & kematian)
+                                    if frame and frame.MoveState == "Grounded" then
+                                        -- KETEMU! Ini pijakan tanah.
+                                        -- Kita mundur dikit lagi (buffer 5 frame) biar ga pas di ujung tebing
+                                        searchIndex = math.max(1, searchIndex - 5)
+                                        safeFrameFound = StudioCurrentRecording.Frames[searchIndex]
+                                        break
+                                    end
+                                    
+                                    searchIndex = searchIndex - 1
+                                    searchCount = searchCount + 1
+                                end
+                                
+                                -- Jika frame aman ketemu, kita eksekusi Rollback
+                                if safeFrameFound then
+                                    
+                                    -- A. Potong Rekaman (Hapus momen jatuh)
                                     local newFrames = {}
-                                    for i = 1, targetFrameIndex do
+                                    for i = 1, searchIndex do
                                         table.insert(newFrames, StudioCurrentRecording.Frames[i])
                                     end
                                     StudioCurrentRecording.Frames = newFrames
                                     
-                                    -- B. Ambil Data Frame Aman
-                                    local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
+                                    -- B. Teleport Mulus
+                                    local safePos = Vector3.new(safeFrameFound.Position[1], safeFrameFound.Position[2], safeFrameFound.Position[3])
+                                    local safeLook = Vector3.new(safeFrameFound.LookVector[1], safeFrameFound.LookVector[2], safeFrameFound.LookVector[3])
                                     
-                                    if safeFrame then
-                                        -- C. Teleport Karakter ke Posisi Aman
-                                        local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
-                                        local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
-                                        
-                                        hrp.CFrame = CFrame.lookAt(safePos + Vector3.new(0, 2, 0), safePos + safeLook) -- Naik 2 stud biar aman
-                                        hrp.AssemblyLinearVelocity = Vector3.zero
-                                        hrp.AssemblyAngularVelocity = Vector3.zero
-                                        
-                                        -- D. Reset State Humanoid (Biar ga ragdoll/aneh setelah respawn)
-                                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                                        
-                                        -- E. Sinkronisasi Waktu
-                                        StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
-                                        
-                                        -- F. Reset Variabel Posisi Script (PENTING)
-                                        -- Kita paksa script menganggap kita ada di posisi aman, biar ga deteksi teleport lagi
-                                        lastStudioRecordPos = safePos 
-                                        LastSafeRecordingPos = safePos
-                                        LastSafeRecordingFrameIndex = targetFrameIndex
-                                        
-                                        CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                                        TimelinePosition = CurrentTimelineFrame
-                                        
-                                        PlaySound("Error") -- Bunyi notifikasi rollback
-                                        UpdateStudioUI()
-                                        
-                                        return -- SKIP frame ini, jangan direkam
-                                    end
+                                    -- Teleport pas ke titik itu (tanpa offset tinggi berlebih biar smooth)
+                                    hrp.CFrame = CFrame.lookAt(safePos, safePos + safeLook)
+                                    hrp.AssemblyLinearVelocity = Vector3.zero
+                                    hrp.AssemblyAngularVelocity = Vector3.zero
+                                    
+                                    -- C. Paksa Status Humanoid
+                                    hum:ChangeState(Enum.HumanoidStateType.Running)
+                                    
+                                    -- D. Sinkronisasi Waktu (PENTING AGAR PLAYBACK TIDAK JEDA/LOMPAT)
+                                    -- Kita reset waktu mulai seolah-olah kita baru sampai di frame tersebut
+                                    StudioCurrentRecording.StartTime = tick() - safeFrameFound.Timestamp
+                                    
+                                    -- E. Reset Variabel Deteksi
+                                    lastStudioRecordPos = safePos 
+                                    LastSafeRecordingPos = safePos
+                                    LastSafeRecordingFrameIndex = searchIndex
+                                    
+                                    -- F. Update UI
+                                    CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                                    TimelinePosition = CurrentTimelineFrame
+                                    
+                                    PlaySound("Error") -- Feedback suara
+                                    UpdateStudioUI()
+                                    
+                                    return -- Stop rekam frame ini
                                 end
                             end
                         end
