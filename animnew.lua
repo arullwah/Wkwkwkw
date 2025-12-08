@@ -942,13 +942,12 @@ end
 local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
     
-    -- 1. DETEKSI LAG & ISI FRAME KOSONG (Interpolasi)
-    -- Jika kamu lag/fps drop, script akan membuat 'frame bayangan' di antaranya
-    -- Supaya gerakan tetap mulus tapi kecepatannya NORMAL (tidak ngacir)
+    -- ✅ KITA AKTIFKAN LAGI COMPENSATION & SMOOTHING (Biar Sambungan Mulus)
     local lagCompensated, hadLag = DetectAndCompensateLag(recording)
     local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
     
     local normalized = {}
+    local expectedFrameTime = 1 / RECORDING_FPS
     
     for i, frame in ipairs(smoothed) do
         local newFrame = {
@@ -958,28 +957,24 @@ local function NormalizeRecordingTimestamps(recording)
             Velocity = frame.Velocity,
             MoveState = frame.MoveState,
             WalkSpeed = frame.WalkSpeed,
-            Timestamp = frame.Timestamp, -- ✅ GUNAKAN WAKTU ASLI (KUNCI AGAR TIDAK NGACIR)
+            Timestamp = 0, -- Akan dihitung ulang di bawah
             IsInterpolated = frame.IsInterpolated,
             IsSmoothed = frame.IsSmoothed
         }
         
         if i == 1 then
             newFrame.Timestamp = 0
-            -- Geser semua timestamp agar dimulai dari 0
-            if frame.Timestamp > 0 then
-                local offset = frame.Timestamp
-                for j = 1, #smoothed do
-                   smoothed[j].Timestamp = smoothed[j].Timestamp - offset
-                end
-                newFrame.Timestamp = 0
-            end
         else
-            -- Cek validitas waktu (Safety Check saja)
-            local prevTime = normalized[i-1].Timestamp
+            -- 🪄 LOGIKA MAGIC: MEMAKSA WAKTU JADI RAPI (Menghapus Jeda "Stop")
+            local prevTimestamp = normalized[i-1].Timestamp
+            local originalTimeDiff = frame.Timestamp - smoothed[i-1].Timestamp
             
-            -- Hanya perbaiki jika waktu mundur (error) atau sama persis
-            if newFrame.Timestamp <= prevTime then
-                newFrame.Timestamp = prevTime + (1/RECORDING_FPS)
+            -- Jika jeda terlalu besar (misal karena rollback), paksa jadi mulus (0.016s)
+            if originalTimeDiff > (expectedFrameTime * 5) or originalTimeDiff < 0 then
+                 newFrame.Timestamp = prevTimestamp + expectedFrameTime
+            else
+                 -- Pertahankan variasi kecil biar natural, tapi jangan biarkan macet
+                 newFrame.Timestamp = prevTimestamp + math.max(originalTimeDiff, expectedFrameTime * 0.8)
             end
         end
         
