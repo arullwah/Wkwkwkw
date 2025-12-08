@@ -159,6 +159,11 @@ local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
+-- Tambahkan di variabel global
+local StudioAntiFallEnabled = false -- Default mati
+local LastSafeRecordingFrameIndex = 0
+local LastSafeRecordingPos = nil
+
 
 
 -- ========= SOUND EFFECTS =========
@@ -609,27 +614,55 @@ local function GetCurrentMoveState(hum)
 end
 
 -- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
+-- ========= SMART VELOCITY: 100% Real Physics (V2 Feel) =========
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
+    -- KEMBALIKAN KE SKALA 1 (ASLI)
+    -- Jangan dikurangi (0.8/0.9) agar lompatan tidak pendek/lag
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SET Velocity Y = 0 untuk Grounded
+    -- Jika di tanah, paksa Y = 0 biar nempel
     if moveState == "Grounded" or moveState == nil then
         velocityY = 0
     end
     
-    -- ⭐ GENTLE FIX: Hanya scale down sedikit (bukan clamp keras!)
-    if moveState == "Jumping" or moveState == "Falling" then
-        -- Scale down velocity sedikit aja (80% dari asli)
-        velocityY = velocityY * 0.8
-        velocityX = velocityX * 0.9
-        velocityZ = velocityZ * 0.9
-    end
+    -- HAPUS BAGIAN DAMPENING (PENGURANGAN KECEPATAN)
+    -- Biarkan velocity full saat jumping/falling agar mulus
     
     return Vector3.new(velocityX, velocityY, velocityZ)
+end
+
+-- ========= SAFETY REWIND FUNCTION =========
+-- Fungsi ini mencari frame mundur ke belakang sampai ketemu tanah
+local function FindSafeStartFrame(recording, targetFrameIndex)
+    if not recording or #recording == 0 then return 1 end
+    
+    -- Batasi pencarian maksimal 120 frame ke belakang (sekitar 2 detik)
+    local maxSearch = 120 
+    local currentIndex = targetFrameIndex
+    
+    -- Loop mundur
+    for i = 0, maxSearch do
+        local checkIndex = currentIndex - i
+        if checkIndex < 1 then return 1 end -- Mentok awal
+        
+        local frame = recording[checkIndex]
+        local state = frame.MoveState
+        
+        -- Kriteria Aman: State adalah Grounded/Running ATAU Velocity Y mendekati 0
+        if state == "Grounded" or state == "Running" or (frame.Velocity and math.abs(frame.Velocity[2]) < 0.1) then
+            if i > 0 then
+                -- Info visual di console (F9)
+                warn("⚠️ Posisi awal melayang! Mundur " .. i .. " frame ke posisi aman.")
+            end
+            return checkIndex
+        end
+    end
+    
+    return targetFrameIndex -- Jika tidak ketemu tanah, tetap pakai frame asli
 end
 
 -- ========= PATH VISUALIZATION =========
@@ -1261,6 +1294,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
+    -- [UPDATE] 🛡️ SMART SAFE START 🛡️
+    -- Sebelum mulai, cek apakah startFrame aman. Jika melayang, mundur dulu.
+    startFrame = FindSafeStartFrame(recording, startFrame)
+
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         WalkSpeedBeforePlayback = hum.WalkSpeed 
@@ -1282,23 +1319,17 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackAccumulator = 0
     previousFrameData = nil
     
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local currentPos = hrp.Position
-    local targetFrame = recording[startFrame]
-    
-    -- Hitung target posisi dengan offset
-    local targetPos = GetFramePosition(targetFrame) + PlaybackHeightOffset
-    
-    local distance = (currentPos - targetPos).Magnitude
-    
-    if distance > 3 then
-        hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        task.wait(0.03)
-    end
-    
+    -- Set Frame Awal
     currentPlaybackFrame = startFrame
+    local targetFrame = recording[startFrame]
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    
+    -- Teleport ke posisi aman yang sudah ditemukan
+    hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) -- Reset momentum saat teleport awal
+    hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+    
+    -- Sync Waktu Playback
     playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
@@ -1309,7 +1340,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlaySound("Toggle")
     
     if PlayBtnControl then
-        -- Gunakan fungsi update button yang baru
         UpdatePlayButtonStatus()
     end
 
@@ -1389,7 +1419,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                -- ⭐ Apply frame (Offset sudah dihandle di dalam fungsi ini)
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
@@ -2091,8 +2120,8 @@ end
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
-    -- [AUTO-HEIGHT] Simpan HipHeight Perekam
-    local currentHipHeight = 2 -- Default aman
+    -- [AUTO-HEIGHT] Simpan data awal
+    local currentHipHeight = 2
     if player.Character and player.Character:FindFirstChild("Humanoid") then
         currentHipHeight = player.Character.Humanoid.HipHeight
     end
@@ -2112,13 +2141,13 @@ local function StartStudioRecording()
                 Frames = {}, 
                 StartTime = tick(), 
                 Name = "recording_" .. os.date("%H%M%S"),
-                OriginalHipHeight = currentHipHeight -- ✅ SIMPAN TINGGI BADAN
+                OriginalHipHeight = currentHipHeight
             }
             
+            -- Reset Safety Data
             lastStudioRecordTime = 0
-            lastStudioRecordPos = nil
-            CurrentTimelineFrame = 0
-            TimelinePosition = 0
+            LastSafeRecordingFrameIndex = 1
+            LastSafeRecordingPos = char.HumanoidRootPart.Position
             
             UpdateStudioUI()
             PlaySound("Toggle")
@@ -2136,6 +2165,74 @@ local function StartStudioRecording()
                         
                         if IsTimelineMode then return end
                         
+                        -- =============================================
+                        -- 🛡️ SISTEM ANTI-FALL v2 (Game Checkpoint Detection) 🛡️
+                        -- =============================================
+                        if StudioAntiFallEnabled and hum then
+                            local currentPos = hrp.Position
+                            
+                            -- 1. CATAT FRAME AMAN (Hanya saat kaki nempel tanah)
+                            -- Kita simpan index frame terakhir dimana karakter TIDAK di udara
+                            if hum.FloorMaterial ~= Enum.Material.Air then
+                                LastSafeRecordingFrameIndex = #StudioCurrentRecording.Frames
+                                LastSafeRecordingPos = currentPos
+                            end
+
+                            -- 2. DETEKSI RESET GAME (Teleportasi Checkpoint)
+                            -- Jika jarak posisi sekarang dengan posisi record terakhir > 20 stud dalam 1 frame
+                            -- Artinya game memindahkanmu paksa (mati/reset ke checkpoint)
+                            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude > 20 then
+                                
+                                -- STOP! Jangan rekam frame teleportasi ini.
+                                -- KITA MUNDUR (ROLLBACK) KE POSISI AMAN TERAKHIR
+                                
+                                local targetFrameIndex = LastSafeRecordingFrameIndex
+                                
+                                -- Safety: Pastikan kita mundur minimal beberapa frame agar tidak pas di pinggir jurang
+                                if targetFrameIndex > 10 then
+                                    targetFrameIndex = targetFrameIndex - 5 
+                                end
+
+                                -- Validasi index
+                                if targetFrameIndex > 0 and targetFrameIndex < #StudioCurrentRecording.Frames then
+                                    
+                                    -- A. Potong Array Frame (Hapus kejadian jatuh)
+                                    local newFrames = {}
+                                    for i = 1, targetFrameIndex do
+                                        table.insert(newFrames, StudioCurrentRecording.Frames[i])
+                                    end
+                                    StudioCurrentRecording.Frames = newFrames
+                                    
+                                    -- B. Ambil Data Frame Aman
+                                    local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
+                                    
+                                    -- C. Teleport Karakter ke Posisi Aman
+                                    local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
+                                    local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
+                                    
+                                    hrp.CFrame = CFrame.lookAt(safePos, safePos + safeLook)
+                                    hrp.AssemblyLinearVelocity = Vector3.zero
+                                    hrp.AssemblyAngularVelocity = Vector3.zero
+                                    
+                                    -- D. Reset Waktu Rekaman agar sinkron
+                                    StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
+                                    
+                                    -- E. Update UI Timeline
+                                    CurrentTimelineFrame = #StudioCurrentRecording.Frames
+                                    TimelinePosition = CurrentTimelineFrame
+                                    
+                                    PlaySound("Error") -- Sound feedback bahwa Anti-Fall bekerja
+                                    UpdateStudioUI()
+                                    
+                                    -- Update posisi terakhir script agar tidak loop
+                                    lastStudioRecordPos = safePos 
+                                    return -- Keluar, jangan rekam frame reset ini
+                                end
+                            end
+                        end
+                        -- =============================================
+                        
+                        -- [LOGIKA REKAM FRAME NORMAL]
                         local now = tick()
                         if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
                         
@@ -3291,14 +3388,18 @@ PlaybackCorner.Parent = PlaybackControl
     ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
+        -- ========= RECORDING STUDIO GUI (FULL FIXED) =========
+    
+    -- 1. FRAME UTAMA
+    if RecordingStudio then RecordingStudio:Destroy() end -- Bersihkan duplikat jika ada
+    
     RecordingStudio = Instance.new("Frame")
+    RecordingStudio.Name = "RecordingStudioFrame"
     RecordingStudio.Size = UDim2.fromOffset(156, 120)
     RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
     
-    -- ✅ BAGIAN PENTING: Mengatur warna jadi Hitam (bukan Putih default)
+    -- ✅ WARNA HITAM ELEGAN
     RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
-    
-    -- Transparansi disamakan 0.4
     RecordingStudio.BackgroundTransparency = 0.4
     
     RecordingStudio.BorderSizePixel = 0
@@ -3310,14 +3411,21 @@ PlaybackCorner.Parent = PlaybackControl
     local StudioCorner = Instance.new("UICorner")
     StudioCorner.CornerRadius = UDim.new(0, 8)
     StudioCorner.Parent = RecordingStudio
+    
+    local StudioStroke = Instance.new("UIStroke")
+    StudioStroke.Color = Color3.fromRGB(60, 60, 70)
+    StudioStroke.Thickness = 1
+    StudioStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    StudioStroke.Parent = RecordingStudio
 
-
+    -- 2. KONTAINER ISI
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
     StudioContent.Position = UDim2.new(0, 3, 0, 3)
     StudioContent.BackgroundTransparency = 1
     StudioContent.Parent = RecordingStudio
 
+    -- 3. FUNGSI PEMBUAT TOMBOL
     local function CreateStudioBtn(text, x, y, w, h, color)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.fromOffset(w, h)
@@ -3355,92 +3463,165 @@ PlaybackCorner.Parent = PlaybackControl
         return btn
     end
 
-    SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
-    StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
+    -- 4. PEMBUATAN TOMBOL (LAYOUT BARU DENGAN SHIELD)
+    
+    -- [A] Tombol Shield (Anti-Fall Toggle) - Pojok Kiri Atas
+    local AntiFallStudioBtn = Instance.new("TextButton")
+    AntiFallStudioBtn.Size = UDim2.fromOffset(22, 22) -- Kotak kecil
+    AntiFallStudioBtn.Position = UDim2.fromOffset(3, 3)
+    AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80) -- Default OFF (Abu-abu)
+    AntiFallStudioBtn.Text = "🛡️"
+    AntiFallStudioBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    AntiFallStudioBtn.TextSize = 14
+    AntiFallStudioBtn.AutoButtonColor = false
+    AntiFallStudioBtn.Parent = StudioContent
+    Instance.new("UICorner", AntiFallStudioBtn).CornerRadius = UDim.new(0, 4)
+
+    -- [B] Tombol SAVE & START (Digeser ke kanan)
+    SaveBtn = CreateStudioBtn("SAVE", 28, 3, 58, 22, Color3.fromRGB(59, 15, 116))
+    StartBtn = CreateStudioBtn("START", 90, 3, 58, 22, Color3.fromRGB(59, 15, 116))
+    
+    -- [C] Tombol RESUME (Baris kedua, full width)
     ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
+    
+    -- [D] Tombol PREV & NEXT (Baris ketiga)
     PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
+    NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
 
--- ✅ ADD: Hold detection
-local prevHoldConnection = nil
-local prevHoldActive = false
 
-PrevBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or 
-       input.UserInputType == Enum.UserInputType.MouseButton1 then
+    -- 5. LOGIKA TOMBOL STUDIO
+    
+    -- [LOGIKA SHIELD / ANTI-FALL]
+    AntiFallStudioBtn.MouseButton1Click:Connect(function()
+        PlaySound("Click")
+        StudioAntiFallEnabled = not StudioAntiFallEnabled
         
-        prevHoldActive = true
-        
-        -- Single tap
+        if StudioAntiFallEnabled then
+            -- ON: Warna Hijau & Reset Data Aman
+            AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80) 
+            
+            -- Reset Safety Data saat dinyalakan
+            LastSafeRecordingFrameIndex = math.max(1, #StudioCurrentRecording.Frames)
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                 LastSafeRecordingPos = player.Character.HumanoidRootPart.Position
+            end
+        else
+            -- OFF: Warna Abu-abu
+            AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80) 
+        end
+    end)
+
+    -- [LOGIKA TOMBOL LAINNYA]
+    SaveBtn.MouseButton1Click:Connect(function()
         task.spawn(function()
-            AnimateButtonClick(PrevBtn)
-            GoBackTimeline()
+            AnimateButtonClick(SaveBtn)
+            SaveStudioRecording()
         end)
-        
-        -- Wait 0.3s, then start rapid fire
-        task.wait(0.3)
-        
-        if prevHoldActive then
-            prevHoldConnection = RunService.Heartbeat:Connect(function()
-                if prevHoldActive then
-                    GoBackTimeline()
-                    task.wait(0.05)  -- 20 frames/second
-                end
-            end)
-        end
-    end
-end)
+    end)
 
-PrevBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or 
-       input.UserInputType == Enum.UserInputType.MouseButton1 then
-        prevHoldActive = false
-        if prevHoldConnection then
-            prevHoldConnection:Disconnect()
-            prevHoldConnection = nil
-        end
-    end
-end)
-
--- ✅ SAME for NextBtn:
-NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
-
-local nextHoldConnection = nil
-local nextHoldActive = false
-
-NextBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or 
-       input.UserInputType == Enum.UserInputType.MouseButton1 then
-        
-        nextHoldActive = true
-        
+    StartBtn.MouseButton1Click:Connect(function()
         task.spawn(function()
-            AnimateButtonClick(NextBtn)
-            GoNextTimeline()
+            AnimateButtonClick(StartBtn)
+            if StudioIsRecording then
+                StopStudioRecording()
+            else
+                StartStudioRecording()
+            end
         end)
-        
-        task.wait(0.3)
-        
-        if nextHoldActive then
-            nextHoldConnection = RunService.Heartbeat:Connect(function()
-                if nextHoldActive then
-                    GoNextTimeline()
-                    task.wait(0.05)
-                end
-            end)
-        end
-    end
-end)
+    end)
 
-NextBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or 
-       input.UserInputType == Enum.UserInputType.MouseButton1 then
-        nextHoldActive = false
-        if nextHoldConnection then
-            nextHoldConnection:Disconnect()
-            nextHoldConnection = nil
+    ResumeBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(ResumeBtn)
+            ResumeStudioRecording()
+        end)
+    end)
+
+
+    -- 6. LOGIKA HOLD (TAHAN) UNTUK PREV & NEXT
+    
+    -- [PREV BUTTON LOGIC]
+    local prevHoldConnection = nil
+    local prevHoldActive = false
+
+    PrevBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or 
+           input.UserInputType == Enum.UserInputType.MouseButton1 then
+            
+            prevHoldActive = true
+            
+            -- Single tap (Klik sekali)
+            task.spawn(function()
+                AnimateButtonClick(PrevBtn)
+                GoBackTimeline()
+            end)
+            
+            -- Tunggu 0.3 detik, kalau masih ditahan, jalankan mode rapid fire
+            task.wait(0.3)
+            
+            if prevHoldActive then
+                prevHoldConnection = RunService.Heartbeat:Connect(function()
+                    if prevHoldActive then
+                        GoBackTimeline()
+                        task.wait(0.05)  -- Speed: 20 frame per detik
+                    end
+                end)
+            end
         end
-    end
-end)
+    end)
+
+    PrevBtn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or 
+           input.UserInputType == Enum.UserInputType.MouseButton1 then
+            prevHoldActive = false
+            if prevHoldConnection then
+                prevHoldConnection:Disconnect()
+                prevHoldConnection = nil
+            end
+        end
+    end)
+
+
+    -- [NEXT BUTTON LOGIC]
+    local nextHoldConnection = nil
+    local nextHoldActive = false
+
+    NextBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or 
+           input.UserInputType == Enum.UserInputType.MouseButton1 then
+            
+            nextHoldActive = true
+            
+            -- Single tap
+            task.spawn(function()
+                AnimateButtonClick(NextBtn)
+                GoNextTimeline()
+            end)
+            
+            -- Hold detection
+            task.wait(0.3)
+            
+            if nextHoldActive then
+                nextHoldConnection = RunService.Heartbeat:Connect(function()
+                    if nextHoldActive then
+                        GoNextTimeline()
+                        task.wait(0.05)
+                    end
+                end)
+            end
+        end
+    end)
+
+    NextBtn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or 
+           input.UserInputType == Enum.UserInputType.MouseButton1 then
+            nextHoldActive = false
+            if nextHoldConnection then
+                nextHoldConnection:Disconnect()
+                nextHoldConnection = nil
+            end
+        end
+    end)
 
     -- ========= INPUT VALIDATION =========
 
@@ -3658,45 +3839,6 @@ end)
         
         UpdateRecordList()
         PlaySound("Toggle")
-    end)
-
-    StartBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(StartBtn)
-            if StudioIsRecording then
-                StopStudioRecording()
-            else
-                StartStudioRecording()
-            end
-        end)
-    end)
-
-    PrevBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(PrevBtn)
-            GoBackTimeline()
-        end)
-    end)
-
-    NextBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(NextBtn)
-            GoNextTimeline()
-        end)
-    end)
-
-    ResumeBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(ResumeBtn)
-            ResumeStudioRecording()
-        end)
-    end)
-
-    SaveBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(SaveBtn)
-            SaveStudioRecording()
-        end)
     end)
 
 -- ========= MINI BUTTON: MOBILE-SAFE DRAG + FIVE TAP (INSTANT) =========
@@ -3991,9 +4133,9 @@ end
 
 player.CharacterRemoving:Connect(function()
     SafeCall(function()
-        if StudioIsRecording then
-            StopStudioRecording()
-        end
+   --   if StudioIsRecording then
+          --  StopStudioRecording()
+    --   end
         
         if IsPlaying and not AutoLoop then
             StopPlayback()
