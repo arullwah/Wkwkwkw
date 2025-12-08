@@ -1284,7 +1284,7 @@ local function FindSafeStartFrame(recording, targetFrameIndex)
     return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
 end
 
--- ========= MAIN PLAYBACK FUNCTION (Fixed Timing & Safety) =========
+-- ========= MAIN PLAYBACK FUNCTION (Pro Flow: Smart Skip Idle) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1294,46 +1294,35 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    -- [1] LOGIKA SMART REWIND (Anti-Jatuh saat Start)
-    -- Sebelum mulai, cek apakah startFrame aman. Jika melayang, mundur dulu.
+    -- [1] SAFETY REWIND (Mundur cari tanah biar aman)
     startFrame = FindSafeStartFrame(recording, startFrame)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        WalkSpeedBeforePlayback = hum.WalkSpeed 
-    end
+    if hum then WalkSpeedBeforePlayback = hum.WalkSpeed end
 
-    -- [2] LOGIKA AUTO-HEIGHT (Tinggi Badan Otomatis)
+    -- [2] AUTO-HEIGHT
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
+    PlaybackHeightOffset = Vector3.new(0, currentHipHeight - recordedHipHeight, 0)
     
-    local heightDifference = currentHipHeight - recordedHipHeight
-    PlaybackHeightOffset = Vector3.new(0, heightDifference, 0)
-    
-    -- [3] SETUP VARIABEL PLAYBACK
+    -- [3] SETUP VARIABEL
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
-    
-    -- Reset Accumulator untuk timing baru
     playbackAccumulator = 0 
     previousFrameData = nil
-    
-    -- Set Frame Awal
     currentPlaybackFrame = startFrame
-    local targetFrame = recording[startFrame]
-    local hrp = char:FindFirstChild("HumanoidRootPart")
     
-    -- Teleport Awal (Hard Snap agar pas di titik start)
+    -- Teleport Awal
+    local targetFrame = recording[startFrame]
     if targetFrame then
-        hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
+        ApplyFrameDirect(targetFrame)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
     end
     
-    -- Reset timer state
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
@@ -1341,64 +1330,63 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     SaveHumanoidState()
     PlaySound("Toggle")
-    
-    if PlayBtnControl then
-        UpdatePlayButtonStatus()
-    end
+    if PlayBtnControl then UpdatePlayButtonStatus() end
 
-    -- [4] HEARTBEAT CONNECTION (LOOP UTAMA)
+    -- [4] LOOP PLAYBACK DENGAN LOGIKA "PRO FLOW"
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                -- Cleanup jika stop mendadak
                 if playbackConnection then playbackConnection:Disconnect() end
-                RestoreFullUserControl()
-                
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
-                return
+                RestoreFullUserControl(); CheckIfPathUsed(recordingName)
+                lastPlaybackState = nil; lastStateChangeTime = 0; previousFrameData = nil
+                UpdatePlayButtonStatus(); return
             end
             
             local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                IsPlaying = false
-                return
-            end
+            if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
             
-            -- [5] TIMING FIX: FRAME-BASED (Anti-Ngebut/Anti-Skip)
-            -- Kita kumpulkan waktu berdasarkan delta * speed
+            -- Tambah waktu
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            -- Waktu per satu frame (misal 1/60 = 0.0166)
-            local fixedStep = (1 / RECORDING_FPS)
-            
-            -- Jalankan frame satu per satu secara urut (Looping)
-            -- Ini menjamin tidak ada frame yang terlewat (Skip) atau dipercepat
-            while playbackAccumulator >= fixedStep do
-                playbackAccumulator = playbackAccumulator - fixedStep
-                
-                -- Naik ke frame berikutnya
-                currentPlaybackFrame = currentPlaybackFrame + 1
-
-                -- Cek apakah rekaman habis
-                if currentPlaybackFrame > #recording then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    PlaySound("Success")
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
-                    UpdatePlayButtonStatus()
-                    return
+            while true do
+                local nextIndex = currentPlaybackFrame + 1
+                if nextIndex > #recording then
+                    IsPlaying = false; RestoreFullUserControl(); CheckIfPathUsed(recordingName)
+                    PlaySound("Success"); lastPlaybackState = nil; lastStateChangeTime = 0
+                    previousFrameData = nil; UpdatePlayButtonStatus(); return
                 end
 
-                local frame = recording[currentPlaybackFrame]
-                if frame then
-                    ApplyFrameDirect(frame)
+                local currentFrame = recording[currentPlaybackFrame]
+                local nextFrame = recording[nextIndex]
+
+                -- Hitung jarak waktu asli
+                local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
+                
+                -- [LOGIKA PRO PLAYER: SKIP BENGONG]
+                -- Jika jeda lebih dari 0.1 detik (misal 2 detik diam), kita potong paksa jadi 0.05 detik.
+                -- Jika jeda normal (lari/lompat), biarkan apa adanya.
+                local MAX_IDLE_GAP = 0.1  -- Batas toleransi "bengong"
+                local FORCED_GAP = 0.05   -- Jeda pengganti yang cepat (sat-set)
+                
+                if timeDiff > MAX_IDLE_GAP then
+                    -- Cek dulu: Apakah posisinya jauh? 
+                    -- Kalau posisinya jauh tapi waktunya lama, itu bukan diam (mungkin lag), jangan di-skip.
+                    -- Kalau posisinya dekat (< 0.5 stud) DAN waktunya lama, itu FIX DIAM. Potong waktunya!
+                    local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
+                    if dist < 0.5 then
+                        timeDiff = FORCED_GAP
+                    end
+                end
+                
+                -- Safety minimum
+                if timeDiff < 0.0001 then timeDiff = 0.0001 end
+
+                if playbackAccumulator >= timeDiff then
+                    playbackAccumulator = playbackAccumulator - timeDiff
+                    currentPlaybackFrame = nextIndex
+                    ApplyFrameDirect(nextFrame)
+                else
+                    break
                 end
             end
         end)
