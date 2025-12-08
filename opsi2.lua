@@ -635,36 +635,6 @@ local function GetFrameVelocity(frame, moveState)
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
--- ========= SAFETY REWIND FUNCTION =========
--- Fungsi ini mencari frame mundur ke belakang sampai ketemu tanah
-local function FindSafeStartFrame(recording, targetFrameIndex)
-    if not recording or #recording == 0 then return 1 end
-    
-    -- Batasi pencarian maksimal 120 frame ke belakang (sekitar 2 detik)
-    local maxSearch = 120 
-    local currentIndex = targetFrameIndex
-    
-    -- Loop mundur
-    for i = 0, maxSearch do
-        local checkIndex = currentIndex - i
-        if checkIndex < 1 then return 1 end -- Mentok awal
-        
-        local frame = recording[checkIndex]
-        local state = frame.MoveState
-        
-        -- Kriteria Aman: State adalah Grounded/Running ATAU Velocity Y mendekati 0
-        if state == "Grounded" or state == "Running" or (frame.Velocity and math.abs(frame.Velocity[2]) < 0.1) then
-            if i > 0 then
-                -- Info visual di console (F9)
-                warn("⚠️ Posisi awal melayang! Mundur " .. i .. " frame ke posisi aman.")
-            end
-            return checkIndex
-        end
-    end
-    
-    return targetFrameIndex -- Jika tidak ketemu tanah, tetap pakai frame asli
-end
-
 -- ========= PATH VISUALIZATION =========
 
 local function ClearPathVisualization()
@@ -1285,6 +1255,36 @@ local function ApplyFrameDirect(frame)
     end)
 end
 
+-- ========= SAFETY REWIND FUNCTION (Helper) =========
+-- Fungsi ini mencari posisi mundur max 120 frame sampai ketemu tanah (Grounded)
+local function FindSafeStartFrame(recording, targetFrameIndex)
+    if not recording or #recording == 0 then return 1 end
+    
+    -- Limit mundur max 120 frame (sekitar 2 detik)
+    local maxSearch = 120 
+    local currentIndex = targetFrameIndex
+    
+    for i = 0, maxSearch do
+        local checkIndex = currentIndex - i
+        if checkIndex < 1 then return 1 end -- Mentok awal
+        
+        local frame = recording[checkIndex]
+        local state = frame.MoveState
+        
+        -- Cek apakah frame ini aman? (Grounded/Running atau Velocity Y mendekati 0)
+        if state == "Grounded" or state == "Running" or (frame.Velocity and math.abs(frame.Velocity[2]) < 0.1) then
+            if i > 0 then
+                -- Debug info (opsional)
+                warn("⚠️ Posisi awal melayang! Mundur " .. i .. " frame ke posisi aman.")
+            end
+            return checkIndex
+        end
+    end
+    
+    return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
+end
+
+-- ========= MAIN PLAYBACK FUNCTION (Fixed Timing & Safety) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1294,7 +1294,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    -- [UPDATE] 🛡️ SMART SAFE START 🛡️
+    -- [1] LOGIKA SMART REWIND (Anti-Jatuh saat Start)
     -- Sebelum mulai, cek apakah startFrame aman. Jika melayang, mundur dulu.
     startFrame = FindSafeStartFrame(recording, startFrame)
 
@@ -1303,20 +1303,22 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
 
-    -- ✨ [AUTO-HEIGHT CALCULATION] ✨
+    -- [2] LOGIKA AUTO-HEIGHT (Tinggi Badan Otomatis)
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
     
     local heightDifference = currentHipHeight - recordedHipHeight
     PlaybackHeightOffset = Vector3.new(0, heightDifference, 0)
-    -- ✨ [END CALCULATION] ✨
-
+    
+    -- [3] SETUP VARIABEL PLAYBACK
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
-    playbackAccumulator = 0
+    
+    -- Reset Accumulator untuk timing baru
+    playbackAccumulator = 0 
     previousFrameData = nil
     
     -- Set Frame Awal
@@ -1324,13 +1326,14 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     local targetFrame = recording[startFrame]
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
-    -- Teleport ke posisi aman yang sudah ditemukan
-    hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) -- Reset momentum saat teleport awal
-    hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+    -- Teleport Awal (Hard Snap agar pas di titik start)
+    if targetFrame then
+        hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
     
-    -- Sync Waktu Playback
-    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
+    -- Reset timer state
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
@@ -1343,10 +1346,12 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         UpdatePlayButtonStatus()
     end
 
+    -- [4] HEARTBEAT CONNECTION (LOOP UTAMA)
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                playbackConnection:Disconnect()
+                -- Cleanup jika stop mendadak
+                if playbackConnection then playbackConnection:Disconnect() end
                 RestoreFullUserControl()
                 
                 CheckIfPathUsed(recordingName)
@@ -1360,42 +1365,26 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             local char = player.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then
                 IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
                 return
             end
             
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then
-                IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
-                return
-            end
-
-            playbackAccumulator = playbackAccumulator + deltaTime
+            -- [5] TIMING FIX: FRAME-BASED (Anti-Ngebut/Anti-Skip)
+            -- Kita kumpulkan waktu berdasarkan delta * speed
+            playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
-                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            -- Waktu per satu frame (misal 1/60 = 0.0166)
+            local fixedStep = (1 / RECORDING_FPS)
+            
+            -- Jalankan frame satu per satu secara urut (Looping)
+            -- Ini menjamin tidak ada frame yang terlewat (Skip) atau dipercepat
+            while playbackAccumulator >= fixedStep do
+                playbackAccumulator = playbackAccumulator - fixedStep
                 
-                local nextFrame = currentPlaybackFrame
-                while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
-                    nextFrame = nextFrame + 1
-                end
+                -- Naik ke frame berikutnya
+                currentPlaybackFrame = currentPlaybackFrame + 1
 
-                if nextFrame >= #recording then
+                -- Cek apakah rekaman habis
+                if currentPlaybackFrame > #recording then
                     IsPlaying = false
                     RestoreFullUserControl()
                     CheckIfPathUsed(recordingName)
@@ -1407,21 +1396,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                local frame = recording[nextFrame]
-                if not frame then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
-                    UpdatePlayButtonStatus()
-                    return
+                local frame = recording[currentPlaybackFrame]
+                if frame then
+                    ApplyFrameDirect(frame)
                 end
-
-                ApplyFrameDirect(frame)
-                
-                currentPlaybackFrame = nextFrame
             end
         end)
     end)
