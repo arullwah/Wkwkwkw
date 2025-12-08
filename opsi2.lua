@@ -1284,7 +1284,7 @@ local function FindSafeStartFrame(recording, targetFrameIndex)
     return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
 end
 
--- ========= MAIN PLAYBACK FUNCTION (Pro Flow: Smart Skip Idle) =========
+-- ========= MAIN PLAYBACK FUNCTION (Pro Flow + End Speed Fix) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1294,7 +1294,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    -- [1] SAFETY REWIND (Mundur cari tanah biar aman)
+    -- [1] SAFETY REWIND
     startFrame = FindSafeStartFrame(recording, startFrame)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -1332,7 +1332,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlaySound("Toggle")
     if PlayBtnControl then UpdatePlayButtonStatus() end
 
-    -- [4] LOOP PLAYBACK DENGAN LOGIKA "PRO FLOW"
+    -- [4] LOOP PLAYBACK
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
@@ -1345,8 +1345,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             local char = player.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
             
-            -- Tambah waktu
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
+            
+            -- [SPEED LIMITER VARIABEL]
+            local loops = 0
+            local MAX_LOOPS = 10 -- Maksimal proses 10 frame per 'tik'. Mencegah instant-finish.
             
             while true do
                 local nextIndex = currentPlaybackFrame + 1
@@ -1359,32 +1362,37 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
 
-                -- Hitung jarak waktu asli
+                -- Hitung waktu
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 
-                -- [LOGIKA PRO PLAYER: SKIP BENGONG]
-                -- Jika jeda lebih dari 0.1 detik (misal 2 detik diam), kita potong paksa jadi 0.05 detik.
-                -- Jika jeda normal (lari/lompat), biarkan apa adanya.
-                local MAX_IDLE_GAP = 0.1  -- Batas toleransi "bengong"
-                local FORCED_GAP = 0.05   -- Jeda pengganti yang cepat (sat-set)
+                -- [LOGIKA PRO FLOW: SKIP BENGONG]
+                local MAX_IDLE_GAP = 0.1 
+                local FORCED_GAP = 0.05   
                 
                 if timeDiff > MAX_IDLE_GAP then
-                    -- Cek dulu: Apakah posisinya jauh? 
-                    -- Kalau posisinya jauh tapi waktunya lama, itu bukan diam (mungkin lag), jangan di-skip.
-                    -- Kalau posisinya dekat (< 0.5 stud) DAN waktunya lama, itu FIX DIAM. Potong waktunya!
                     local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
                     if dist < 0.5 then
                         timeDiff = FORCED_GAP
                     end
                 end
                 
-                -- Safety minimum
-                if timeDiff < 0.0001 then timeDiff = 0.0001 end
+                -- Safety: Jangan biarkan 0 murni (penyebab ngebut di akhir)
+                -- Kita paksa minimal 1 milidetik
+                if timeDiff < 0.001 then timeDiff = 0.001 end
 
                 if playbackAccumulator >= timeDiff then
                     playbackAccumulator = playbackAccumulator - timeDiff
                     currentPlaybackFrame = nextIndex
                     ApplyFrameDirect(nextFrame)
+                    
+                    -- [REM OTOMATIS]
+                    loops = loops + 1
+                    if loops >= MAX_LOOPS then
+                        -- Jika sudah memutar 10 frame sekaligus, istirahat dulu.
+                        -- Sisa frame dilanjutkan di frame berikutnya.
+                        -- Ini yang MENCEGAH ending menjadi super cepat.
+                        break 
+                    end
                 else
                     break
                 end
