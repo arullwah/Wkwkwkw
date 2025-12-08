@@ -942,14 +942,14 @@ end
 local function NormalizeRecordingTimestamps(recording)
     if not recording or #recording == 0 then return recording end
     
-    -- ✅ KITA AKTIFKAN LAGI COMPENSATION & SMOOTHING (Biar Sambungan Mulus)
-    local lagCompensated, hadLag = DetectAndCompensateLag(recording)
-    local smoothed = ENABLE_FRAME_SMOOTHING and SmoothFrames(lagCompensated) or lagCompensated
+    -- ❌ KITA MATIKAN SEMUA EFEK BUATAN (INTERPOLASI/SMOOTHING)
+    -- Kita pakai data RAW saja biar jujur sesuai rekaman asli.
     
     local normalized = {}
-    local expectedFrameTime = 1 / RECORDING_FPS
+    local startTimestamp = recording[1].Timestamp -- Patokan waktu awal
     
-    for i, frame in ipairs(smoothed) do
+    for i, frame in ipairs(recording) do
+        -- Salin data frame apa adanya
         local newFrame = {
             Position = frame.Position,
             LookVector = frame.LookVector,
@@ -957,24 +957,33 @@ local function NormalizeRecordingTimestamps(recording)
             Velocity = frame.Velocity,
             MoveState = frame.MoveState,
             WalkSpeed = frame.WalkSpeed,
-            Timestamp = 0, -- Akan dihitung ulang di bawah
-            IsInterpolated = frame.IsInterpolated,
-            IsSmoothed = frame.IsSmoothed
+            -- ✅ GUNAKAN WAKTU ASLI (Relative) -> Biar Speed sesuai aslinya (ga ngacir)
+            Timestamp = frame.Timestamp - startTimestamp
         }
         
-        if i == 1 then
-            newFrame.Timestamp = 0
-        else
-            -- 🪄 LOGIKA MAGIC: MEMAKSA WAKTU JADI RAPI (Menghapus Jeda "Stop")
-            local prevTimestamp = normalized[i-1].Timestamp
-            local originalTimeDiff = frame.Timestamp - smoothed[i-1].Timestamp
+        -- 🛑 FITUR "DEADZONE LOCK" (PENGUNCI POSISI SAAT DIAM) 🛑
+        -- Ini solusi untuk "Gerakan Walk Saat Berhenti"
+        if i > 1 then
+            local prevFrame = normalized[i-1]
             
-            -- Jika jeda terlalu besar (misal karena rollback), paksa jadi mulus (0.016s)
-            if originalTimeDiff > (expectedFrameTime * 5) or originalTimeDiff < 0 then
-                 newFrame.Timestamp = prevTimestamp + expectedFrameTime
-            else
-                 -- Pertahankan variasi kecil biar natural, tapi jangan biarkan macet
-                 newFrame.Timestamp = prevTimestamp + math.max(originalTimeDiff, expectedFrameTime * 0.8)
+            local pos1 = Vector3.new(prevFrame.Position[1], prevFrame.Position[2], prevFrame.Position[3])
+            local pos2 = Vector3.new(newFrame.Position[1], newFrame.Position[2], newFrame.Position[3])
+            
+            -- Hitung jarak gerakan dari frame sebelumnya
+            local dist = (pos1 - pos2).Magnitude
+            
+            -- Jika gerakannya SANGAT KECIL (di bawah 0.05 studs), kita anggap DIAM TOTAL.
+            if dist < 0.05 then
+                -- 🔒 KUNCI POSISI: Paksa posisi sama persis dengan frame lalu
+                newFrame.Position = prevFrame.Position 
+                
+                -- 🔒 MATIKAN VELOCITY: Nol-kan kecepatan biar animasi kaki diam
+                newFrame.Velocity = {0, 0, 0}
+                
+                -- Opsional: Paksa state jadi Grounded biar ga floating
+                if newFrame.MoveState ~= "Climbing" and newFrame.MoveState ~= "Swimming" then
+                    newFrame.MoveState = "Grounded"
+                end
             end
         end
         
@@ -983,6 +992,7 @@ local function NormalizeRecordingTimestamps(recording)
     
     return normalized
 end
+
 
 
 -- ========= MERGE RECORDINGS =========
