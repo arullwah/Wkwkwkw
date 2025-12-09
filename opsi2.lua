@@ -82,9 +82,9 @@ local Title, CheckAllBtn
 
 -- ========= VARIABLES =========
 local IsRecording = false
-local RecordingHipHeights = {} -- Database tinggi badan per rekaman
-local PlaybackHeightOffset = Vector3.new(0, 0, 0) -- Nilai koreksi saat main
 local IsPlaying = false
+local RecordingHipHeights = {} 
+local PlaybackHeightOffset = Vector3.new(0, 0, 0) 
 local IsPaused = false
 local IsReversing = false
 local IsForwarding = false
@@ -159,12 +159,6 @@ local ShiftLockCameraOffset = Vector3.new(1.75, 0, 0)
 local ShiftLockUpdateConnection = nil
 local OriginalCameraOffset = nil
 local ShiftLockSavedBeforePlayback = false
--- Tambahkan di variabel global
-local StudioAntiFallEnabled = false -- Default mati
-local LastSafeRecordingFrameIndex = 0
-local LastSafeRecordingPos = nil
-
-
 
 -- ========= SOUND EFFECTS =========
 local SoundEffects = {
@@ -614,24 +608,19 @@ local function GetCurrentMoveState(hum)
 end
 
 -- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
--- ========= SMART VELOCITY: 100% Real Physics (V2 Feel) =========
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    -- KEMBALIKAN KE SKALA 1 (ASLI)
-    -- Jangan dikurangi (0.8/0.9) agar lompatan tidak pendek/lag
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- Jika di tanah, paksa Y = 0 biar nempel
+    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
     if moveState == "Grounded" or moveState == nil then
-        velocityY = 0
+        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
     end
     
-    -- HAPUS BAGIAN DAMPENING (PENGURANGAN KECEPATAN)
-    -- Biarkan velocity full saat jumping/falling agar mulus
-    
+    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
@@ -1188,14 +1177,31 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ [AUTO-HEIGHT] Ambil posisi asli + Offset Tinggi Badan
-        local targetCFrame = GetFrameCFrame(frame)
-        
-        -- ✅ TERAPKAN OFFSET DI SINI
-        hrp.CFrame = targetCFrame + PlaybackHeightOffset
-        
-        -- Velocity Logic
+        -- ✅ [AUTO-HEIGHT] Tambahkan Offset di sini
+        local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
+        
+        local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
+        local horizontalSpeed = velocityVect.Magnitude
+        
+        if moveState == "Jumping" or moveState == "Falling" then
+            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
+        elseif horizontalSpeed < 0.1 then
+            hrp.CFrame = targetCFrame 
+        else
+            local currentY = hrp.Position.Y
+            local targetY = targetCFrame.Position.Y
+            local diffY = targetY - currentY
+            
+            if diffY < -0.1 then
+                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.5)
+            else
+                local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
+                local newCF = CFrame.new(newPos) * targetCFrame.Rotation
+                hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
+            end
+        end
+        
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1204,87 +1210,31 @@ local function ApplyFrameDirect(frame)
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
+            if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            if ShiftLockEnabled then
-                hum.AutoRotate = false
-            else
-                hum.AutoRotate = true
-            end
-            
-            -- State Management (Versi Simple Script Kamu)
             local currentTime = tick()
-            local JUMP_VELOCITY_THRESHOLD = 5
-            local FALL_VELOCITY_THRESHOLD = -3
-            
-            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+            local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
             
-            if isJumpingByVelocity and moveState ~= "Jumping" then
-                moveState = "Jumping"
-            elseif isFallingByVelocity and moveState ~= "Falling" then
-                moveState = "Falling"
-            end
+            if isJumpingByVelocity and moveState ~= "Jumping" then moveState = "Jumping"
+            elseif isFallingByVelocity and moveState ~= "Falling" then moveState = "Falling" end
             
             if moveState == "Jumping" then
-                if lastPlaybackState ~= "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    lastPlaybackState = "Jumping"
-                    lastStateChangeTime = currentTime
-                end
+                if lastPlaybackState ~= "Jumping" then hum:ChangeState(Enum.HumanoidStateType.Jumping); lastPlaybackState = "Jumping"; lastStateChangeTime = currentTime end
             elseif moveState == "Falling" then
-                if lastPlaybackState ~= "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    lastPlaybackState = "Falling"
-                    lastStateChangeTime = currentTime
-                end
+                if lastPlaybackState ~= "Falling" then hum:ChangeState(Enum.HumanoidStateType.Freefall); lastPlaybackState = "Falling"; lastStateChangeTime = currentTime end
             else
                 if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = currentTime
+                    if moveState == "Climbing" then hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    elseif moveState == "Swimming" then hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else hum:ChangeState(Enum.HumanoidStateType.Running) end
+                    lastPlaybackState = moveState; lastStateChangeTime = currentTime
                 end
             end
         end
     end)
 end
 
--- ========= SAFETY REWIND FUNCTION (Helper) =========
--- Fungsi ini mencari posisi mundur max 120 frame sampai ketemu tanah (Grounded)
-local function FindSafeStartFrame(recording, targetFrameIndex)
-    if not recording or #recording == 0 then return 1 end
-    
-    -- Limit mundur max 120 frame (sekitar 2 detik)
-    local maxSearch = 120 
-    local currentIndex = targetFrameIndex
-    
-    for i = 0, maxSearch do
-        local checkIndex = currentIndex - i
-        if checkIndex < 1 then return 1 end -- Mentok awal
-        
-        local frame = recording[checkIndex]
-        local state = frame.MoveState
-        
-        -- Cek apakah frame ini aman? (Grounded/Running atau Velocity Y mendekati 0)
-        if state == "Grounded" or state == "Running" or (frame.Velocity and math.abs(frame.Velocity[2]) < 0.1) then
-            if i > 0 then
-                -- Debug info (opsional)
-                warn("⚠️ Posisi awal melayang! Mundur " .. i .. " frame ke posisi aman.")
-            end
-            return checkIndex
-        end
-    end
-    
-    return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
-end
-
--- ========= MAIN PLAYBACK FUNCTION (Pro Flow + End Speed Fix) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1294,19 +1244,17 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    -- [1] SAFETY REWIND
     startFrame = FindSafeStartFrame(recording, startFrame)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then WalkSpeedBeforePlayback = hum.WalkSpeed end
 
-    -- [2] AUTO-HEIGHT
+    -- ✅ [AUTO-HEIGHT LOGIC] Hitung selisih tinggi di sini
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
     PlaybackHeightOffset = Vector3.new(0, currentHipHeight - recordedHipHeight, 0)
     
-    -- [3] SETUP VARIABEL
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
@@ -1315,12 +1263,18 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     previousFrameData = nil
     currentPlaybackFrame = startFrame
     
-    -- Teleport Awal
     local targetFrame = recording[startFrame]
     if targetFrame then
-        ApplyFrameDirect(targetFrame)
+        local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) end
+        if hrp then 
+            hrp.CFrame = safeCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Landed) end
+            RunService.Heartbeat:Wait()
+            hrp.CFrame = safeCFrame
+        end
     end
     
     totalPausedDuration = 0
@@ -1332,7 +1286,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlaySound("Toggle")
     if PlayBtnControl then UpdatePlayButtonStatus() end
 
-    -- [4] LOOP PLAYBACK
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
@@ -1347,9 +1300,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            -- [SPEED LIMITER VARIABEL]
             local loops = 0
-            local MAX_LOOPS = 10 -- Maksimal proses 10 frame per 'tik'. Mencegah instant-finish.
+            local MAX_LOOPS = EnableSmoothPlayback and 5 or 2 
             
             while true do
                 local nextIndex = currentPlaybackFrame + 1
@@ -1361,38 +1313,31 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
-
-                -- Hitung waktu
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 
-                -- [LOGIKA PRO FLOW: SKIP BENGONG]
-                local MAX_IDLE_GAP = 0.1 
-                local FORCED_GAP = 0.05   
-                
-                if timeDiff > MAX_IDLE_GAP then
-                    local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
-                    if dist < 0.5 then
-                        timeDiff = FORCED_GAP
+                if EnableSmoothPlayback then
+                    local MAX_IDLE_GAP = 0.1 
+                    local FORCED_GAP = 0.05   
+                    local isAirborne = (nextFrame.MoveState == "Jumping" or nextFrame.MoveState == "Falling")
+                    
+                    if not isAirborne then
+                        if timeDiff > MAX_IDLE_GAP then
+                            local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
+                            if dist < 0.5 then timeDiff = FORCED_GAP end
+                        end
+                        if timeDiff > 1.0 then timeDiff = 0.3 end
                     end
                 end
-                
-                -- Safety: Jangan biarkan 0 murni (penyebab ngebut di akhir)
-                -- Kita paksa minimal 1 milidetik
-                if timeDiff < 0.001 then timeDiff = 0.001 end
+
+                if timeDiff < 0.0001 then timeDiff = 0.0001 end
 
                 if playbackAccumulator >= timeDiff then
                     playbackAccumulator = playbackAccumulator - timeDiff
                     currentPlaybackFrame = nextIndex
                     ApplyFrameDirect(nextFrame)
                     
-                    -- [REM OTOMATIS]
                     loops = loops + 1
-                    if loops >= MAX_LOOPS then
-                        -- Jika sudah memutar 10 frame sekaligus, istirahat dulu.
-                        -- Sisa frame dilanjutkan di frame berikutnya.
-                        -- Ini yang MENCEGAH ending menjadi super cepat.
-                        break 
-                    end
+                    if loops >= MAX_LOOPS then break end
                 else
                     break
                 end
@@ -2009,28 +1954,15 @@ end
 
 local function UpdateStudioUI()
     SafeCall(function()
-        -- 1. Logika Tombol START/STOP (Seperti biasa)
         if StartBtn and StartBtn.Parent then
             if StudioIsRecording then
                 StartBtn.Text = "STOP"
-                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- Merah saat rekam
+                StartBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
             else
                 StartBtn.Text = "START"
-                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116) -- Ungu saat diam
+                StartBtn.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
             end
         end
-
-        -- 2. [FIX] PAKSA RESET TOMBOL LAIN KE UNGU
-        -- Ini mencegah tombol tersangkut di warna hitam/gelap setelah diklik
-        local defaultPurple = Color3.fromRGB(59, 15, 116)
-
-        if SaveBtn then SaveBtn.BackgroundColor3 = defaultPurple end
-        if ResumeBtn then ResumeBtn.BackgroundColor3 = defaultPurple end
-        if PrevBtn then PrevBtn.BackgroundColor3 = defaultPurple end
-        if NextBtn then NextBtn.BackgroundColor3 = defaultPurple end
-        
-        -- (Opsional) Update Timeline Info jika perlu
-        -- ... logika update timeline bar dll ...
     end)
 end
 
@@ -2094,7 +2026,7 @@ end
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
-    -- [AUTO-HEIGHT] Simpan data awal
+    -- [AUTO-HEIGHT] Simpan data awal tinggi badan saat merekam
     local currentHipHeight = 2
     if player.Character and player.Character:FindFirstChild("Humanoid") then
         currentHipHeight = player.Character.Humanoid.HipHeight
@@ -2115,7 +2047,7 @@ local function StartStudioRecording()
                 Frames = {}, 
                 StartTime = tick(), 
                 Name = "recording_" .. os.date("%H%M%S"),
-                OriginalHipHeight = currentHipHeight
+                OriginalHipHeight = currentHipHeight -- ✅ SIMPAN TINGGI DI SINI
             }
             
             -- Reset Safety Data
@@ -2139,74 +2071,37 @@ local function StartStudioRecording()
                         
                         if IsTimelineMode then return end
                         
-                        -- =============================================
-                        -- 🛡️ SISTEM ANTI-FALL v2 (Game Checkpoint Detection) 🛡️
-                        -- =============================================
+                        -- Anti-Fall Logic
                         if StudioAntiFallEnabled and hum then
                             local currentPos = hrp.Position
-                            
-                            -- 1. CATAT FRAME AMAN (Hanya saat kaki nempel tanah)
-                            -- Kita simpan index frame terakhir dimana karakter TIDAK di udara
                             if hum.FloorMaterial ~= Enum.Material.Air then
                                 LastSafeRecordingFrameIndex = #StudioCurrentRecording.Frames
                                 LastSafeRecordingPos = currentPos
                             end
-
-                            -- 2. DETEKSI RESET GAME (Teleportasi Checkpoint)
-                            -- Jika jarak posisi sekarang dengan posisi record terakhir > 20 stud dalam 1 frame
-                            -- Artinya game memindahkanmu paksa (mati/reset ke checkpoint)
                             if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude > 20 then
-                                
-                                -- STOP! Jangan rekam frame teleportasi ini.
-                                -- KITA MUNDUR (ROLLBACK) KE POSISI AMAN TERAKHIR
-                                
                                 local targetFrameIndex = LastSafeRecordingFrameIndex
-                                
-                                -- Safety: Pastikan kita mundur minimal beberapa frame agar tidak pas di pinggir jurang
-                                if targetFrameIndex > 10 then
-                                    targetFrameIndex = targetFrameIndex - 5 
-                                end
-
-                                -- Validasi index
+                                if targetFrameIndex > 10 then targetFrameIndex = targetFrameIndex - 5 end
                                 if targetFrameIndex > 0 and targetFrameIndex < #StudioCurrentRecording.Frames then
-                                    
-                                    -- A. Potong Array Frame (Hapus kejadian jatuh)
                                     local newFrames = {}
-                                    for i = 1, targetFrameIndex do
-                                        table.insert(newFrames, StudioCurrentRecording.Frames[i])
-                                    end
+                                    for i = 1, targetFrameIndex do table.insert(newFrames, StudioCurrentRecording.Frames[i]) end
                                     StudioCurrentRecording.Frames = newFrames
-                                    
-                                    -- B. Ambil Data Frame Aman
                                     local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
-                                    
-                                    -- C. Teleport Karakter ke Posisi Aman
                                     local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
                                     local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
-                                    
                                     hrp.CFrame = CFrame.lookAt(safePos, safePos + safeLook)
                                     hrp.AssemblyLinearVelocity = Vector3.zero
                                     hrp.AssemblyAngularVelocity = Vector3.zero
-                                    
-                                    -- D. Reset Waktu Rekaman agar sinkron
                                     StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
-                                    
-                                    -- E. Update UI Timeline
                                     CurrentTimelineFrame = #StudioCurrentRecording.Frames
                                     TimelinePosition = CurrentTimelineFrame
-                                    
-                                    PlaySound("Error") -- Sound feedback bahwa Anti-Fall bekerja
+                                    PlaySound("Error")
                                     UpdateStudioUI()
-                                    
-                                    -- Update posisi terakhir script agar tidak loop
                                     lastStudioRecordPos = safePos 
-                                    return -- Keluar, jangan rekam frame reset ini
+                                    return
                                 end
                             end
                         end
-                        -- =============================================
                         
-                        -- [LOGIKA REKAM FRAME NORMAL]
                         local now = tick()
                         if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
                         
@@ -2244,6 +2139,7 @@ local function StartStudioRecording()
         end)
     end)
 end
+
 
 local function StopStudioRecording()
     StudioIsRecording = false
@@ -2415,7 +2311,7 @@ local function SaveStudioRecording()
             
             RecordedMovements[recName] = normalizedFrames
             
-            -- ✅ SIMPAN HIP HEIGHT KE DATABASE LOKAL
+            -- ✅ [AUTO-HEIGHT] SIMPAN KE DATABASE
             RecordingHipHeights[recName] = StudioCurrentRecording.OriginalHipHeight or 2
             
             table.insert(RecordingOrder, recName)
@@ -2424,7 +2320,6 @@ local function SaveStudioRecording()
             
             PlaySound("Success")
             
-            -- Reset
             StudioCurrentRecording = {Frames = {}, StartTime = 0, Name = "recording_" .. os.date("%H%M%S")}
             IsTimelineMode = false
             CurrentTimelineFrame = 0
@@ -2469,17 +2364,15 @@ local function SaveToObfuscatedJSON()
     
     local success, err = pcall(function()
         local saveData = {
-            Version = "3.4", -- Naikkan versi
+            Version = "3.3",
             Obfuscated = true,
             Checkpoints = {},
             RecordingOrder = {},
-            CheckpointNames = {},
-            HipHeights = {} -- ✅ DATABASE BARU DI FILE
+            CheckpointNames = {}
         }
         
         for _, name in ipairs(RecordingOrder) do
             if CheckedRecordings[name] then
-                -- ... (logika simpan frame seperti biasa) ...
                 local frames = RecordedMovements[name]
                 if frames then
                     local checkpointData = {
@@ -2490,13 +2383,9 @@ local function SaveToObfuscatedJSON()
                     table.insert(saveData.Checkpoints, checkpointData)
                     table.insert(saveData.RecordingOrder, name)
                     saveData.CheckpointNames[name] = checkpointNames[name]
-                    
-                    -- ✅ SIMPAN TINGGI KE FILE
-                    saveData.HipHeights[name] = RecordingHipHeights[name] or 2
                 end
             end
         end
-
         
         local recordingsToObfuscate = {}
         for _, name in ipairs(saveData.RecordingOrder) do
@@ -2539,9 +2428,6 @@ local function LoadFromObfuscatedJSON()
         local newRecordingOrder = saveData.RecordingOrder or {}
         local newCheckpointNames = saveData.CheckpointNames or {}
         
-        -- ✅ [BARU] Ambil tabel HipHeights dari file JSON
-        local loadedHipHeights = saveData.HipHeights or {} 
-        
         if saveData.Obfuscated and saveData.ObfuscatedFrames then
             local deobfuscatedData = DeobfuscateRecordingData(saveData.ObfuscatedFrames)
             
@@ -2552,10 +2438,6 @@ local function LoadFromObfuscatedJSON()
                 if frames then
                     RecordedMovements[name] = frames
                     checkpointNames[name] = newCheckpointNames[name] or checkpointData.DisplayName
-                    
-                    -- ✅ [BARU] Simpan HipHeight ke memori script
-                    -- Jika file lama tidak punya data ini, nilainya akan nil (dan dianggap 2 saat play)
-                    RecordingHipHeights[name] = loadedHipHeights[name]
                     
                     if not table.find(RecordingOrder, name) then
                         table.insert(RecordingOrder, name)
@@ -2569,11 +2451,9 @@ local function LoadFromObfuscatedJSON()
     end)
     
     if not success then
-        warn("Load Error:", err) -- Tambahan print error di console (F9) biar tau kenapa gagal
         PlaySound("Error")
     end
 end
-
 
 -- ========= RECORDING LIST UI =========
 
@@ -2603,7 +2483,6 @@ end
 
 function UpdateRecordList()
     SafeCall(function()
-        -- Bersihkan list lama
         for _, child in pairs(RecordingsList:GetChildren()) do 
             if child:IsA("Frame") then child:Destroy() end
         end
@@ -2729,8 +2608,7 @@ function UpdateRecordList()
             infoLabel.Parent = textboxContainer
             
             -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (POSISI TOMBOL DIUBAH DISINI)
-            -- Urutan: [PLAY] [NAIK] [TURUN] [HAPUS]
+            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
             -- ═══════════════════════════════════════════
             
             local segmentedBar = Instance.new("Frame")
@@ -2751,10 +2629,13 @@ function UpdateRecordList()
             barStroke.Parent = segmentedBar
             
             -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
-            local buttonWidth = 0.25  -- 25% each
+            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
             local buttonSpacing = 3   -- Space between buttons
             
-            -- 1. [PLAY] (Kiri Paling Ujung - 0%)
+            -- ═══════════════════════════════════════════
+            -- BUTTON 1: PLAY (25% width)
+            -- ═══════════════════════════════════════════
+            
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             playBtn.Position = UDim2.fromOffset(2, 2)
@@ -2769,67 +2650,22 @@ function UpdateRecordList()
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
-
-            -- DIVIDER 1
+            
+            -- Divider 1
             local divider1 = Instance.new("Frame")
             divider1.Size = UDim2.new(0, 1, 1, -8)
             divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
             divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider1.BorderSizePixel = 0
             divider1.Parent = segmentedBar
-
-            -- 2. [NAIK] (Posisi Kedua - 25%)
-            local upBtn = Instance.new("TextButton")
-            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            upBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
-            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            upBtn.Text = "Naik"
-            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            upBtn.Font = Enum.Font.GothamBold
-            upBtn.TextSize = 9
-            upBtn.BorderSizePixel = 0
-            upBtn.Parent = segmentedBar
             
-            local upCorner = Instance.new("UICorner")
-            upCorner.CornerRadius = UDim.new(0, 3)
-            upCorner.Parent = upBtn
-
-            -- DIVIDER 2
-            local divider2 = Instance.new("Frame")
-            divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
-            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider2.BorderSizePixel = 0
-            divider2.Parent = segmentedBar
-
-            -- 3. [TURUN] (Posisi Ketiga - 50%)
-            local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            downBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
-            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
-            downBtn.Text = "Turun"
-            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            downBtn.Font = Enum.Font.GothamBold
-            downBtn.TextSize = 9
-            downBtn.BorderSizePixel = 0
-            downBtn.Parent = segmentedBar
+            -- ═══════════════════════════════════════════
+            -- BUTTON 2: DELETE (25% width)
+            -- ═══════════════════════════════════════════
             
-            local downCorner = Instance.new("UICorner")
-            downCorner.CornerRadius = UDim.new(0, 3)
-            downCorner.Parent = downBtn
-
-            -- DIVIDER 3
-            local divider3 = Instance.new("Frame")
-            divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
-            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider3.BorderSizePixel = 0
-            divider3.Parent = segmentedBar
-
-            -- 4. [HAPUS] (Kanan Paling Ujung - 75%)
             local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4) -- Kurangi width dikit biar pas margin kanan
-            delBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
             delBtn.Text = "Hapus"
             delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2841,6 +2677,60 @@ function UpdateRecordList()
             local delCorner = Instance.new("UICorner")
             delCorner.CornerRadius = UDim.new(0, 3)
             delCorner.Parent = delBtn
+            
+            -- Divider 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 3: NAIK (25% width)
+            -- ═══════════════════════════════════════════
+            
+            local upBtn = Instance.new("TextButton")
+            upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+            upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+            upBtn.Text = "Naik"
+            upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            upBtn.Font = Enum.Font.GothamBold
+            upBtn.TextSize = 9
+            upBtn.BorderSizePixel = 0
+            upBtn.Parent = segmentedBar
+            
+            local upCorner = Instance.new("UICorner")
+            upCorner.CornerRadius = UDim.new(0, 3)
+            upCorner.Parent = upBtn
+            
+            -- Divider 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+            
+            -- ═══════════════════════════════════════════
+            -- BUTTON 4: TURUN (25% width)
+            -- ═══════════════════════════════════════════
+            
+            local downBtn = Instance.new("TextButton")
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
+            downBtn.Text = "Turun"
+            downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            downBtn.Font = Enum.Font.GothamBold
+            downBtn.TextSize = 9
+            downBtn.BorderSizePixel = 0
+            downBtn.Parent = segmentedBar
+            
+            local downCorner = Instance.new("UICorner")
+            downCorner.CornerRadius = UDim.new(0, 3)
+            downCorner.Parent = downBtn
             
             -- ═══════════════════════════════════════════
             -- EVENT HANDLERS
@@ -3362,44 +3252,27 @@ PlaybackCorner.Parent = PlaybackControl
     ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
-        -- ========= RECORDING STUDIO GUI (FULL FIXED) =========
-    
-    -- 1. FRAME UTAMA
-    if RecordingStudio then RecordingStudio:Destroy() end -- Bersihkan duplikat jika ada
-    
-    RecordingStudio = Instance.new("Frame")
-    RecordingStudio.Name = "RecordingStudioFrame"
-    RecordingStudio.Size = UDim2.fromOffset(156, 120)
-    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-    
-    -- ✅ WARNA HITAM ELEGAN
-    RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
-    RecordingStudio.BackgroundTransparency = 0.4
-    
-    RecordingStudio.BorderSizePixel = 0
-    RecordingStudio.Active = true
-    RecordingStudio.Draggable = true
-    RecordingStudio.Visible = false
-    RecordingStudio.Parent = ScreenGui
+RecordingStudio = Instance.new("Frame")
+RecordingStudio.Size = UDim2.fromOffset(156, 120)
+RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
+RecordingStudio.BorderSizePixel = 0
+RecordingStudio.Active = true
+RecordingStudio.Draggable = true
+RecordingStudio.Visible = false
+RecordingStudio.Parent = ScreenGui
 
-    local StudioCorner = Instance.new("UICorner")
-    StudioCorner.CornerRadius = UDim.new(0, 8)
-    StudioCorner.Parent = RecordingStudio
-    
-    local StudioStroke = Instance.new("UIStroke")
-    StudioStroke.Color = Color3.fromRGB(60, 60, 70)
-    StudioStroke.Thickness = 1
-    StudioStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    StudioStroke.Parent = RecordingStudio
+local StudioCorner = Instance.new("UICorner")
+StudioCorner.CornerRadius = UDim.new(0, 8)
+StudioCorner.Parent = RecordingStudio
 
-    -- 2. KONTAINER ISI
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
     StudioContent.Position = UDim2.new(0, 3, 0, 3)
     StudioContent.BackgroundTransparency = 1
     StudioContent.Parent = RecordingStudio
 
-    -- 3. FUNGSI PEMBUAT TOMBOL
     local function CreateStudioBtn(text, x, y, w, h, color)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.fromOffset(w, h)
@@ -3437,165 +3310,92 @@ PlaybackCorner.Parent = PlaybackControl
         return btn
     end
 
-    -- 4. PEMBUATAN TOMBOL (LAYOUT BARU DENGAN SHIELD)
-    
-    -- [A] Tombol Shield (Anti-Fall Toggle) - Pojok Kiri Atas
-    local AntiFallStudioBtn = Instance.new("TextButton")
-    AntiFallStudioBtn.Size = UDim2.fromOffset(22, 22) -- Kotak kecil
-    AntiFallStudioBtn.Position = UDim2.fromOffset(3, 3)
-    AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80) -- Default OFF (Abu-abu)
-    AntiFallStudioBtn.Text = "🛡️"
-    AntiFallStudioBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    AntiFallStudioBtn.TextSize = 14
-    AntiFallStudioBtn.AutoButtonColor = false
-    AntiFallStudioBtn.Parent = StudioContent
-    Instance.new("UICorner", AntiFallStudioBtn).CornerRadius = UDim.new(0, 4)
-
-    -- [B] Tombol SAVE & START (Digeser ke kanan)
-    SaveBtn = CreateStudioBtn("SAVE", 28, 3, 58, 22, Color3.fromRGB(59, 15, 116))
-    StartBtn = CreateStudioBtn("START", 90, 3, 58, 22, Color3.fromRGB(59, 15, 116))
-    
-    -- [C] Tombol RESUME (Baris kedua, full width)
+    SaveBtn = CreateStudioBtn("SAVE", 3, 3, 71, 22, Color3.fromRGB(59, 15, 116))
+    StartBtn = CreateStudioBtn("START", 77, 3, 70, 22, Color3.fromRGB(59, 15, 116))
     ResumeBtn = CreateStudioBtn("LANJUTKAN", 3, 28, 144, 22, Color3.fromRGB(59, 15, 116))
-    
-    -- [D] Tombol PREV & NEXT (Baris ketiga)
     PrevBtn = CreateStudioBtn("◀ MUNDUR", 3, 58, 71, 30, Color3.fromRGB(59, 15, 116))
-    NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
 
+-- ✅ ADD: Hold detection
+local prevHoldConnection = nil
+local prevHoldActive = false
 
-    -- 5. LOGIKA TOMBOL STUDIO
-    
-    -- [LOGIKA SHIELD / ANTI-FALL]
-    AntiFallStudioBtn.MouseButton1Click:Connect(function()
-        PlaySound("Click")
-        StudioAntiFallEnabled = not StudioAntiFallEnabled
+PrevBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
         
-        if StudioAntiFallEnabled then
-            -- ON: Warna Hijau & Reset Data Aman
-            AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(40, 180, 80) 
-            
-            -- Reset Safety Data saat dinyalakan
-            LastSafeRecordingFrameIndex = math.max(1, #StudioCurrentRecording.Frames)
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                 LastSafeRecordingPos = player.Character.HumanoidRootPart.Position
-            end
-        else
-            -- OFF: Warna Abu-abu
-            AntiFallStudioBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80) 
-        end
-    end)
-
-    -- [LOGIKA TOMBOL LAINNYA]
-    SaveBtn.MouseButton1Click:Connect(function()
+        prevHoldActive = true
+        
+        -- Single tap
         task.spawn(function()
-            AnimateButtonClick(SaveBtn)
-            SaveStudioRecording()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
         end)
-    end)
-
-    StartBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(StartBtn)
-            if StudioIsRecording then
-                StopStudioRecording()
-            else
-                StartStudioRecording()
-            end
-        end)
-    end)
-
-    ResumeBtn.MouseButton1Click:Connect(function()
-        task.spawn(function()
-            AnimateButtonClick(ResumeBtn)
-            ResumeStudioRecording()
-        end)
-    end)
-
-
-    -- 6. LOGIKA HOLD (TAHAN) UNTUK PREV & NEXT
-    
-    -- [PREV BUTTON LOGIC]
-    local prevHoldConnection = nil
-    local prevHoldActive = false
-
-    PrevBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or 
-           input.UserInputType == Enum.UserInputType.MouseButton1 then
-            
-            prevHoldActive = true
-            
-            -- Single tap (Klik sekali)
-            task.spawn(function()
-                AnimateButtonClick(PrevBtn)
-                GoBackTimeline()
+        
+        -- Wait 0.3s, then start rapid fire
+        task.wait(0.3)
+        
+        if prevHoldActive then
+            prevHoldConnection = RunService.Heartbeat:Connect(function()
+                if prevHoldActive then
+                    GoBackTimeline()
+                    task.wait(0.05)  -- 20 frames/second
+                end
             end)
-            
-            -- Tunggu 0.3 detik, kalau masih ditahan, jalankan mode rapid fire
-            task.wait(0.3)
-            
-            if prevHoldActive then
-                prevHoldConnection = RunService.Heartbeat:Connect(function()
-                    if prevHoldActive then
-                        GoBackTimeline()
-                        task.wait(0.05)  -- Speed: 20 frame per detik
-                    end
-                end)
-            end
         end
-    end)
+    end
+end)
 
-    PrevBtn.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or 
-           input.UserInputType == Enum.UserInputType.MouseButton1 then
-            prevHoldActive = false
-            if prevHoldConnection then
-                prevHoldConnection:Disconnect()
-                prevHoldConnection = nil
-            end
+PrevBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        prevHoldActive = false
+        if prevHoldConnection then
+            prevHoldConnection:Disconnect()
+            prevHoldConnection = nil
         end
-    end)
+    end
+end)
 
+-- ✅ SAME for NextBtn:
+NextBtn = CreateStudioBtn("MAJU ▶", 77, 58, 70, 30, Color3.fromRGB(59, 15, 116))
 
-    -- [NEXT BUTTON LOGIC]
-    local nextHoldConnection = nil
-    local nextHoldActive = false
+local nextHoldConnection = nil
+local nextHoldActive = false
 
-    NextBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or 
-           input.UserInputType == Enum.UserInputType.MouseButton1 then
-            
-            nextHoldActive = true
-            
-            -- Single tap
-            task.spawn(function()
-                AnimateButtonClick(NextBtn)
-                GoNextTimeline()
+NextBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        
+        nextHoldActive = true
+        
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
+        
+        task.wait(0.3)
+        
+        if nextHoldActive then
+            nextHoldConnection = RunService.Heartbeat:Connect(function()
+                if nextHoldActive then
+                    GoNextTimeline()
+                    task.wait(0.05)
+                end
             end)
-            
-            -- Hold detection
-            task.wait(0.3)
-            
-            if nextHoldActive then
-                nextHoldConnection = RunService.Heartbeat:Connect(function()
-                    if nextHoldActive then
-                        GoNextTimeline()
-                        task.wait(0.05)
-                    end
-                end)
-            end
         end
-    end)
+    end
+end)
 
-    NextBtn.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or 
-           input.UserInputType == Enum.UserInputType.MouseButton1 then
-            nextHoldActive = false
-            if nextHoldConnection then
-                nextHoldConnection:Disconnect()
-                nextHoldConnection = nil
-            end
+NextBtn.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch or 
+       input.UserInputType == Enum.UserInputType.MouseButton1 then
+        nextHoldActive = false
+        if nextHoldConnection then
+            nextHoldConnection:Disconnect()
+            nextHoldConnection = nil
         end
-    end)
+    end
+end)
 
     -- ========= INPUT VALIDATION =========
 
@@ -3748,13 +3548,10 @@ end)
     end)
 
     RecordBtn.MouseButton1Click:Connect(function()
-    AnimateButtonClick(RecordBtn)
-    -- Sistem Toggle (Show/Hide)
-    RecordingStudio.Visible = not RecordingStudio.Visible
-    
-    -- Opsional: Jika kamu ingin MainFrame TETAP MUNCUL agar bisa klik tombolnya lagi
-    -- Hapus baris 'MainFrame.Visible = false'
-end)
+        AnimateButtonClick(RecordBtn)
+        RecordingStudio.Visible = true
+        MainFrame.Visible = false
+    end)
 
     MenuBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MenuBtn)
@@ -3813,6 +3610,45 @@ end)
         
         UpdateRecordList()
         PlaySound("Toggle")
+    end)
+
+    StartBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(StartBtn)
+            if StudioIsRecording then
+                StopStudioRecording()
+            else
+                StartStudioRecording()
+            end
+        end)
+    end)
+
+    PrevBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(PrevBtn)
+            GoBackTimeline()
+        end)
+    end)
+
+    NextBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(NextBtn)
+            GoNextTimeline()
+        end)
+    end)
+
+    ResumeBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(ResumeBtn)
+            ResumeStudioRecording()
+        end)
+    end)
+
+    SaveBtn.MouseButton1Click:Connect(function()
+        task.spawn(function()
+            AnimateButtonClick(SaveBtn)
+            SaveStudioRecording()
+        end)
     end)
 
 -- ========= MINI BUTTON: MOBILE-SAFE DRAG + FIVE TAP (INSTANT) =========
@@ -4107,9 +3943,9 @@ end
 
 player.CharacterRemoving:Connect(function()
     SafeCall(function()
-   --   if StudioIsRecording then
-          --  StopStudioRecording()
-    --   end
+        if StudioIsRecording then
+            StopStudioRecording()
+        end
         
         if IsPlaying and not AutoLoop then
             StopPlayback()
