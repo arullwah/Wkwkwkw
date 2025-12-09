@@ -85,6 +85,7 @@ local IsRecording = false
 local RecordingHipHeights = {} -- Database tinggi badan per rekaman
 local PlaybackHeightOffset = Vector3.new(0, 0, 0) -- Nilai koreksi saat main
 local IsPlaying = false
+local EnableSmoothPlayback = false -- Default OFF (Real-time)
 local IsPaused = false
 local IsReversing = false
 local IsForwarding = false
@@ -614,25 +615,23 @@ local function GetCurrentMoveState(hum)
 end
 
 -- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
+-- ========= SMART VELOCITY: 100% Real Physics (V2 Feel) =========
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
+    -- KEMBALIKAN KE SKALA 1 (ASLI)
+    -- Jangan dikurangi (0.8/0.9) agar lompatan tidak pendek/lag
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SET Velocity Y = 0 untuk Grounded
+    -- Jika di tanah, paksa Y = 0 biar nempel
     if moveState == "Grounded" or moveState == nil then
         velocityY = 0
     end
     
-    -- ⭐ GENTLE FIX: Hanya scale down sedikit (bukan clamp keras!)
-    if moveState == "Jumping" or moveState == "Falling" then
-        -- Scale down velocity sedikit aja (80% dari asli)
-        velocityY = velocityY * 0.8
-        velocityX = velocityX * 0.9
-        velocityZ = velocityZ * 0.9
-    end
+    -- HAPUS BAGIAN DAMPENING (PENGURANGAN KECEPATAN)
+    -- Biarkan velocity full saat jumping/falling agar mulus
     
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
@@ -1257,6 +1256,36 @@ local function ApplyFrameDirect(frame)
     end)
 end
 
+-- ========= SAFETY REWIND FUNCTION (Helper) =========
+-- Fungsi ini mencari posisi mundur max 120 frame sampai ketemu tanah (Grounded)
+local function FindSafeStartFrame(recording, targetFrameIndex)
+    if not recording or #recording == 0 then return 1 end
+    
+    -- Limit mundur max 120 frame (sekitar 2 detik)
+    local maxSearch = 120 
+    local currentIndex = targetFrameIndex
+    
+    for i = 0, maxSearch do
+        local checkIndex = currentIndex - i
+        if checkIndex < 1 then return 1 end -- Mentok awal
+        
+        local frame = recording[checkIndex]
+        local state = frame.MoveState
+        
+        -- Cek apakah frame ini aman? (Grounded/Running atau Velocity Y mendekati 0)
+        if state == "Grounded" or state == "Running" or (frame.Velocity and math.abs(frame.Velocity[2]) < 0.1) then
+            if i > 0 then
+                -- Debug info (opsional)
+                warn("⚠️ Posisi awal melayang! Mundur " .. i .. " frame ke posisi aman.")
+            end
+            return checkIndex
+        end
+    end
+    
+    return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
+end
+
+-- ========= MAIN PLAYBACK FUNCTION (Hybrid: Realtime & Smooth Mode) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1266,45 +1295,42 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        WalkSpeedBeforePlayback = hum.WalkSpeed 
-    end
+    -- [1] SAFETY REWIND
+    startFrame = FindSafeStartFrame(recording, startFrame)
 
-    -- ✨ [AUTO-HEIGHT CALCULATION] ✨
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then WalkSpeedBeforePlayback = hum.WalkSpeed end
+
+    -- [2] AUTO-HEIGHT
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
+    PlaybackHeightOffset = Vector3.new(0, currentHipHeight - recordedHipHeight, 0)
     
-    local heightDifference = currentHipHeight - recordedHipHeight
-    PlaybackHeightOffset = Vector3.new(0, heightDifference, 0)
-    -- ✨ [END CALCULATION] ✨
-
+    -- [3] SETUP VARIABEL
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
-    playbackAccumulator = 0
+    playbackAccumulator = 0 
     previousFrameData = nil
+    currentPlaybackFrame = startFrame
     
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local currentPos = hrp.Position
+    -- Teleport Awal (Stabil)
     local targetFrame = recording[startFrame]
-    
-    -- Hitung target posisi dengan offset
-    local targetPos = GetFramePosition(targetFrame) + PlaybackHeightOffset
-    
-    local distance = (currentPos - targetPos).Magnitude
-    
-    if distance > 3 then
-        hrp.CFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        task.wait(0.03)
+    if targetFrame then
+        local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then 
+            hrp.CFrame = safeCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Landed) end
+            RunService.Heartbeat:Wait()
+            hrp.CFrame = safeCFrame
+        end
     end
     
-    currentPlaybackFrame = startFrame
-    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
@@ -1312,92 +1338,77 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
     SaveHumanoidState()
     PlaySound("Toggle")
-    
-    if PlayBtnControl then
-        -- Gunakan fungsi update button yang baru
-        UpdatePlayButtonStatus()
-    end
+    if PlayBtnControl then UpdatePlayButtonStatus() end
 
+    -- [4] LOOP PLAYBACK
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                playbackConnection:Disconnect()
-                RestoreFullUserControl()
-                
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
-                return
+                if playbackConnection then playbackConnection:Disconnect() end
+                RestoreFullUserControl(); CheckIfPathUsed(recordingName)
+                lastPlaybackState = nil; lastStateChangeTime = 0; previousFrameData = nil
+                UpdatePlayButtonStatus(); return
             end
             
             local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
-                return
-            end
+            if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
             
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then
-                IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                UpdatePlayButtonStatus()
-                return
-            end
-
-            playbackAccumulator = playbackAccumulator + deltaTime
+            playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
-                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
+            -- Speed Limiter (Biar ending gak ngebut parah)
+            local loops = 0
+            local MAX_LOOPS = 5 
+            
+            while true do
+                local nextIndex = currentPlaybackFrame + 1
+                if nextIndex > #recording then
+                    IsPlaying = false; RestoreFullUserControl(); CheckIfPathUsed(recordingName)
+                    PlaySound("Success"); lastPlaybackState = nil; lastStateChangeTime = 0
+                    previousFrameData = nil; UpdatePlayButtonStatus(); return
+                end
+
+                local currentFrame = recording[currentPlaybackFrame]
+                local nextFrame = recording[nextIndex]
+
+                -- Hitung Waktu Asli
+                local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 
-                local nextFrame = currentPlaybackFrame
-                while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
-                    nextFrame = nextFrame + 1
+                -- ==================================================
+                -- 🔀 LOGIKA HYBRID: SMOOTH vs REALTIME
+                -- ==================================================
+                if EnableSmoothPlayback then
+                    -- [MODE ON: Manipulasi Waktu / Pro Flow]
+                    -- Jika jeda kelamaan (karena lag/bengong), potong waktunya biar licin.
+                    local MAX_IDLE_GAP = 0.1 
+                    local FORCED_GAP = 0.05   
+                    
+                    if timeDiff > MAX_IDLE_GAP then
+                        local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
+                        -- Hanya potong jika jaraknya dekat (beneran bengong/lag diam)
+                        if dist < 0.5 then
+                            timeDiff = FORCED_GAP
+                        end
+                    end
+                else
+                    -- [MODE OFF: Real Time]
+                    -- Biarkan timeDiff apa adanya. 
+                    -- Jika rekaman diam 3 detik, playback diam 3 detik.
                 end
+                -- ==================================================
 
-                if nextFrame >= #recording then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    PlaySound("Success")
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
-                    UpdatePlayButtonStatus()
-                    return
+                -- Safety minimal
+                if timeDiff < 0.0001 then timeDiff = 0.0001 end
+
+                if playbackAccumulator >= timeDiff then
+                    playbackAccumulator = playbackAccumulator - timeDiff
+                    currentPlaybackFrame = nextIndex
+                    ApplyFrameDirect(nextFrame)
+                    
+                    loops = loops + 1
+                    if loops >= MAX_LOOPS then break end
+                else
+                    break
                 end
-
-                local frame = recording[nextFrame]
-                if not frame then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
-                    UpdatePlayButtonStatus()
-                    return
-                end
-
-                -- ⭐ Apply frame (Offset sudah dihandle di dalam fungsi ini)
-                ApplyFrameDirect(frame)
-                
-                currentPlaybackFrame = nextFrame
             end
         end)
     end)
@@ -3296,21 +3307,21 @@ do
     table.insert(activeConnections, ultimateAnimConn)
 end
 
-    -- ========= PLAYBACK CONTROL GUI =========
-PlaybackControl = Instance.new("Frame")
-PlaybackControl.Size = UDim2.fromOffset(156, 120)
-PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -52.5)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-PlaybackControl.BackgroundTransparency = 0.4 -- ✅ Sedikit transparan
-PlaybackControl.BorderSizePixel = 0
-PlaybackControl.Active = true
-PlaybackControl.Draggable = true
-PlaybackControl.Visible = false
-PlaybackControl.Parent = ScreenGui
+    -- ========= PLAYBACK CONTROL GUI (UPDATED LAYOUT) =========
+    PlaybackControl = Instance.new("Frame")
+    PlaybackControl.Size = UDim2.fromOffset(156, 145) -- Tinggi ditambah biar muat 4 baris
+    PlaybackControl.Position = UDim2.new(0.5, -78, 0.5, -72)
+    PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    PlaybackControl.BackgroundTransparency = 0.4
+    PlaybackControl.BorderSizePixel = 0
+    PlaybackControl.Active = true
+    PlaybackControl.Draggable = true
+    PlaybackControl.Visible = false
+    PlaybackControl.Parent = ScreenGui
 
-local PlaybackCorner = Instance.new("UICorner")
-PlaybackCorner.CornerRadius = UDim.new(0, 8)
-PlaybackCorner.Parent = PlaybackControl
+    local PlaybackCorner = Instance.new("UICorner")
+    PlaybackCorner.CornerRadius = UDim.new(0, 8)
+    PlaybackCorner.Parent = PlaybackControl
 
     local PlaybackContent = Instance.new("Frame")
     PlaybackContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3326,7 +3337,7 @@ PlaybackCorner.Parent = PlaybackControl
         btn.Text = text
         btn.TextColor3 = Color3.new(1, 1, 1)
         btn.Font = Enum.Font.GothamBold
-        btn.TextSize = 10
+        btn.TextSize = 9 -- Sedikit dikecilkan biar muat teks panjang
         btn.AutoButtonColor = false
         btn.Parent = PlaybackContent
         
@@ -3335,35 +3346,52 @@ PlaybackCorner.Parent = PlaybackControl
         corner.Parent = btn
         
         btn.MouseEnter:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {
-                    BackgroundColor3 = Color3.fromRGB(
-                        math.min(color.R * 255 * 1.2, 255) / 255,
-                        math.min(color.G * 255 * 1.2, 255) / 255,
-                        math.min(color.B * 255 * 1.2, 255) / 255
-                    )
-                }):Play()
-            end)
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(
+                    math.min(color.R * 255 * 1.2, 255) / 255,
+                    math.min(color.G * 255 * 1.2, 255) / 255,
+                    math.min(color.B * 255 * 1.2, 255) / 255
+                )
+            }):Play()
         end)
         
         btn.MouseLeave:Connect(function()
-            task.spawn(function()
-                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
-            end)
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = color}):Play()
         end)
         
         return btn
     end
 
+    -- [BARIS 1: PLAY (Full Width)]
     PlayBtnControl = CreatePlaybackBtn("PLAY", 3, 3, 144, 25, Color3.fromRGB(59, 15, 116))
-    LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 71, 20, Color3.fromRGB(80, 80, 80))
-    JumpBtnControl = CreatePlaybackBtn("Jump OFF", 77, 31, 70, 20, Color3.fromRGB(80, 80, 80))
-    RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 3, 54, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShiftLockBtnControl = CreatePlaybackBtn("Shift OFF", 77, 54, 70, 20, Color3.fromRGB(80, 80, 80))
-    ResetBtnControl = CreatePlaybackBtn("Reset OFF", 3, 77, 71, 20, Color3.fromRGB(80, 80, 80))
-    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
+    
+    -- [BARIS 2: LOOP | RESET | RESPAWN (3 Tombol)]
+    LoopBtnControl = CreatePlaybackBtn("Loop OFF", 3, 31, 46, 20, Color3.fromRGB(80, 80, 80))
+    ResetBtnControl = CreatePlaybackBtn("Reset OFF", 52, 31, 46, 20, Color3.fromRGB(80, 80, 80))
+    RespawnBtnControl = CreatePlaybackBtn("Respawn OFF", 101, 31, 46, 20, Color3.fromRGB(80, 80, 80))
 
-    -- ========= RECORDING STUDIO GUI =========
+    -- [BARIS 3: SMOOTH (Full Width)]
+    local SmoothBtnControl = CreatePlaybackBtn("Smooth OFF (Realtime)", 3, 54, 144, 20, Color3.fromRGB(80, 80, 80))
+
+    -- [BARIS 4: JUMP | SHIFTL | RUTE (3 Tombol)]
+    JumpBtnControl = CreatePlaybackBtn("Jump OFF", 3, 77, 46, 20, Color3.fromRGB(80, 80, 80))
+    ShiftLockBtnControl = CreatePlaybackBtn("ShiftL OFF", 52, 77, 46, 20, Color3.fromRGB(80, 80, 80))
+    ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 101, 77, 46, 20, Color3.fromRGB(80, 80, 80))
+
+    -- [LOGIKA TOMBOL SMOOTH]
+    SmoothBtnControl.MouseButton1Click:Connect(function()
+        AnimateButtonClick(SmoothBtnControl)
+        EnableSmoothPlayback = not EnableSmoothPlayback
+        if EnableSmoothPlayback then
+            SmoothBtnControl.Text = "Smooth ON (No Lag)"
+            SmoothBtnControl.BackgroundColor3 = Color3.fromRGB(40, 180, 80)
+        else
+            SmoothBtnControl.Text = "Smooth OFF (Realtime)"
+            SmoothBtnControl.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+        PlaySound("Toggle")
+    end)
+
         -- ========= RECORDING STUDIO GUI (FULL FIXED) =========
     
     -- 1. FRAME UTAMA
