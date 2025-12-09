@@ -43,6 +43,10 @@ local KeyAccess = {
         "xWendoyy",
         "PppAdumullett",
         "di00xp",
+        "RioAJAHHHHH",
+        "liuushy",
+        "amethysue",
+        "velliya_1",
 }
 
 -- ===================================
