@@ -1179,6 +1179,7 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
+-- [2] Helper Apply Frame (Update: Air Smoothing)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1189,14 +1190,32 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ [AUTO-HEIGHT] Ambil posisi asli + Offset Tinggi Badan
-        local targetCFrame = GetFrameCFrame(frame)
-        
-        -- ✅ TERAPKAN OFFSET DI SINI
-        hrp.CFrame = targetCFrame + PlaybackHeightOffset
-        
-        -- Velocity Logic
+        -- Target Logic
+        local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
+        
+        -- Cek kecepatan horizontal
+        local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
+        local horizontalSpeed = velocityVect.Magnitude
+        
+        -- [LOGIKA VISUAL BARU]
+        if horizontalSpeed < 0.1 and (moveState == "Grounded" or moveState == nil) then
+            -- KASUS 1: BENAR-BENAR DIAM DI TANAH -> SNAP (Biar gak sliding)
+            hrp.CFrame = targetCFrame 
+            
+        elseif moveState == "Jumping" or moveState == "Falling" then
+            -- KASUS 2: DI UDARA -> GANTI JADI LERP! (SOLUSI NGACIR)
+            -- Sebelumnya ini 'hrp.CFrame = targetCFrame' (Snap kasar).
+            -- Sekarang kita pakai Lerp 0.7. 
+            -- Angka ini cukup kuat untuk akurasi parkour, tapi cukup lembut biar kelihatan melayang natural.
+            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
+            
+        else
+            -- KASUS 3: LARI DI TANAH -> LERP SMOOTH
+            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8) 
+        end
+        
+        -- Velocity Tetap 100%
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1206,50 +1225,26 @@ local function ApplyFrameDirect(frame)
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
             
-            if ShiftLockEnabled then
-                hum.AutoRotate = false
-            else
-                hum.AutoRotate = true
-            end
+            if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            -- State Management (Versi Simple Script Kamu)
+            -- State changes...
             local currentTime = tick()
-            local JUMP_VELOCITY_THRESHOLD = 5
-            local FALL_VELOCITY_THRESHOLD = -3
-            
-            local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+            local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
             
-            if isJumpingByVelocity and moveState ~= "Jumping" then
-                moveState = "Jumping"
-            elseif isFallingByVelocity and moveState ~= "Falling" then
-                moveState = "Falling"
-            end
+            if isJumpingByVelocity and moveState ~= "Jumping" then moveState = "Jumping"
+            elseif isFallingByVelocity and moveState ~= "Falling" then moveState = "Falling" end
             
             if moveState == "Jumping" then
-                if lastPlaybackState ~= "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    lastPlaybackState = "Jumping"
-                    lastStateChangeTime = currentTime
-                end
+                if lastPlaybackState ~= "Jumping" then hum:ChangeState(Enum.HumanoidStateType.Jumping); lastPlaybackState = "Jumping"; lastStateChangeTime = currentTime end
             elseif moveState == "Falling" then
-                if lastPlaybackState ~= "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    lastPlaybackState = "Falling"
-                    lastStateChangeTime = currentTime
-                end
+                if lastPlaybackState ~= "Falling" then hum:ChangeState(Enum.HumanoidStateType.Freefall); lastPlaybackState = "Falling"; lastStateChangeTime = currentTime end
             else
                 if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = currentTime
+                    if moveState == "Climbing" then hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                    elseif moveState == "Swimming" then hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else hum:ChangeState(Enum.HumanoidStateType.Running) end
+                    lastPlaybackState = moveState; lastStateChangeTime = currentTime
                 end
             end
         end
@@ -1285,7 +1280,7 @@ local function FindSafeStartFrame(recording, targetFrameIndex)
     return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
 end
 
--- ========= MAIN PLAYBACK FUNCTION (Ultimate Pro: Anti-Fall Skip) =========
+-- ========= MAIN PLAYBACK FUNCTION (Pro Flow + Air Protection) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1295,19 +1290,16 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    -- [1] SAFETY REWIND
     startFrame = FindSafeStartFrame(recording, startFrame)
 
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then WalkSpeedBeforePlayback = hum.WalkSpeed end
 
-    -- [2] AUTO-HEIGHT
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
     PlaybackHeightOffset = Vector3.new(0, currentHipHeight - recordedHipHeight, 0)
     
-    -- [3] SETUP VARIABEL
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
@@ -1316,7 +1308,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     previousFrameData = nil
     currentPlaybackFrame = startFrame
     
-    -- Teleport Awal
     local targetFrame = recording[startFrame]
     if targetFrame then
         local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
@@ -1340,7 +1331,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     PlaySound("Toggle")
     if PlayBtnControl then UpdatePlayButtonStatus() end
 
-    -- [4] LOOP PLAYBACK
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
@@ -1369,34 +1359,38 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
 
-                -- Hitung Waktu Asli
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 
                 -- ==================================================
-                -- 🔀 LOGIKA HYBRID: SMOOTH vs REALTIME
+                -- 🔀 LOGIKA HYBRID
                 -- ==================================================
                 if EnableSmoothPlayback then
-                    -- [MODE ON: Manipulasi Waktu / Pro Flow]
                     local MAX_IDLE_GAP = 0.1 
                     local FORCED_GAP = 0.05   
                     
-                    -- Rule 1: Skip Bengong (Jarak Pendek)
-                    if timeDiff > MAX_IDLE_GAP then
-                        local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
-                        if dist < 0.5 then
-                            timeDiff = FORCED_GAP
-                        end
-                    end
+                    -- [PROTEKSI UDARA]
+                    -- Cek apakah karakter sedang melayang?
+                    local isAirborne = (nextFrame.MoveState == "Jumping" or nextFrame.MoveState == "Falling")
                     
-                    -- Rule 2: Skip Sambungan Anti-Fall / Reset (Jarak Jauh Waktu Lama)
-                    -- Jika jeda lebih dari 1.0 detik (Terlalu lama untuk lompatan normal), POTONG!
-                    -- Ini akan menangani kasus Reset Checkpoint yang biasanya punya jeda waktu.
-                    if timeDiff > 1.0 then
-                        timeDiff = 0.3 -- ✅ Sesuai request (Langsung nyambung dalam 0.3 detik)
+                    if not isAirborne then
+                        -- HANYA POTONG WAKTU JIKA TIDAK SEDANG JUMPING/FALLING
+                        
+                        -- Rule 1: Skip Bengong (Jarak Pendek)
+                        if timeDiff > MAX_IDLE_GAP then
+                            local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
+                            if dist < 0.5 then
+                                timeDiff = FORCED_GAP
+                            end
+                        end
+                        
+                        -- Rule 2: Skip Sambungan Anti-Fall (Jarak Jauh)
+                        if timeDiff > 1.0 then
+                            timeDiff = 0.3 
+                        end
+                    else
+                        -- Kalau sedang di udara, biarkan waktunya NATURAL (Realtime)
+                        -- Biar lompatannya terasa floaty dan tidak ditarik gravitasi setan
                     end
-                else
-                    -- [MODE OFF: Real Time]
-                    -- Jujur sesuai rekaman
                 end
                 -- ==================================================
 
