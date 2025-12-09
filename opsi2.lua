@@ -1244,103 +1244,161 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         return
     end  
 
-    startFrame = FindSafeStartFrame(recording, startFrame)
-
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then WalkSpeedBeforePlayback = hum.WalkSpeed end
-
-    -- ✅ [AUTO-HEIGHT LOGIC] Hitung selisih tinggi di sini
+    if hum then
+        WalkSpeedBeforePlayback = hum.WalkSpeed 
+    end
+    
+        -- ✅ [AUTO-HEIGHT LOGIC] Hitung selisih tinggi di sini
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
     PlaybackHeightOffset = Vector3.new(0, currentHipHeight - recordedHipHeight, 0)
-    
+
     IsPlaying = true
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
-    playbackAccumulator = 0 
+    playbackAccumulator = 0
     previousFrameData = nil
-    currentPlaybackFrame = startFrame
     
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local currentPos = hrp.Position
     local targetFrame = recording[startFrame]
-    if targetFrame then
-        local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then 
-            hrp.CFrame = safeCFrame
-            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
-            if hum then hum:ChangeState(Enum.HumanoidStateType.Landed) end
-            RunService.Heartbeat:Wait()
-            hrp.CFrame = safeCFrame
-        end
+    local targetPos = GetFramePosition(targetFrame)
+    
+    local distance = (currentPos - targetPos).Magnitude
+    
+    if distance > 3 then
+        hrp.CFrame = GetFrameCFrame(targetFrame)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        task.wait(0.03)
     end
     
+    currentPlaybackFrame = startFrame
+    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
     lastStateChangeTime = 0
 
     SaveHumanoidState()
+    
+    -- ✅ ShiftLock TIDAK dimatikan saat playback!
+    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
+    
     PlaySound("Toggle")
-    if PlayBtnControl then UpdatePlayButtonStatus() end
+    
+    if PlayBtnControl then
+        PlayBtnControl.Text = "STOP"
+        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+    end
 
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                if playbackConnection then playbackConnection:Disconnect() end
-                RestoreFullUserControl(); CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil; lastStateChangeTime = 0; previousFrameData = nil
-                UpdatePlayButtonStatus(); return
+                playbackConnection:Disconnect()
+                RestoreFullUserControl()
+                
+                -- ✅ ShiftLock tetap sesuai state user
+                -- TIDAK restore, karena sudah persistent
+                
+                CheckIfPathUsed(recordingName)
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
+                UpdatePlayButtonStatus()
+                return
             end
             
             local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
-            
-            playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
-            
-            local loops = 0
-            local MAX_LOOPS = EnableSmoothPlayback and 5 or 2 
-            
-            while true do
-                local nextIndex = currentPlaybackFrame + 1
-                if nextIndex > #recording then
-                    IsPlaying = false; RestoreFullUserControl(); CheckIfPathUsed(recordingName)
-                    PlaySound("Success"); lastPlaybackState = nil; lastStateChangeTime = 0
-                    previousFrameData = nil; UpdatePlayButtonStatus(); return
+            if not char or not char:FindFirstChild("HumanoidRootPart") then
+                IsPlaying = false
+                RestoreFullUserControl()
+                CheckIfPathUsed(recordingName)
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
                 end
+                UpdatePlayButtonStatus()
+                return
+            end
+            
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not hrp then
+                IsPlaying = false
+                RestoreFullUserControl()
+                CheckIfPathUsed(recordingName)
+                lastPlaybackState = nil
+                lastStateChangeTime = 0
+                previousFrameData = nil
+                if PlayBtnControl then
+                    PlayBtnControl.Text = "PLAY"
+                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                end
+                UpdatePlayButtonStatus()
+                return
+            end
 
-                local currentFrame = recording[currentPlaybackFrame]
-                local nextFrame = recording[nextIndex]
-                local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
+            playbackAccumulator = playbackAccumulator + deltaTime
+            
+            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
+                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
+                 
+                local currentTime = tick()
+                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
                 
-                if EnableSmoothPlayback then
-                    local MAX_IDLE_GAP = 0.1 
-                    local FORCED_GAP = 0.05   
-                    local isAirborne = (nextFrame.MoveState == "Jumping" or nextFrame.MoveState == "Falling")
-                    
-                    if not isAirborne then
-                        if timeDiff > MAX_IDLE_GAP then
-                            local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
-                            if dist < 0.5 then timeDiff = FORCED_GAP end
-                        end
-                        if timeDiff > 1.0 then timeDiff = 0.3 end
+                local nextFrame = currentPlaybackFrame
+                while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
+                    nextFrame = nextFrame + 1
+                end
+
+                if nextFrame >= #recording then
+                    IsPlaying = false
+                    RestoreFullUserControl()
+                    CheckIfPathUsed(recordingName)
+                    PlaySound("Success")
+                    lastPlaybackState = nil
+                    lastStateChangeTime = 0
+                    previousFrameData = nil
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
                     end
+                    UpdatePlayButtonStatus()
+                    return
                 end
 
-                if timeDiff < 0.0001 then timeDiff = 0.0001 end
-
-                if playbackAccumulator >= timeDiff then
-                    playbackAccumulator = playbackAccumulator - timeDiff
-                    currentPlaybackFrame = nextIndex
-                    ApplyFrameDirect(nextFrame)
-                    
-                    loops = loops + 1
-                    if loops >= MAX_LOOPS then break end
-                else
-                    break
+                local frame = recording[nextFrame]
+                if not frame then
+                    IsPlaying = false
+                    RestoreFullUserControl()
+                    CheckIfPathUsed(recordingName)
+                    lastPlaybackState = nil
+                    lastStateChangeTime = 0
+                    previousFrameData = nil
+                    if PlayBtnControl then
+                        PlayBtnControl.Text = "PLAY"
+                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
+                    end
+                    UpdatePlayButtonStatus()
+                    return
                 end
+
+                -- ⭐ HYBRID: Apply frame directly
+                ApplyFrameDirect(frame)
+                
+                currentPlaybackFrame = nextFrame
             end
         end)
     end)
