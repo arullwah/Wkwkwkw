@@ -1176,9 +1176,7 @@ local function CheckIfPathUsed(recordingName)
     end
 end
 
--- ========= PLAYBACK FUNCTIONS =========
-
--- [2] Helper Apply Frame (Physics-Friendly: Anti-Jitter on Slopes)
+-- [2] Helper Apply Frame (Final Fix: Anti-Float & Anti-Jitter)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1192,15 +1190,14 @@ local function ApplyFrameDirect(frame)
         local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
         
-        -- Cek kecepatan horizontal
+        -- Cek kecepatan horizontal (untuk deteksi diam)
         local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
         local horizontalSpeed = velocityVect.Magnitude
         
-        -- [LOGIKA VISUAL BARU]
+        -- [LOGIKA VISUAL SEMPURNA]
         if moveState == "Jumping" or moveState == "Falling" then
             -- KASUS 1: UDARA (JUMP/FALL)
             -- Gunakan Lerp Visual agar melayang natural (tidak teleport)
-            -- Kita koreksi posisi Full (X, Y, Z) karena di udara tidak ada gesekan
             hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
             
         elseif horizontalSpeed < 0.1 then
@@ -1209,28 +1206,35 @@ local function ApplyFrameDirect(frame)
             hrp.CFrame = targetCFrame 
             
         else
-            -- KASUS 3: BERGERAK DI TANAH/TANJAKAN (THE FIX!)
-            -- Masalah FPS Drop ada di sini. Kita perbaiki:
+            -- KASUS 3: BERGERAK DI TANAH/TANJAKAN
             
             local currentY = hrp.Position.Y
             local targetY = targetCFrame.Position.Y
+            local diffY = targetY - currentY
             
-            -- Jika beda tinggi tidak terlalu ekstrem (< 3 studs), berarti cuma tanjakan biasa.
-            -- JANGAN PAKSA POSISI Y! Biarkan physics Roblox yang nempel ke tanah.
-            if math.abs(targetY - currentY) < 3 then
+            -- [LOGIKA ONE-WAY Y]
+            -- "Hanya tarik ke bawah, jangan paksa ke atas"
+            
+            if diffY < -0.1 then
+                -- Jika target rekaman lebih RENDAH dari posisi kita sekarang (misal: turunan / kita melayang)
+                -- TARIK KE BAWAH! (Gunakan targetY) -> Ini yang memperbaiki masalah melayang.
+                -- Kita pakai Lerp 0.5 biar turunnya mulus tapi tegas.
+                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.5)
+                
+            else
+                -- Jika target rekaman lebih TINGGI (tanjakan) atau sama
+                -- BIARKAN KAKI KITA! (Gunakan currentY)
+                -- Biarkan Physics Roblox yang mendorong kita naik, jangan ditarik paksa script (penyebab jitter).
+                
                 local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
                 local newCF = CFrame.new(newPos) * targetCFrame.Rotation
                 
-                -- Lerp X dan Z saja, Y ikut posisi kaki sekarang
+                -- Lerp X dan Z saja
                 hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
-            else
-                -- Kalau beda tinggi jauh (misal jatuh dari tebing tapi status masih bug grounded)
-                -- Baru kita paksa tarik ke posisi rekaman
-                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
             end
         end
         
-        -- Velocity Tetap 100% (Ini mesin penggerak utamanya)
+        -- Velocity Tetap 100%
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1241,7 +1245,7 @@ local function ApplyFrameDirect(frame)
             LastKnownWalkSpeed = frameWalkSpeed
             if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            -- State changes (Sama seperti sebelumnya)...
+            -- State changes...
             local currentTime = tick()
             local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
