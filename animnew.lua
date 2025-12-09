@@ -614,27 +614,26 @@ local function GetCurrentMoveState(hum)
     else return "Grounded" end
 end
 
--- ========= SMART VELOCITY: Zero Y untuk Grounded, Full Y untuk Jump/Fall =========
--- ========= SMART VELOCITY: 100% Real Physics (V2 Feel) =========
+-- [1] Helper Velocity (Full Power untuk Tanjakan)
 local function GetFrameVelocity(frame, moveState)
     if not frame or not frame.Velocity then return Vector3.new(0, 0, 0) end
     
-    -- KEMBALIKAN KE SKALA 1 (ASLI)
-    -- Jangan dikurangi (0.8/0.9) agar lompatan tidak pendek/lag
     local velocityX = frame.Velocity[1] * VELOCITY_SCALE
-    local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
+    local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE 
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- Jika di tanah, paksa Y = 0 biar nempel
+    -- Smart Slope Logic: 
+    -- Kalau velocity Y kecil (datar), nol-kan biar rapi.
+    -- Tapi kalau velocity Y besar (lagi nanjak/turun tangga), BIARKAN 100%!
     if moveState == "Grounded" or moveState == nil then
-        velocityY = 0
+        if math.abs(velocityY) < 0.1 then -- Toleransi diperkecil
+            velocityY = 0
+        end
     end
-    
-    -- HAPUS BAGIAN DAMPENING (PENGURANGAN KECEPATAN)
-    -- Biarkan velocity full saat jumping/falling agar mulus
     
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
+
 
 -- ========= PATH VISUALIZATION =========
 
@@ -1179,7 +1178,7 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- [2] Helper Apply Frame (Update: Air Smoothing)
+-- [2] Helper Apply Frame (Physics-Friendly: Anti-Jitter on Slopes)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1190,7 +1189,6 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- Target Logic
         local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
         
@@ -1199,23 +1197,40 @@ local function ApplyFrameDirect(frame)
         local horizontalSpeed = velocityVect.Magnitude
         
         -- [LOGIKA VISUAL BARU]
-        if horizontalSpeed < 0.1 and (moveState == "Grounded" or moveState == nil) then
-            -- KASUS 1: BENAR-BENAR DIAM DI TANAH -> SNAP (Biar gak sliding)
-            hrp.CFrame = targetCFrame 
-            
-        elseif moveState == "Jumping" or moveState == "Falling" then
-            -- KASUS 2: DI UDARA -> GANTI JADI LERP! (SOLUSI NGACIR)
-            -- Sebelumnya ini 'hrp.CFrame = targetCFrame' (Snap kasar).
-            -- Sekarang kita pakai Lerp 0.7. 
-            -- Angka ini cukup kuat untuk akurasi parkour, tapi cukup lembut biar kelihatan melayang natural.
+        if moveState == "Jumping" or moveState == "Falling" then
+            -- KASUS 1: UDARA (JUMP/FALL)
+            -- Gunakan Lerp Visual agar melayang natural (tidak teleport)
+            -- Kita koreksi posisi Full (X, Y, Z) karena di udara tidak ada gesekan
             hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
             
+        elseif horizontalSpeed < 0.1 then
+            -- KASUS 2: DIAM DI TEMPAT
+            -- Snap biar gak sliding
+            hrp.CFrame = targetCFrame 
+            
         else
-            -- KASUS 3: LARI DI TANAH -> LERP SMOOTH
-            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8) 
+            -- KASUS 3: BERGERAK DI TANAH/TANJAKAN (THE FIX!)
+            -- Masalah FPS Drop ada di sini. Kita perbaiki:
+            
+            local currentY = hrp.Position.Y
+            local targetY = targetCFrame.Position.Y
+            
+            -- Jika beda tinggi tidak terlalu ekstrem (< 3 studs), berarti cuma tanjakan biasa.
+            -- JANGAN PAKSA POSISI Y! Biarkan physics Roblox yang nempel ke tanah.
+            if math.abs(targetY - currentY) < 3 then
+                local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
+                local newCF = CFrame.new(newPos) * targetCFrame.Rotation
+                
+                -- Lerp X dan Z saja, Y ikut posisi kaki sekarang
+                hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
+            else
+                -- Kalau beda tinggi jauh (misal jatuh dari tebing tapi status masih bug grounded)
+                -- Baru kita paksa tarik ke posisi rekaman
+                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.8)
+            end
         end
         
-        -- Velocity Tetap 100%
+        -- Velocity Tetap 100% (Ini mesin penggerak utamanya)
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1224,10 +1239,9 @@ local function ApplyFrameDirect(frame)
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
-            
             if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            -- State changes...
+            -- State changes (Sama seperti sebelumnya)...
             local currentTime = tick()
             local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
@@ -1281,6 +1295,7 @@ local function FindSafeStartFrame(recording, targetFrameIndex)
 end
 
 -- ========= MAIN PLAYBACK FUNCTION (Pro Flow + Air Protection) =========
+-- ========= MAIN PLAYBACK FUNCTION (Fixed: Slope Jitter & Smooth OFF Speed) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1346,7 +1361,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
             local loops = 0
-            local MAX_LOOPS = 5 
+            
+            -- [CONFIG LIMITER]
+            -- Mode Smooth ON: Boleh proses banyak frame (biar ngejar/skip waktu)
+            -- Mode Smooth OFF: Batasi frame (biar gak ngacir kalau lag)
+            local MAX_LOOPS = EnableSmoothPlayback and 5 or 2 
             
             while true do
                 local nextIndex = currentPlaybackFrame + 1
@@ -1358,39 +1377,35 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
 
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
-
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 
                 -- ==================================================
                 -- 🔀 LOGIKA HYBRID
                 -- ==================================================
                 if EnableSmoothPlayback then
+                    -- [MODE ON: Manipulasi Waktu]
                     local MAX_IDLE_GAP = 0.1 
                     local FORCED_GAP = 0.05   
                     
-                    -- [PROTEKSI UDARA]
-                    -- Cek apakah karakter sedang melayang?
                     local isAirborne = (nextFrame.MoveState == "Jumping" or nextFrame.MoveState == "Falling")
                     
                     if not isAirborne then
-                        -- HANYA POTONG WAKTU JIKA TIDAK SEDANG JUMPING/FALLING
-                        
-                        -- Rule 1: Skip Bengong (Jarak Pendek)
+                        -- Rule 1: Skip Bengong
                         if timeDiff > MAX_IDLE_GAP then
                             local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
                             if dist < 0.5 then
                                 timeDiff = FORCED_GAP
                             end
                         end
-                        
-                        -- Rule 2: Skip Sambungan Anti-Fall (Jarak Jauh)
+                        -- Rule 2: Skip Jarak Jauh (Reset/Anti-Fall)
                         if timeDiff > 1.0 then
                             timeDiff = 0.3 
                         end
-                    else
-                        -- Kalau sedang di udara, biarkan waktunya NATURAL (Realtime)
-                        -- Biar lompatannya terasa floaty dan tidak ditarik gravitasi setan
                     end
+                else
+                    -- [MODE OFF: Real Time Strict]
+                    -- Tidak ada manipulasi timeDiff.
+                    -- TAPI, kita pastikan logic tidak "ngacir" lewat MAX_LOOPS di atas (cuma 2 frame per tick).
                 end
                 -- ==================================================
 
@@ -1402,7 +1417,11 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     ApplyFrameDirect(nextFrame)
                     
                     loops = loops + 1
-                    if loops >= MAX_LOOPS then break end
+                    if loops >= MAX_LOOPS then 
+                        -- Kalau Smooth OFF, ini akan stop loop lebih cepat
+                        -- Sehingga karakter tidak "teleport" mengejar ketertinggalan waktu
+                        break 
+                    end
                 else
                     break
                 end
