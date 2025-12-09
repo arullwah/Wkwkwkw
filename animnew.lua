@@ -1285,7 +1285,7 @@ local function FindSafeStartFrame(recording, targetFrameIndex)
     return targetFrameIndex -- Jika tidak ketemu tanah, pakai frame asli
 end
 
--- ========= MAIN PLAYBACK FUNCTION (Hybrid: Realtime & Smooth Mode) =========
+-- ========= MAIN PLAYBACK FUNCTION (Ultimate Pro: Anti-Fall Skip) =========
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1316,7 +1316,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     previousFrameData = nil
     currentPlaybackFrame = startFrame
     
-    -- Teleport Awal (Stabil)
+    -- Teleport Awal
     local targetFrame = recording[startFrame]
     if targetFrame then
         local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
@@ -1355,7 +1355,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            -- Speed Limiter (Biar ending gak ngebut parah)
             local loops = 0
             local MAX_LOOPS = 5 
             
@@ -1378,25 +1377,29 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 -- ==================================================
                 if EnableSmoothPlayback then
                     -- [MODE ON: Manipulasi Waktu / Pro Flow]
-                    -- Jika jeda kelamaan (karena lag/bengong), potong waktunya biar licin.
                     local MAX_IDLE_GAP = 0.1 
                     local FORCED_GAP = 0.05   
                     
+                    -- Rule 1: Skip Bengong (Jarak Pendek)
                     if timeDiff > MAX_IDLE_GAP then
                         local dist = (Vector3.new(unpack(nextFrame.Position)) - Vector3.new(unpack(currentFrame.Position))).Magnitude
-                        -- Hanya potong jika jaraknya dekat (beneran bengong/lag diam)
                         if dist < 0.5 then
                             timeDiff = FORCED_GAP
                         end
                     end
+                    
+                    -- Rule 2: Skip Sambungan Anti-Fall / Reset (Jarak Jauh Waktu Lama)
+                    -- Jika jeda lebih dari 1.0 detik (Terlalu lama untuk lompatan normal), POTONG!
+                    -- Ini akan menangani kasus Reset Checkpoint yang biasanya punya jeda waktu.
+                    if timeDiff > 1.0 then
+                        timeDiff = 0.3 -- ✅ Sesuai request (Langsung nyambung dalam 0.3 detik)
+                    end
                 else
                     -- [MODE OFF: Real Time]
-                    -- Biarkan timeDiff apa adanya. 
-                    -- Jika rekaman diam 3 detik, playback diam 3 detik.
+                    -- Jujur sesuai rekaman
                 end
                 -- ==================================================
 
-                -- Safety minimal
                 if timeDiff < 0.0001 then timeDiff = 0.0001 end
 
                 if playbackAccumulator >= timeDiff then
