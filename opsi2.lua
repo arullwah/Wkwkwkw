@@ -1177,31 +1177,50 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- ✅ [AUTO-HEIGHT] Tambahkan Offset di sini
+        -- Ambil target posisi + Koreksi Tinggi Badan
         local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
         
+        -- Cek apakah karakter diam?
         local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
         local horizontalSpeed = velocityVect.Magnitude
         
+        -- [LOGIKA ANTI-MENDEM]
         if moveState == "Jumping" or moveState == "Falling" then
+            -- KASUS 1: UDARA
+            -- Pakai Lerp biar melayang smooth, jangan teleport kasar
             hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
+            
         elseif horizontalSpeed < 0.1 then
+            -- KASUS 2: DIAM
+            -- Kunci posisi biar gak geser
             hrp.CFrame = targetCFrame 
+            
         else
+            -- KASUS 3: BERGERAK DI TANAH / TANJAKAN (SOLUSI MENDEM)
             local currentY = hrp.Position.Y
             local targetY = targetCFrame.Position.Y
             local diffY = targetY - currentY
             
             if diffY < -0.1 then
-                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.5)
+                -- [TURUNAN/MELAYANG] 
+                -- Target rekaman lebih RENDAH dari kaki kita.
+                -- Tarik ke bawah biar nempel tanah.
+                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.6)
             else
+                -- [TANJAKAN/MENDEM]
+                -- Target rekaman lebih TINGGI (di dalam tanah) atau SAMA.
+                -- JANGAN PAKSA TURUN! Biarkan kaki nempel tanah alami (Physics Roblox).
+                -- Kita gabungkan: X & Z dari Rekaman, tapi Y dari Posisi Nyata Sekarang.
+                
                 local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
                 local newCF = CFrame.new(newPos) * targetCFrame.Rotation
+                
                 hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
             end
         end
         
+        -- Velocity Tetap 100%
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1212,6 +1231,7 @@ local function ApplyFrameDirect(frame)
             LastKnownWalkSpeed = frameWalkSpeed
             if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
+            -- State Management Standar
             local currentTime = tick()
             local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
@@ -1249,7 +1269,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
     
-        -- ✅ [AUTO-HEIGHT LOGIC] Hitung selisih tinggi di sini
+    -- ✅ [AUTO-HEIGHT LOGIC] Wajib ada biar Ava Mini gak salah tinggi
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
@@ -1263,17 +1283,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     previousFrameData = nil
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local currentPos = hrp.Position
+    
+    -- Teleport Awal (Stabil)
     local targetFrame = recording[startFrame]
-    local targetPos = GetFramePosition(targetFrame)
-    
-    local distance = (currentPos - targetPos).Magnitude
-    
-    if distance > 3 then
-        hrp.CFrame = GetFrameCFrame(targetFrame)
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
+    if targetFrame then
+        -- Gunakan posisi aman yang sudah dihitung offset-nya
+        local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+        hrp.CFrame = safeCFrame
+        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
         task.wait(0.03)
     end
     
@@ -1285,10 +1303,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     lastStateChangeTime = 0
 
     SaveHumanoidState()
-    
-    -- ✅ ShiftLock TIDAK dimatikan saat playback!
-    -- ShiftLockEnabled tetap ON jika user mengaktifkannya
-    
     PlaySound("Toggle")
     
     if PlayBtnControl then
@@ -1299,12 +1313,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     playbackConnection = RunService.Heartbeat:Connect(function(deltaTime)
         SafeCall(function()
             if not IsPlaying then
-                playbackConnection:Disconnect()
+                if playbackConnection then playbackConnection:Disconnect() end
                 RestoreFullUserControl()
-                
-                -- ✅ ShiftLock tetap sesuai state user
-                -- TIDAK restore, karena sudah persistent
-                
                 CheckIfPathUsed(recordingName)
                 lastPlaybackState = nil
                 lastStateChangeTime = 0
@@ -1320,33 +1330,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             local char = player.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then
                 IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                if PlayBtnControl then
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                end
-                UpdatePlayButtonStatus()
-                return
-            end
-            
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then
-                IsPlaying = false
-                RestoreFullUserControl()
-                CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
-                if PlayBtnControl then
-                    PlayBtnControl.Text = "PLAY"
-                    PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                end
-                UpdatePlayButtonStatus()
                 return
             end
 
@@ -1382,20 +1365,10 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 local frame = recording[nextFrame]
                 if not frame then
                     IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
-                    if PlayBtnControl then
-                        PlayBtnControl.Text = "PLAY"
-                        PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
-                    end
-                    UpdatePlayButtonStatus()
                     return
                 end
 
-                -- ⭐ HYBRID: Apply frame directly
+                -- Panggil fungsi ApplyFrameDirect yang baru (Anti-Mendem)
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
