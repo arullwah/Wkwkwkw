@@ -1236,6 +1236,7 @@ local function ApplyFrameDirect(frame)
     end)
 end
 
+-- [4] Main Playback (FIX: Anti-Ngebut Ending + Frame-by-Frame)
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1250,7 +1251,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
     
-    -- ✅ [AUTO-HEIGHT LOGIC] Wajib ada biar Ava Mini gak salah tinggi
+    -- [AUTO-HEIGHT]
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
@@ -1260,24 +1261,25 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
+    
+    -- Reset Accumulator (Wadah Waktu)
     playbackAccumulator = 0
     previousFrameData = nil
+    currentPlaybackFrame = startFrame
     
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    -- Teleport Awal (Stabil)
+    -- Teleport Awal
     local targetFrame = recording[startFrame]
     if targetFrame then
-        -- Gunakan posisi aman yang sudah dihitung offset-nya
         local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
-        hrp.CFrame = safeCFrame
-        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
-        task.wait(0.03)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then 
+            hrp.CFrame = safeCFrame
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            task.wait(0.03)
+        end
     end
     
-    currentPlaybackFrame = startFrame
-    playbackStartTime = tick() - (GetFrameTimestamp(recording[startFrame]) / CurrentSpeed)
     totalPausedDuration = 0
     pauseStartTime = 0
     lastPlaybackState = nil
@@ -1314,20 +1316,20 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 return
             end
 
-            playbackAccumulator = playbackAccumulator + deltaTime
+            -- [INTI PERBAIKAN: Frame-by-Frame Logic]
+            -- Kita kumpulkan waktu dari deltaTime
+            playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            while playbackAccumulator >= PLAYBACK_FIXED_TIMESTEP do
-                playbackAccumulator = playbackAccumulator - PLAYBACK_FIXED_TIMESTEP
-                 
-                local currentTime = tick()
-                local effectiveTime = (currentTime - playbackStartTime - totalPausedDuration) * CurrentSpeed
-                
-                local nextFrame = currentPlaybackFrame
-                while nextFrame < #recording and GetFrameTimestamp(recording[nextFrame + 1]) <= effectiveTime do
-                    nextFrame = nextFrame + 1
-                end
-
-                if nextFrame >= #recording then
+            -- Batasan Loop (Rem Otomatis)
+            -- Maksimal proses 5 frame per detik heartbeat. 
+            -- Ini MENCEGAH ending ngebut walau sisa waktunya banyak.
+            local loops = 0
+            local MAX_LOOPS = 5 
+            
+            while true do
+                -- Cek apakah rekaman selesai?
+                local nextIndex = currentPlaybackFrame + 1
+                if nextIndex > #recording then
                     IsPlaying = false
                     RestoreFullUserControl()
                     CheckIfPathUsed(recordingName)
@@ -1343,16 +1345,32 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     return
                 end
 
-                local frame = recording[nextFrame]
-                if not frame then
-                    IsPlaying = false
-                    return
-                end
-
-                -- Panggil fungsi ApplyFrameDirect yang baru (Anti-Mendem)
-                ApplyFrameDirect(frame)
+                local currentFrame = recording[currentPlaybackFrame]
+                local nextFrame = recording[nextIndex]
                 
-                currentPlaybackFrame = nextFrame
+                -- Hitung jarak waktu antar frame (Jujur 100%)
+                local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
+                
+                -- Safety: Jangan biarkan 0 murni (penyebab ngebut)
+                if timeDiff < 0.0001 then timeDiff = 0.0001 end
+
+                -- Apakah tabungan waktu cukup untuk pindah ke frame depan?
+                if playbackAccumulator >= timeDiff then
+                    playbackAccumulator = playbackAccumulator - timeDiff
+                    
+                    -- MAJU SATU FRAME SAJA
+                    currentPlaybackFrame = nextIndex
+                    ApplyFrameDirect(nextFrame)
+                    
+                    -- Cek Rem
+                    loops = loops + 1
+                    if loops >= MAX_LOOPS then 
+                        break -- Istirahat dulu, lanjut frame depan di tick berikutnya
+                    end
+                else
+                    -- Waktu belum cukup, tunggu heartbeat berikutnya (Speed Stabil)
+                    break
+                end
             end
         end)
     end)
