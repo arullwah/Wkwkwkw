@@ -1236,7 +1236,7 @@ local function ApplyFrameDirect(frame)
     end)
 end
 
--- [4] Main Playback (FIX: Anti-Ngebut Ending + Frame-by-Frame)
+-- [4] Main Playback (FINAL: Batch Processing + Anti-Jitter)
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1262,18 +1262,17 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
     
-    -- Reset Accumulator (Wadah Waktu)
+    -- Reset Accumulator
     playbackAccumulator = 0
     previousFrameData = nil
     currentPlaybackFrame = startFrame
     
-    -- Teleport Awal
+    -- Teleport Awal (Wajib Visualisasi Langsung)
     local targetFrame = recording[startFrame]
     if targetFrame then
-        local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
+        ApplyFrameDirect(targetFrame) -- Panggil langsung untuk frame pertama
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then 
-            hrp.CFrame = safeCFrame
             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
             hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
             task.wait(0.03)
@@ -1316,18 +1315,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 return
             end
 
-            -- [INTI PERBAIKAN: Frame-by-Frame Logic]
-            -- Kita kumpulkan waktu dari deltaTime
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
-            -- Batasan Loop (Rem Otomatis)
-            -- Maksimal proses 5 frame per detik heartbeat. 
-            -- Ini MENCEGAH ending ngebut walau sisa waktunya banyak.
             local loops = 0
             local MAX_LOOPS = 5 
             
+            -- Variabel untuk menyimpan Frame Terakhir yang valid di batch ini
+            local finalFrameToApply = nil
+            
             while true do
-                -- Cek apakah rekaman selesai?
                 local nextIndex = currentPlaybackFrame + 1
                 if nextIndex > #recording then
                     IsPlaying = false
@@ -1348,32 +1344,38 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
                 
-                -- Hitung jarak waktu antar frame (Jujur 100%)
+                -- Hitung Waktu
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
-                
-                -- Safety: Jangan biarkan 0 murni (penyebab ngebut)
                 if timeDiff < 0.0001 then timeDiff = 0.0001 end
 
-                -- Apakah tabungan waktu cukup untuk pindah ke frame depan?
                 if playbackAccumulator >= timeDiff then
                     playbackAccumulator = playbackAccumulator - timeDiff
-                    
-                    -- MAJU SATU FRAME SAJA
                     currentPlaybackFrame = nextIndex
-                    ApplyFrameDirect(nextFrame)
                     
-                    -- Cek Rem
+                    -- [OPTIMISASI ANTI-JITTER]
+                    -- Jangan panggil ApplyFrameDirect di sini! (Bikin berat & jitter)
+                    -- Cukup simpan datanya dulu.
+                    finalFrameToApply = nextFrame
+                    
                     loops = loops + 1
-                    if loops >= MAX_LOOPS then 
-                        break -- Istirahat dulu, lanjut frame depan di tick berikutnya
-                    end
+                    if loops >= MAX_LOOPS then break end
                 else
-                    -- Waktu belum cukup, tunggu heartbeat berikutnya (Speed Stabil)
                     break
                 end
             end
+            
+            -- [EKSEKUSI FINAL]
+            -- Hanya gerakkan karakter 1 KALI per detik (per Heartbeat)
+            -- Ini membuat fisik karakter stabil, tidak ditarik-tarik script berkali-kali.
+            if finalFrameToApply then
+                ApplyFrameDirect(finalFrameToApply)
+            end
         end)
     end)
+    
+    AddConnection(playbackConnection)
+    UpdatePlayButtonStatus()
+end
     
     AddConnection(playbackConnection)
     UpdatePlayButtonStatus()
