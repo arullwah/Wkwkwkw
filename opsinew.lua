@@ -1236,7 +1236,7 @@ local function ApplyFrameDirect(frame)
     end)
 end
 
--- [4] Main Playback (FINAL: Batch Processing + Anti-Jitter)
+-- [4] Main Playback (STRICT MODE: No Ngacir, No Skip, 100% Akurat)
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -1261,11 +1261,13 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
+    
+    -- Reset Accumulator
     playbackAccumulator = 0
     previousFrameData = nil
     currentPlaybackFrame = startFrame
     
-    -- Teleport Awal (Wajib Visualisasi Langsung)
+    -- Teleport Awal (Stabil)
     local targetFrame = recording[startFrame]
     if targetFrame then
         ApplyFrameDirect(targetFrame) -- Panggil langsung frame pertama
@@ -1308,13 +1310,15 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             local char = player.Character
             if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
 
+            -- [CORE CHANGE: STRICT TIMING]
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
+            -- Kita ubah MAX_LOOPS jadi 1.
+            -- Artinya: Script DILARANG memproses lebih dari 1 frame per detik.
+            -- Walaupun lag, dia ga bakal "ngacir" ngejar ketertinggalan. Dia akan sabar.
             local loops = 0
-            local MAX_LOOPS = 5 
+            local MAX_LOOPS = 1 
             
-            -- Variabel Batching (Anti-Jitter)
-            -- Kita simpan dulu frame tujuannya, jangan langsung digerakin di dalam loop
             local finalFrameToApply = nil
             
             while true do
@@ -1340,8 +1344,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     playbackAccumulator = playbackAccumulator - timeDiff
                     currentPlaybackFrame = nextIndex
                     
-                    -- [OPTIMISASI JITTER]
-                    -- Simpan frame ini sebagai kandidat terakhir
                     finalFrameToApply = nextFrame
                     
                     loops = loops + 1
@@ -1351,9 +1353,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 end
             end
             
-            -- [EKSEKUSI FINAL]
-            -- Hanya gerakkan karakter 1 KALI per detik (per Heartbeat)
-            -- Ini kuncinya agar tidak jitter saat playback ngebut di akhir
             if finalFrameToApply then
                 ApplyFrameDirect(finalFrameToApply)
             end
