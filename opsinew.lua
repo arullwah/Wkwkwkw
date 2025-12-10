@@ -1167,7 +1167,6 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- [2] Helper Apply Frame (FIX: Natural Air Physics + Anti-Mendem)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1180,29 +1179,30 @@ local function ApplyFrameDirect(frame)
         
         local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
+        
+        local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
+        local horizontalSpeed = velocityVect.Magnitude
         local isReallyGrounded = (hum.FloorMaterial ~= Enum.Material.Air)
         
         if isReallyGrounded then
             -- [DI TANAH: PROTEKTIF]
-            -- Tetap pakai logika Anti-Mendem yang tadi (sudah perfect)
+            -- Gunakan X & Z dari rekaman, tapi Y dari posisi kaki asli (Anti-Mendem)
             local currentY = hrp.Position.Y
             local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
             local newCF = CFrame.new(newPos) * targetCFrame.Rotation
             
-            -- Lerp 0.8 (Kuat) biar beloknya responsif di tanah
             hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
             
-        else
-            -- [DI UDARA: RELAKS] -> INI PERBAIKANNYA!
-            -- DULU: Lerp 0.7 (Terlalu maksa/ngacir)
-            -- SEKARANG: Lerp 0.25 (Lembut banget)
-            -- Kita biarkan Velocity yang 'melempar' karakter, script cuma bantu arahin dikit.
-            -- Hasilnya: Lompatan akan terlihat melengkung natural, tidak ditarik magnet.
+        elseif horizontalSpeed < 0.1 then
+            -- [DIAM]
+            hrp.CFrame = targetCFrame 
             
+        else
+            -- [DI UDARA: RELAKS]
+            -- Lerp rendah (0.25) biar gak ngacir/ditarik magnet
             hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.25)
         end
         
-        -- Velocity Tetap 100% (Ini mesin utamanya saat di udara)
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1261,8 +1261,6 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     IsPaused = false
     CurrentPlayingRecording = recording
     PausedAtFrame = 0
-    
-    -- Reset Accumulator
     playbackAccumulator = 0
     previousFrameData = nil
     currentPlaybackFrame = startFrame
@@ -1270,7 +1268,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     -- Teleport Awal (Wajib Visualisasi Langsung)
     local targetFrame = recording[startFrame]
     if targetFrame then
-        ApplyFrameDirect(targetFrame) -- Panggil langsung untuk frame pertama
+        ApplyFrameDirect(targetFrame) -- Panggil langsung frame pertama
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then 
             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -1298,9 +1296,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 if playbackConnection then playbackConnection:Disconnect() end
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
+                lastPlaybackState = nil; lastStateChangeTime = 0; previousFrameData = nil
                 if PlayBtnControl then
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1310,41 +1306,33 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             end
             
             local char = player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then
-                IsPlaying = false
-                return
-            end
+            if not char or not char:FindFirstChild("HumanoidRootPart") then IsPlaying = false; return end
 
             playbackAccumulator = playbackAccumulator + (deltaTime * CurrentSpeed)
             
             local loops = 0
             local MAX_LOOPS = 5 
             
-            -- Variabel untuk menyimpan Frame Terakhir yang valid di batch ini
+            -- Variabel Batching (Anti-Jitter)
+            -- Kita simpan dulu frame tujuannya, jangan langsung digerakin di dalam loop
             local finalFrameToApply = nil
             
             while true do
                 local nextIndex = currentPlaybackFrame + 1
                 if nextIndex > #recording then
-                    IsPlaying = false
-                    RestoreFullUserControl()
-                    CheckIfPathUsed(recordingName)
-                    PlaySound("Success")
-                    lastPlaybackState = nil
-                    lastStateChangeTime = 0
-                    previousFrameData = nil
+                    IsPlaying = false; RestoreFullUserControl(); CheckIfPathUsed(recordingName)
+                    PlaySound("Success"); lastPlaybackState = nil; lastStateChangeTime = 0
+                    previousFrameData = nil; 
                     if PlayBtnControl then
                         PlayBtnControl.Text = "PLAY"
                         PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
                     end
-                    UpdatePlayButtonStatus()
-                    return
+                    UpdatePlayButtonStatus(); return
                 end
 
                 local currentFrame = recording[currentPlaybackFrame]
                 local nextFrame = recording[nextIndex]
                 
-                -- Hitung Waktu
                 local timeDiff = nextFrame.Timestamp - currentFrame.Timestamp
                 if timeDiff < 0.0001 then timeDiff = 0.0001 end
 
@@ -1352,9 +1340,8 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                     playbackAccumulator = playbackAccumulator - timeDiff
                     currentPlaybackFrame = nextIndex
                     
-                    -- [OPTIMISASI ANTI-JITTER]
-                    -- Jangan panggil ApplyFrameDirect di sini! (Bikin berat & jitter)
-                    -- Cukup simpan datanya dulu.
+                    -- [OPTIMISASI JITTER]
+                    -- Simpan frame ini sebagai kandidat terakhir
                     finalFrameToApply = nextFrame
                     
                     loops = loops + 1
@@ -1366,16 +1353,12 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
             
             -- [EKSEKUSI FINAL]
             -- Hanya gerakkan karakter 1 KALI per detik (per Heartbeat)
-            -- Ini membuat fisik karakter stabil, tidak ditarik-tarik script berkali-kali.
+            -- Ini kuncinya agar tidak jitter saat playback ngebut di akhir
             if finalFrameToApply then
                 ApplyFrameDirect(finalFrameToApply)
             end
         end)
     end)
-    
-    AddConnection(playbackConnection)
-    UpdatePlayButtonStatus()
-end
     
     AddConnection(playbackConnection)
     UpdatePlayButtonStatus()
