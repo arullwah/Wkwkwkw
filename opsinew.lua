@@ -1167,7 +1167,7 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
--- [2] Helper Apply Frame (SOLUSI FINAL: Absolute Ground Priority)
+-- [2] Helper Apply Frame (FIX: Natural Air Physics + Anti-Mendem)
 local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
@@ -1178,37 +1178,31 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- Target dasar dari rekaman
         local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
-        
-        -- Cek apakah karakter BENAR-BENAR nempel tanah?
-        -- Kita pakai FloorMaterial karena lebih akurat daripada MoveState
         local isReallyGrounded = (hum.FloorMaterial ~= Enum.Material.Air)
         
         if isReallyGrounded then
-            -- [KASUS A: DI TANAH] -> SANGAT PROTEKTIF (ANTI-MENDEM)
-            -- Saat nempel tanah, Script DILARANG menyentuh posisi Y.
-            -- Kita ambil X dan Z dari rekaman (biar jalan sesuai rute).
-            -- TAPI Y (Tinggi) kita ambil 100% dari posisi kaki sekarang.
-            
+            -- [DI TANAH: PROTEKTIF]
+            -- Tetap pakai logika Anti-Mendem yang tadi (sudah perfect)
             local currentY = hrp.Position.Y
             local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
-            
-            -- Gabungkan posisi aman tadi dengan rotasi rekaman
             local newCF = CFrame.new(newPos) * targetCFrame.Rotation
             
-            -- Lerp halus (0.8) hanya untuk arah jalan, tidak akan bikin naik/turun
+            -- Lerp 0.8 (Kuat) biar beloknya responsif di tanah
             hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
             
         else
-            -- [KASUS B: DI UDARA] -> BEBAS (Jatuh/Lompat)
-            -- Kalau sedang di udara, baru kita ikuti Y rekaman supaya bisa jatuh/mendarat
-            -- Pakai Lerp 0.7 biar visual jatuhnya enak
-            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
+            -- [DI UDARA: RELAKS] -> INI PERBAIKANNYA!
+            -- DULU: Lerp 0.7 (Terlalu maksa/ngacir)
+            -- SEKARANG: Lerp 0.25 (Lembut banget)
+            -- Kita biarkan Velocity yang 'melempar' karakter, script cuma bantu arahin dikit.
+            -- Hasilnya: Lompatan akan terlihat melengkung natural, tidak ditarik magnet.
+            
+            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.25)
         end
         
-        -- Velocity Tetap 100% (Mesin Penggerak Utama)
+        -- Velocity Tetap 100% (Ini mesin utamanya saat di udara)
         local frameVelocity = GetFrameVelocity(frame, moveState)
         hrp.AssemblyLinearVelocity = frameVelocity
         hrp.AssemblyAngularVelocity = Vector3.zero
@@ -1219,7 +1213,6 @@ local function ApplyFrameDirect(frame)
             LastKnownWalkSpeed = frameWalkSpeed
             if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            -- State Management
             local currentTime = tick()
             local isJumpingByVelocity = frameVelocity.Y > 5
             local isFallingByVelocity = frameVelocity.Y < -3
