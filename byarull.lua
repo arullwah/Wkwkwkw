@@ -48,6 +48,7 @@ local KeyAccess = {
         "amethysue",
         "velliya_1",
         "Xferr222",
+        "PolDedVl",
 }
 
 -- ===================================
