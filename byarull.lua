@@ -25,7 +25,7 @@ local KeyAccess = {
       "x1xiix1x",
       "raja145689",
        "greatnanz",
-     "may2ss719033",
+       "may2ss719033",
        "suganyakbenniek",
        "Adriano_3768",
        "Erosaints",
@@ -49,6 +49,11 @@ local KeyAccess = {
         "velliya_1",
         "Xferr222",
         "PolDedVl",
+        "Pemburutobrut316",
+        "Putraaaz7",
+        "CUDDLEPUNGz",
+        "Exxiii7",
+        "TGRxKayla",
 }
 
 -- ===================================
