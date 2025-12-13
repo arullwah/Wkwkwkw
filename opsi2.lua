@@ -83,8 +83,9 @@ local Title, CheckAllBtn
 -- ========= VARIABLES =========
 local IsRecording = false
 local IsPlaying = false
-local RecordingHipHeights = {} 
-local PlaybackHeightOffset = Vector3.new(0, 0, 0) 
+-- [AUTO-HEIGHT SYSTEM]
+local RecordingHipHeights = {} -- Database tinggi badan
+local PlaybackHeightOffset = Vector3.new(0, 0, 0) -- Nilai koreksi
 local IsPaused = false
 local IsReversing = false
 local IsForwarding = false
@@ -615,12 +616,19 @@ local function GetFrameVelocity(frame, moveState)
     local velocityY = frame.Velocity[2] * VELOCITY_Y_SCALE
     local velocityZ = frame.Velocity[3] * VELOCITY_SCALE
     
-    -- ✅ SET Velocity Y = 0 untuk Grounded (biar Roblox physics yang handle!)
+    -- ✅ SET Velocity Y = 0 untuk Grounded
     if moveState == "Grounded" or moveState == nil then
-        velocityY = 0  -- ✅ ZERO Y = smooth di permukaan tidak rata!
+        velocityY = 0
     end
     
-    -- ✅ TETAP apply full velocity untuk Jump/Fall/Climbing/Swimming
+    -- ⭐ GENTLE FIX: Hanya scale down sedikit (bukan clamp keras!)
+    if moveState == "Jumping" or moveState == "Falling" then
+        -- Scale down velocity sedikit aja (80% dari asli)
+        velocityY = velocityY * 0.8
+        velocityX = velocityX * 0.9
+        velocityZ = velocityZ * 0.9
+    end
+    
     return Vector3.new(velocityX, velocityY, velocityZ)
 end
 
@@ -1177,81 +1185,69 @@ local function ApplyFrameDirect(frame)
         
         if not hrp or not hum then return end
         
-        -- Ambil target posisi + Koreksi Tinggi Badan
-        local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
+        -- ✅ Apply CFrame (posisi presisi)
+        hrp.CFrame = GetFrameCFrame(frame)
+        
+        -- ⭐ PENTING: Velocity AFTER state change!
         local moveState = frame.MoveState
+        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+        local currentTime = tick()
         
-        -- Cek apakah karakter diam?
-        local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
-        local horizontalSpeed = velocityVect.Magnitude
+        -- Deteksi Jump/Fall
+        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+        local isFallingByVelocity = frameVelocity.Y < -5
         
-        -- [LOGIKA ANTI-MENDEM]
-        if moveState == "Jumping" or moveState == "Falling" then
-            -- KASUS 1: UDARA
-            -- Pakai Lerp biar melayang smooth, jangan teleport kasar
-            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.7)
-            
-        elseif horizontalSpeed < 0.1 then
-            -- KASUS 2: DIAM
-            -- Kunci posisi biar gak geser
-            hrp.CFrame = targetCFrame 
-            
-        else
-            -- KASUS 3: BERGERAK DI TANAH / TANJAKAN (SOLUSI MENDEM)
-            local currentY = hrp.Position.Y
-            local targetY = targetCFrame.Position.Y
-            local diffY = targetY - currentY
-            
-            if diffY < -0.1 then
-                -- [TURUNAN/MELAYANG] 
-                -- Target rekaman lebih RENDAH dari kaki kita.
-                -- Tarik ke bawah biar nempel tanah.
-                hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.6)
-            else
-                -- [TANJAKAN/MENDEM]
-                -- Target rekaman lebih TINGGI (di dalam tanah) atau SAMA.
-                -- JANGAN PAKSA TURUN! Biarkan kaki nempel tanah alami (Physics Roblox).
-                -- Kita gabungkan: X & Z dari Rekaman, tapi Y dari Posisi Nyata Sekarang.
-                
-                local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
-                local newCF = CFrame.new(newPos) * targetCFrame.Rotation
-                
-                hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
-            end
+        if isJumpingByVelocity and moveState ~= "Jumping" then
+            moveState = "Jumping"
+        elseif isFallingByVelocity and moveState ~= "Falling" then
+            moveState = "Falling"
         end
         
-        -- Velocity Tetap 100%
-        local frameVelocity = GetFrameVelocity(frame, moveState)
-        hrp.AssemblyLinearVelocity = frameVelocity
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        
+        -- ⭐ APPLY STATE DULU
         if hum then
+            if ShiftLockEnabled then
+                hum.AutoRotate = false
+            else
+                hum.AutoRotate = false
+            end
+            
             local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
             hum.WalkSpeed = frameWalkSpeed
             LastKnownWalkSpeed = frameWalkSpeed
-            if ShiftLockEnabled then hum.AutoRotate = false else hum.AutoRotate = true end
             
-            -- State Management Standar
-            local currentTime = tick()
-            local isJumpingByVelocity = frameVelocity.Y > 5
-            local isFallingByVelocity = frameVelocity.Y < -3
-            
-            if isJumpingByVelocity and moveState ~= "Jumping" then moveState = "Jumping"
-            elseif isFallingByVelocity and moveState ~= "Falling" then moveState = "Falling" end
-            
+            -- Apply state change
             if moveState == "Jumping" then
-                if lastPlaybackState ~= "Jumping" then hum:ChangeState(Enum.HumanoidStateType.Jumping); lastPlaybackState = "Jumping"; lastStateChangeTime = currentTime end
+                if lastPlaybackState ~= "Jumping" then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    lastPlaybackState = "Jumping"
+                    lastStateChangeTime = currentTime
+                end
             elseif moveState == "Falling" then
-                if lastPlaybackState ~= "Falling" then hum:ChangeState(Enum.HumanoidStateType.Freefall); lastPlaybackState = "Falling"; lastStateChangeTime = currentTime end
+                if lastPlaybackState ~= "Falling" then
+                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
+                    lastPlaybackState = "Falling"
+                    lastStateChangeTime = currentTime
+                end
             else
-                if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    if moveState == "Climbing" then hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                    elseif moveState == "Swimming" then hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else hum:ChangeState(Enum.HumanoidStateType.Running) end
-                    lastPlaybackState = moveState; lastStateChangeTime = currentTime
+                if moveState ~= lastPlaybackState and 
+                   (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    if moveState == "Climbing" then
+                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
+                        hum.PlatformStand = false
+                    elseif moveState == "Swimming" then
+                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else
+                        hum:ChangeState(Enum.HumanoidStateType.Running)
+                    end
+                    lastPlaybackState = moveState
+                    lastStateChangeTime = currentTime
                 end
             end
         end
+        
+        -- ⭐ APPLY VELOCITY TERAKHIR (setelah state fix)
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
@@ -1269,7 +1265,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
         WalkSpeedBeforePlayback = hum.WalkSpeed 
     end
     
-    -- ✅ [AUTO-HEIGHT LOGIC] Wajib ada biar Ava Mini gak salah tinggi
+    -- ✅ [AUTO-HEIGHT LOGIC] Hitung selisih tinggi di sini
     local recordedHipHeight = RecordingHipHeights[recordingName] or 2 
     local currentHipHeight = 2
     if hum then currentHipHeight = hum.HipHeight end
@@ -1284,14 +1280,18 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
     
-    -- Teleport Awal (Stabil)
+    -- Teleport Awal
     local targetFrame = recording[startFrame]
-    if targetFrame then
-        -- Gunakan posisi aman yang sudah dihitung offset-nya
+    local targetPos = GetFramePosition(targetFrame)
+    local currentPos = hrp.Position
+    local distance = (currentPos - targetPos).Magnitude
+    
+    if distance > 3 then
+        -- Apply posisi awal dengan offset
         local safeCFrame = GetFrameCFrame(targetFrame) + PlaybackHeightOffset
         hrp.CFrame = safeCFrame
-        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
         task.wait(0.03)
     end
     
@@ -1316,9 +1316,7 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 if playbackConnection then playbackConnection:Disconnect() end
                 RestoreFullUserControl()
                 CheckIfPathUsed(recordingName)
-                lastPlaybackState = nil
-                lastStateChangeTime = 0
-                previousFrameData = nil
+                lastPlaybackState = nil; lastStateChangeTime = 0; previousFrameData = nil
                 if PlayBtnControl then
                     PlayBtnControl.Text = "PLAY"
                     PlayBtnControl.BackgroundColor3 = Color3.fromRGB(59, 15, 116)
@@ -1363,12 +1361,9 @@ local function PlayFromSpecificFrame(recording, startFrame, recordingName)
                 end
 
                 local frame = recording[nextFrame]
-                if not frame then
-                    IsPlaying = false
-                    return
-                end
+                if not frame then IsPlaying = false; return end
 
-                -- Panggil fungsi ApplyFrameDirect yang baru (Anti-Mendem)
+                -- Apply Frame (Pakai fungsi baru di atas)
                 ApplyFrameDirect(frame)
                 
                 currentPlaybackFrame = nextFrame
@@ -1997,7 +1992,7 @@ local function UpdateStudioUI()
     end)
 end
 
-local function ApplyFrameToCharacter(frame)
+local function ApplyFrameDirect(frame)
     SafeCall(function()
         local char = player.Character
         if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -2007,62 +2002,83 @@ local function ApplyFrameToCharacter(frame)
         
         if not hrp or not hum then return end
         
+        -- ✅ [AUTO-HEIGHT] Tambahkan Offset
+        local targetCFrame = GetFrameCFrame(frame) + PlaybackHeightOffset
         local moveState = frame.MoveState
+        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
+        local currentTime = tick()
         
-        -- ✅ SET STATE DULU SEBELUM APPLY CFRAME!
+        -- Deteksi Jump/Fall manual
+        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
+        local isFallingByVelocity = frameVelocity.Y < -5
+        
+        if isJumpingByVelocity and moveState ~= "Jumping" then moveState = "Jumping"
+        elseif isFallingByVelocity and moveState ~= "Falling" then moveState = "Falling" end
+        
+        -- Handle Humanoid State
         if hum then
-            if ShiftLockEnabled then
-                hum.AutoRotate = false
-            else
-                hum.AutoRotate = false
-            end
+            hum.AutoRotate = false -- Lock Rotation
             
-            -- ✅ Apply state SEBELUM teleport
-            if moveState == "Climbing" then
-                hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                hum.PlatformStand = false
-                hum.WalkSpeed = 0  -- Lock movement saat timeline mode
-            elseif moveState == "Jumping" then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                hum.WalkSpeed = 0
+            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
+            hum.WalkSpeed = frameWalkSpeed
+            LastKnownWalkSpeed = frameWalkSpeed
+            
+            if moveState == "Jumping" then
+                if lastPlaybackState ~= "Jumping" then hum:ChangeState(Enum.HumanoidStateType.Jumping); lastPlaybackState = "Jumping"; lastStateChangeTime = currentTime end
             elseif moveState == "Falling" then
-                hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                hum.WalkSpeed = 0
-            elseif moveState == "Swimming" then
-                hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                hum.WalkSpeed = 0
+                if lastPlaybackState ~= "Falling" then hum:ChangeState(Enum.HumanoidStateType.Freefall); lastPlaybackState = "Falling"; lastStateChangeTime = currentTime end
             else
-                hum:ChangeState(Enum.HumanoidStateType.Running)
-                hum.WalkSpeed = 0
+                if moveState ~= lastPlaybackState and (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
+                    if moveState == "Climbing" then hum:ChangeState(Enum.HumanoidStateType.Climbing); hum.PlatformStand = false
+                    elseif moveState == "Swimming" then hum:ChangeState(Enum.HumanoidStateType.Swimming)
+                    else hum:ChangeState(Enum.HumanoidStateType.Running) end
+                    lastPlaybackState = moveState; lastStateChangeTime = currentTime
+                end
             end
         end
         
-        -- ✅ WAIT untuk state apply
-        task.wait(0.05)
+        -- ✅ [LOGIKA POSISI CERDAS: ANTI-MENDEM]
+        local isReallyGrounded = (hum.FloorMaterial ~= Enum.Material.Air)
+        local velocityVect = Vector3.new(frame.Velocity[1], 0, frame.Velocity[3])
+        local horizontalSpeed = velocityVect.Magnitude
         
-        -- ✅ BARU apply CFrame & velocity
-        hrp.CFrame = GetFrameCFrame(frame)
-        
-        -- ✅ Jangan reset velocity kalau climbing!
-        if moveState == "Climbing" then
-            -- Biarkan climbing physics jalan natural
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        if moveState == "Jumping" or moveState == "Falling" then
+            -- UDARA: Lerp halus (0.25) biar gravity natural (Anti-Ngacir)
+            hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.25)
+            
+        elseif horizontalSpeed < 0.1 then
+            -- DIAM: Snap langsung
+            hrp.CFrame = targetCFrame
+            
+        elseif isReallyGrounded then
+            -- TANAH: Absolute Ground Priority (Anti-Mendem)
+            -- Kita ambil X & Z dari rekaman, tapi Y dari posisi kaki sekarang.
+            local currentY = hrp.Position.Y
+            local newPos = Vector3.new(targetCFrame.Position.X, currentY, targetCFrame.Position.Z)
+            local newCF = CFrame.new(newPos) * targetCFrame.Rotation
+            
+            -- Lerp 0.8 biar belok responsif
+            hrp.CFrame = hrp.CFrame:Lerp(newCF, 0.8)
         else
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+            -- Fallback
+            hrp.CFrame = targetCFrame
         end
+        
+        -- Apply Velocity
+        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
+        hrp.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
 local function StartStudioRecording()
     if StudioIsRecording then return end
     
-    -- [AUTO-HEIGHT] Simpan data awal tinggi badan saat merekam
+    -- ✅ [AUTO-HEIGHT] Simpan tinggi badan saat ini
     local currentHipHeight = 2
     if player.Character and player.Character:FindFirstChild("Humanoid") then
         currentHipHeight = player.Character.Humanoid.HipHeight
     end
-    
+
     task.spawn(function()
         SafeCall(function()
             local char = player.Character
@@ -2078,13 +2094,13 @@ local function StartStudioRecording()
                 Frames = {}, 
                 StartTime = tick(), 
                 Name = "recording_" .. os.date("%H%M%S"),
-                OriginalHipHeight = currentHipHeight -- ✅ SIMPAN TINGGI DI SINI
+                OriginalHipHeight = currentHipHeight -- ✅ Masukkan ke data rekaman
             }
             
-            -- Reset Safety Data
             lastStudioRecordTime = 0
-            LastSafeRecordingFrameIndex = 1
-            LastSafeRecordingPos = char.HumanoidRootPart.Position
+            lastStudioRecordPos = nil
+            CurrentTimelineFrame = 0
+            TimelinePosition = 0
             
             UpdateStudioUI()
             PlaySound("Toggle")
@@ -2101,37 +2117,6 @@ local function StartStudioRecording()
                         local hum = char:FindFirstChildOfClass("Humanoid")
                         
                         if IsTimelineMode then return end
-                        
-                        -- Anti-Fall Logic
-                        if StudioAntiFallEnabled and hum then
-                            local currentPos = hrp.Position
-                            if hum.FloorMaterial ~= Enum.Material.Air then
-                                LastSafeRecordingFrameIndex = #StudioCurrentRecording.Frames
-                                LastSafeRecordingPos = currentPos
-                            end
-                            if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude > 20 then
-                                local targetFrameIndex = LastSafeRecordingFrameIndex
-                                if targetFrameIndex > 10 then targetFrameIndex = targetFrameIndex - 5 end
-                                if targetFrameIndex > 0 and targetFrameIndex < #StudioCurrentRecording.Frames then
-                                    local newFrames = {}
-                                    for i = 1, targetFrameIndex do table.insert(newFrames, StudioCurrentRecording.Frames[i]) end
-                                    StudioCurrentRecording.Frames = newFrames
-                                    local safeFrame = StudioCurrentRecording.Frames[targetFrameIndex]
-                                    local safePos = Vector3.new(safeFrame.Position[1], safeFrame.Position[2], safeFrame.Position[3])
-                                    local safeLook = Vector3.new(safeFrame.LookVector[1], safeFrame.LookVector[2], safeFrame.LookVector[3])
-                                    hrp.CFrame = CFrame.lookAt(safePos, safePos + safeLook)
-                                    hrp.AssemblyLinearVelocity = Vector3.zero
-                                    hrp.AssemblyAngularVelocity = Vector3.zero
-                                    StudioCurrentRecording.StartTime = tick() - safeFrame.Timestamp
-                                    CurrentTimelineFrame = #StudioCurrentRecording.Frames
-                                    TimelinePosition = CurrentTimelineFrame
-                                    PlaySound("Error")
-                                    UpdateStudioUI()
-                                    lastStudioRecordPos = safePos 
-                                    return
-                                end
-                            end
-                        end
                         
                         local now = tick()
                         if (now - lastStudioRecordTime) < (1 / RECORDING_FPS) then return end
@@ -2170,7 +2155,6 @@ local function StartStudioRecording()
         end)
     end)
 end
-
 
 local function StopStudioRecording()
     StudioIsRecording = false
@@ -2342,7 +2326,7 @@ local function SaveStudioRecording()
             
             RecordedMovements[recName] = normalizedFrames
             
-            -- ✅ [AUTO-HEIGHT] SIMPAN KE DATABASE
+            -- ✅ [AUTO-HEIGHT] Simpan ke Database Global
             RecordingHipHeights[recName] = StudioCurrentRecording.OriginalHipHeight or 2
             
             table.insert(RecordingOrder, recName)
@@ -2514,6 +2498,7 @@ end
 
 function UpdateRecordList()
     SafeCall(function()
+        -- Bersihkan list lama
         for _, child in pairs(RecordingsList:GetChildren()) do 
             if child:IsA("Frame") then child:Destroy() end
         end
@@ -2639,7 +2624,8 @@ function UpdateRecordList()
             infoLabel.Parent = textboxContainer
             
             -- ═══════════════════════════════════════════
-            -- ROW 2: SEGMENTED CONTROL BAR (4 BUTTONS EQUAL SIZE!)
+            -- ROW 2: SEGMENTED CONTROL BAR (POSISI TOMBOL DIUBAH DISINI)
+            -- Urutan: [PLAY] [NAIK] [TURUN] [HAPUS]
             -- ═══════════════════════════════════════════
             
             local segmentedBar = Instance.new("Frame")
@@ -2660,13 +2646,10 @@ function UpdateRecordList()
             barStroke.Parent = segmentedBar
             
             -- ✅ CALCULATE EQUAL WIDTH FOR ALL 4 BUTTONS
-            local buttonWidth = 0.25  -- 25% each (4 buttons × 25% = 100%)
+            local buttonWidth = 0.25  -- 25% each
             local buttonSpacing = 3   -- Space between buttons
             
-            -- ═══════════════════════════════════════════
-            -- BUTTON 1: PLAY (25% width)
-            -- ═══════════════════════════════════════════
-            
+            -- 1. [PLAY] (Kiri Paling Ujung - 0%)
             local playBtn = Instance.new("TextButton")
             playBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
             playBtn.Position = UDim2.fromOffset(2, 2)
@@ -2681,49 +2664,19 @@ function UpdateRecordList()
             local playCorner = Instance.new("UICorner")
             playCorner.CornerRadius = UDim.new(0, 3)
             playCorner.Parent = playBtn
-            
-            -- Divider 1
+
+            -- DIVIDER 1
             local divider1 = Instance.new("Frame")
             divider1.Size = UDim2.new(0, 1, 1, -8)
             divider1.Position = UDim2.new(buttonWidth, 2, 0, 4)
             divider1.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
             divider1.BorderSizePixel = 0
             divider1.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 2: DELETE (25% width)
-            -- ═══════════════════════════════════════════
-            
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            delBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
-            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
-            delBtn.Text = "Hapus"
-            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.TextSize = 9
-            delBtn.BorderSizePixel = 0
-            delBtn.Parent = segmentedBar
-            
-            local delCorner = Instance.new("UICorner")
-            delCorner.CornerRadius = UDim.new(0, 3)
-            delCorner.Parent = delBtn
-            
-            -- Divider 2
-            local divider2 = Instance.new("Frame")
-            divider2.Size = UDim2.new(0, 1, 1, -8)
-            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
-            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider2.BorderSizePixel = 0
-            divider2.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 3: NAIK (25% width)
-            -- ═══════════════════════════════════════════
-            
+
+            -- 2. [NAIK] (Posisi Kedua - 25%)
             local upBtn = Instance.new("TextButton")
             upBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
-            upBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
+            upBtn.Position = UDim2.new(buttonWidth, buttonSpacing, 0, 2)
             upBtn.BackgroundColor3 = index > 1 and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             upBtn.Text = "Naik"
             upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2735,22 +2688,19 @@ function UpdateRecordList()
             local upCorner = Instance.new("UICorner")
             upCorner.CornerRadius = UDim.new(0, 3)
             upCorner.Parent = upBtn
-            
-            -- Divider 3
-            local divider3 = Instance.new("Frame")
-            divider3.Size = UDim2.new(0, 1, 1, -8)
-            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
-            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-            divider3.BorderSizePixel = 0
-            divider3.Parent = segmentedBar
-            
-            -- ═══════════════════════════════════════════
-            -- BUTTON 4: TURUN (25% width)
-            -- ═══════════════════════════════════════════
-            
+
+            -- DIVIDER 2
+            local divider2 = Instance.new("Frame")
+            divider2.Size = UDim2.new(0, 1, 1, -8)
+            divider2.Position = UDim2.new(buttonWidth * 2, 2, 0, 4)
+            divider2.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider2.BorderSizePixel = 0
+            divider2.Parent = segmentedBar
+
+            -- 3. [TURUN] (Posisi Ketiga - 50%)
             local downBtn = Instance.new("TextButton")
-            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4)
-            downBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            downBtn.Size = UDim2.new(buttonWidth, -buttonSpacing, 1, -4)
+            downBtn.Position = UDim2.new(buttonWidth * 2, buttonSpacing, 0, 2)
             downBtn.BackgroundColor3 = index < #RecordingOrder and Color3.fromRGB(74, 195, 147) or Color3.fromRGB(40, 40, 50)
             downBtn.Text = "Turun"
             downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -2762,6 +2712,30 @@ function UpdateRecordList()
             local downCorner = Instance.new("UICorner")
             downCorner.CornerRadius = UDim.new(0, 3)
             downCorner.Parent = downBtn
+
+            -- DIVIDER 3
+            local divider3 = Instance.new("Frame")
+            divider3.Size = UDim2.new(0, 1, 1, -8)
+            divider3.Position = UDim2.new(buttonWidth * 3, 2, 0, 4)
+            divider3.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+            divider3.BorderSizePixel = 0
+            divider3.Parent = segmentedBar
+
+            -- 4. [HAPUS] (Kanan Paling Ujung - 75%)
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.new(buttonWidth, -buttonSpacing - 2, 1, -4) -- Kurangi width dikit biar pas margin kanan
+            delBtn.Position = UDim2.new(buttonWidth * 3, buttonSpacing, 0, 2)
+            delBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 60)
+            delBtn.Text = "Hapus"
+            delBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.TextSize = 9
+            delBtn.BorderSizePixel = 0
+            delBtn.Parent = segmentedBar
+            
+            local delCorner = Instance.new("UICorner")
+            delCorner.CornerRadius = UDim.new(0, 3)
+            delCorner.Parent = delBtn
             
             -- ═══════════════════════════════════════════
             -- EVENT HANDLERS
@@ -3283,20 +3257,26 @@ PlaybackCorner.Parent = PlaybackControl
     ShowRuteBtnControl = CreatePlaybackBtn("Rute OFF", 77, 77, 70, 20, Color3.fromRGB(80, 80, 80))
 
     -- ========= RECORDING STUDIO GUI =========
-RecordingStudio = Instance.new("Frame")
-RecordingStudio.Size = UDim2.fromOffset(156, 120)
-RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
-PlaybackControl.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-RecordingStudio.BackgroundTransparency = 0.4-- ✅ Sedikit transparan
-RecordingStudio.BorderSizePixel = 0
-RecordingStudio.Active = true
-RecordingStudio.Draggable = true
-RecordingStudio.Visible = false
-RecordingStudio.Parent = ScreenGui
+    RecordingStudio = Instance.new("Frame")
+    RecordingStudio.Size = UDim2.fromOffset(156, 120)
+    RecordingStudio.Position = UDim2.new(0.5, -78, 0.5, -50)
+    
+    -- ✅ BAGIAN PENTING: Mengatur warna jadi Hitam (bukan Putih default)
+    RecordingStudio.BackgroundColor3 = Color3.fromRGB(20, 20, 25) 
+    
+    -- Transparansi disamakan 0.4
+    RecordingStudio.BackgroundTransparency = 0.4
+    
+    RecordingStudio.BorderSizePixel = 0
+    RecordingStudio.Active = true
+    RecordingStudio.Draggable = true
+    RecordingStudio.Visible = false
+    RecordingStudio.Parent = ScreenGui
 
-local StudioCorner = Instance.new("UICorner")
-StudioCorner.CornerRadius = UDim.new(0, 8)
-StudioCorner.Parent = RecordingStudio
+    local StudioCorner = Instance.new("UICorner")
+    StudioCorner.CornerRadius = UDim.new(0, 8)
+    StudioCorner.Parent = RecordingStudio
+
 
     local StudioContent = Instance.new("Frame")
     StudioContent.Size = UDim2.new(1, -6, 1, -6)
@@ -3579,10 +3559,13 @@ end)
     end)
 
     RecordBtn.MouseButton1Click:Connect(function()
-        AnimateButtonClick(RecordBtn)
-        RecordingStudio.Visible = true
-        MainFrame.Visible = false
-    end)
+    AnimateButtonClick(RecordBtn)
+    -- Sistem Toggle (Show/Hide)
+    RecordingStudio.Visible = not RecordingStudio.Visible
+    
+    -- Opsional: Jika kamu ingin MainFrame TETAP MUNCUL agar bisa klik tombolnya lagi
+    -- Hapus baris 'MainFrame.Visible = false'
+end)
 
     MenuBtn.MouseButton1Click:Connect(function()
         AnimateButtonClick(MenuBtn)
