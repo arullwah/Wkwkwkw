@@ -1175,82 +1175,6 @@ end
 
 -- ========= PLAYBACK FUNCTIONS =========
 
-local function ApplyFrameDirect(frame)
-    SafeCall(function()
-        local char = player.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-        
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        
-        if not hrp or not hum then return end
-        
-        -- ✅ Apply CFrame (posisi presisi)
-        hrp.CFrame = GetFrameCFrame(frame)
-        
-        -- ⭐ PENTING: Velocity AFTER state change!
-        local moveState = frame.MoveState
-        local frameVelocity = GetFrameVelocity(frame, frame.MoveState)
-        local currentTime = tick()
-        
-        -- Deteksi Jump/Fall
-        local isJumpingByVelocity = frameVelocity.Y > JUMP_VELOCITY_THRESHOLD
-        local isFallingByVelocity = frameVelocity.Y < -5
-        
-        if isJumpingByVelocity and moveState ~= "Jumping" then
-            moveState = "Jumping"
-        elseif isFallingByVelocity and moveState ~= "Falling" then
-            moveState = "Falling"
-        end
-        
-        -- ⭐ APPLY STATE DULU
-        if hum then
-            if ShiftLockEnabled then
-                hum.AutoRotate = false
-            else
-                hum.AutoRotate = false
-            end
-            
-            local frameWalkSpeed = GetFrameWalkSpeed(frame) * CurrentSpeed
-            hum.WalkSpeed = frameWalkSpeed
-            LastKnownWalkSpeed = frameWalkSpeed
-            
-            -- Apply state change
-            if moveState == "Jumping" then
-                if lastPlaybackState ~= "Jumping" then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    lastPlaybackState = "Jumping"
-                    lastStateChangeTime = currentTime
-                end
-            elseif moveState == "Falling" then
-                if lastPlaybackState ~= "Falling" then
-                    hum:ChangeState(Enum.HumanoidStateType.Freefall)
-                    lastPlaybackState = "Falling"
-                    lastStateChangeTime = currentTime
-                end
-            else
-                if moveState ~= lastPlaybackState and 
-                   (currentTime - lastStateChangeTime) >= STATE_CHANGE_COOLDOWN then
-                    if moveState == "Climbing" then
-                        hum:ChangeState(Enum.HumanoidStateType.Climbing)
-                        hum.PlatformStand = false
-                    elseif moveState == "Swimming" then
-                        hum:ChangeState(Enum.HumanoidStateType.Swimming)
-                    else
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                    end
-                    lastPlaybackState = moveState
-                    lastStateChangeTime = currentTime
-                end
-            end
-        end
-        
-        -- ⭐ APPLY VELOCITY TERAKHIR (setelah state fix)
-        hrp.AssemblyLinearVelocity = GetFrameVelocity(frame, moveState)
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end)
-end
-
 local function PlayFromSpecificFrame(recording, startFrame, recordingName)
     if IsPlaying or IsAutoLoopPlaying then return end
     
@@ -2124,6 +2048,7 @@ local function StartStudioRecording()
                         local currentPos = hrp.Position
                         local currentVelocity = hrp.AssemblyLinearVelocity
                         
+                        -- Cek jarak minimal biar hemat memori
                         if lastStudioRecordPos and (currentPos - lastStudioRecordPos).Magnitude < MIN_DISTANCE_THRESHOLD then
                             lastStudioRecordTime = now
                             return
