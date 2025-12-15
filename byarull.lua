@@ -54,6 +54,7 @@ local KeyAccess = {
         "CUDDLEPUNGz",
         "Exxiii7",
         "TGRxKayla",
+        "kadutz_1",
 }
 
 -- ===================================
