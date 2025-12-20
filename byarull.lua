@@ -55,7 +55,7 @@ local KeyAccess = {
         "Exxiii7",
         "TGRxKayla",
         "kadutz_1",
-        "jereee969",
+        "Jereee969",
         "bakem020",
         "Hones_242",
         "fahrirzaa",
